@@ -19,5 +19,9 @@
 		"svelte-check": "^4.4.6",
 		"typescript": "^6.0.2",
 		"vite": "^8.0.7"
+	},
+	"dependencies": {
+		"@supabase/ssr": "^0.10.3",
+		"@supabase/supabase-js": "^2.107.0"
 	}
 }
