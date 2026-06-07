@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { browser } from '$app/environment';
-	import { Navbar, NavBrand, NavUl, NavLi, NavHamburger, Button } from 'flowbite-svelte';
-	import { MoonSolid, SunSolid } from 'flowbite-svelte-icons';
+	import { Navbar, NavBrand, NavUl, NavLi, NavHamburger, Button, Dropdown, DropdownHeader, DropdownItem, DropdownDivider } from 'flowbite-svelte';
+	import { MoonSolid, SunSolid, UserCircleSolid } from 'flowbite-svelte-icons';
 
 	let isDark = $state(browser ? document.documentElement.classList.contains('dark') : false);
 
@@ -47,16 +47,6 @@
 			Teams
 		</NavLi>
 
-		{#if page.data.user}
-			<NavLi
-				href="/admin"
-				class="text-xs font-medium py-1 px-2"
-				activeClass="text-primary-600 dark:text-primary-400 font-semibold"
-				nonActiveClass="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
-			>
-				Admin
-			</NavLi>
-		{/if}
 
 		<!-- Dark mode toggle -->
 		<li>
@@ -74,20 +64,29 @@
 		</li>
 
 		{#if page.data.user}
-			<li class="flex items-center gap-2 pl-2">
-				<span class="text-xs text-gray-500 dark:text-gray-400 hidden sm:block">
-					{page.data.user.email}
-				</span>
-				<form method="POST" action="/logout">
-					<Button
-						type="submit"
-						size="xs"
-						color="alternative"
-						class="border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 text-xs py-1"
-					>
-						Sign out
-					</Button>
-				</form>
+			<li class="flex items-center pl-1">
+				<button
+					id="user-menu-btn"
+					class="p-1 rounded-full text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+					aria-label="User menu"
+				>
+					<UserCircleSolid class="w-6 h-6" />
+				</button>
+				<Dropdown triggeredBy="#user-menu-btn" class="w-56 z-50">
+					<DropdownHeader>
+						<p class="text-xs font-medium text-gray-900 dark:text-white truncate">{page.data.user.email}</p>
+					</DropdownHeader>
+					<!-- <DropdownDivider /> -->
+					{#if page.data.isAdmin}
+						<DropdownItem href="/admin">Admin</DropdownItem>
+						<!-- <DropdownDivider /> -->
+					{/if}
+					<DropdownItem>
+						<form method="POST" action="/logout">
+							<button type="submit" class="w-full text-left text-sm">Sign out</button>
+						</form>
+					</DropdownItem>
+				</Dropdown>
 			</li>
 		{:else}
 			<NavLi

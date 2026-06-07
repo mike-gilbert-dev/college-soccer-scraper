@@ -3,8 +3,9 @@ import { redirect } from '@sveltejs/kit';
 import { createSupabaseServerClient } from '$lib/supabase';
 import { supabaseAdmin } from '$lib/server/supabase-admin';
 
-// Routes that do not require authentication or admin status
-const PUBLIC_PATHS = ['/login', '/register', '/logout'];
+// Only these paths require an authenticated admin.
+// Everything else is public.
+const ADMIN_PATHS = ['/admin', '/api/scrape'];
 
 export const handle: Handle = async ({ event, resolve }) => {
 	event.locals.supabase = createSupabaseServerClient(event.cookies);
@@ -20,26 +21,25 @@ export const handle: Handle = async ({ event, resolve }) => {
 		return { session, user };
 	};
 
-	const isPublicPath = PUBLIC_PATHS.some(p => event.url.pathname.startsWith(p));
+	// Always resolve admin status for authenticated users so the navbar can use it.
+	const { user } = await event.locals.safeGetSession();
 
-	if (!isPublicPath) {
-		const { user } = await event.locals.safeGetSession();
-
-		if (!user) {
-			redirect(303, '/login');
-		}
-
+	if (user) {
 		const { data: profile } = await supabaseAdmin
 			.from('profiles')
 			.select('is_admin')
 			.eq('id', user.id)
 			.single();
 
-		if (!profile?.is_admin) {
-			redirect(303, '/login?reason=unauthorized');
-		}
+		event.locals.isAdmin = profile?.is_admin ?? false;
+	}
 
-		event.locals.isAdmin = true;
+	// Enforce admin-only access on protected paths.
+	const requiresAdmin = ADMIN_PATHS.some(p => event.url.pathname.startsWith(p));
+
+	if (requiresAdmin) {
+		if (!user) redirect(303, '/login');
+		if (!event.locals.isAdmin) redirect(303, '/login?reason=unauthorized');
 	}
 
 	return resolve(event, {
