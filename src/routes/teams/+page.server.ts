@@ -22,20 +22,24 @@ export const load: PageServerLoad = async ({ url }) => {
 			id,
 			division,
 			sport_code,
-			team:teams ( id, ncaa_team_id, name, short_name ),
+			team:teams ( id, ncaa_team_id, name, short_name, logo_url_dark, logo_url_light ),
 			conference:conferences ( name, short_name )
 		`)
 		.eq('season_id', season.id)
 		.eq('division', division)
-		.eq('sport_code', sport)
-		.order('name', { referencedTable: 'teams' });
+		.eq('sport_code', sport);
+
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	const sorted = (teams ?? []).sort((a, b) =>
+		((a.team as any)?.name as string ?? '').localeCompare((b.team as any)?.name as string ?? '')
+	);
 
 	return {
-		teams: (teams ?? []) as unknown as {
+		teams: sorted as unknown as {
 			id: number;
 			division: number;
 			sport_code: string;
-			team: { id: number; ncaa_team_id: string; name: string; short_name: string };
+			team: { id: number; ncaa_team_id: string; name: string; short_name: string; logo_url_dark: string | null; logo_url_light: string | null };
 			conference: { name: string; short_name: string } | null;
 		}[],
 		sport,

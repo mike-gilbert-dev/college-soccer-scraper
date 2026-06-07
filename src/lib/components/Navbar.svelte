@@ -47,6 +47,15 @@
 			Teams
 		</NavLi>
 
+		<NavLi
+			href="/stats"
+			class="text-xs font-medium py-1 px-2"
+			activeClass="text-primary-600 dark:text-primary-400 font-semibold"
+			nonActiveClass="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+		>
+			Stats
+		</NavLi>
+
 
 		<!-- Dark mode toggle -->
 		<li>

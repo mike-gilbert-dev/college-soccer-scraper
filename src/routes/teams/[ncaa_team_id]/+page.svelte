@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { Table, TableHead, TableHeadCell, TableBody, TableBodyRow, TableBodyCell } from 'flowbite-svelte';
+	import TeamLogo from '$lib/components/TeamLogo.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -88,13 +89,27 @@
 	<div class="flex items-start justify-between gap-4">
 		<div>
 			<a href="/teams?sport={sport}&division={division}&season={seasonYear}"
-				class="text-xs text-gray-500 dark:text-gray-400 hover:text-primary-500 dark:hover:text-primary-400 mb-1 block">
+				class="text-xs text-gray-500 dark:text-gray-400 hover:text-primary-500 dark:hover:text-primary-400 mb-2 block">
 				← Teams
 			</a>
-			<h1 class="text-lg font-bold text-gray-900 dark:text-white">{team.name}</h1>
-			{#if conferenceName}
-				<p class="text-xs text-gray-500 dark:text-gray-400">{conferenceName}</p>
-			{/if}
+			<div class="flex items-center gap-3">
+				{#if team.logo_url_dark || team.logo_url_light}
+					<div class="w-12 h-12 shrink-0 flex items-center justify-center">
+						<TeamLogo
+							lightUrl={team.logo_url_light}
+							darkUrl={team.logo_url_dark}
+							name={team.name}
+							size={48}
+						/>
+					</div>
+				{/if}
+				<div>
+					<h1 class="text-lg font-bold text-gray-900 dark:text-white">{team.name}</h1>
+					{#if conferenceName}
+						<p class="text-xs text-gray-500 dark:text-gray-400">{conferenceName}</p>
+					{/if}
+				</div>
+			</div>
 		</div>
 
 		<!-- Season selector -->

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import TeamLogo from '$lib/components/TeamLogo.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -100,13 +101,21 @@
 				{#each teams as row}
 					<a
 						href={teamHref(row.team.ncaa_team_id)}
-						class="flex items-center justify-between px-4 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors group"
+						class="flex items-center gap-3 px-4 py-2 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors group"
 					>
-						<span class="text-sm font-medium text-gray-800 dark:text-gray-200 group-hover:text-primary-600 dark:group-hover:text-primary-400">
+						<div class="w-7 h-7 shrink-0 flex items-center justify-center">
+							<TeamLogo
+								lightUrl={row.team.logo_url_light}
+								darkUrl={row.team.logo_url_dark}
+								name={row.team.name}
+								size={28}
+							/>
+						</div>
+						<span class="flex-1 text-sm font-medium text-gray-800 dark:text-gray-200 group-hover:text-primary-600 dark:group-hover:text-primary-400">
 							{row.team.name}
 						</span>
-						<span class="text-xs text-gray-400 dark:text-gray-500">
-							{row.conference?.name ?? ''}
+						<span class="text-xs text-gray-400 dark:text-gray-500 shrink-0">
+							{row.conference?.short_name ?? ''}
 						</span>
 					</a>
 				{/each}

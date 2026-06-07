@@ -1,12 +1,13 @@
 @import "tailwindcss";
+@import "flatpickr/dist/flatpickr.css";
 @plugin 'flowbite/plugin';
 @custom-variant dark (&:where(.dark, .dark *));
 @source "../node_modules/flowbite-svelte/dist";
 @source "../node_modules/flowbite-svelte-icons/dist";
 
 @theme {
-	/* Primary = accent red from design.md (#e8463a) */
-	--color-primary-50: #fef2f1;
+	/* Accent red — design.md: #e8463a */
+	--color-primary-50:  #fef2f1;
 	--color-primary-100: #fee4e2;
 	--color-primary-200: #ffc9c5;
 	--color-primary-300: #fea09a;
@@ -17,4 +18,120 @@
 	--color-primary-800: #7a221c;
 	--color-primary-900: #541612;
 	--color-primary-950: #300d0a;
+
+	/*
+	 * Gray scale remapped to design.md palette.
+	 * light: bg=#f5f5f5, surface=#fff, border=#e0e0e0, text-secondary=#666, text-primary=#1a1a1a
+	 * dark:  bg=#1a1a1a, surface=#242424, border=#333, text-secondary=#888, text-primary=#e0e0e0
+	 * hover: light=#f9f9f9, dark=#2a2a2a
+	 *
+	 * Mapping used by existing templates:
+	 *   bg-gray-50  / dark:bg-gray-900   → section/sidebar bg
+	 *   bg-white    / dark:bg-gray-800   → card/panel surface
+	 *   border-gray-200 / dark:border-gray-700 → hairline borders
+	 *   text-gray-500   / dark:text-gray-400   → secondary text
+	 *   text-gray-900   / dark:text-white      → primary text
+	 *   hover:bg-gray-50 / dark:hover:bg-gray-700/40 → row hover
+	 */
+	--color-gray-50:  #f9f9f9;
+	--color-gray-100: #f5f5f5;
+	--color-gray-200: #e0e0e0;
+	--color-gray-300: #c8c8c8;
+	--color-gray-400: #888888;
+	--color-gray-500: #666666;
+	--color-gray-600: #555555;
+	--color-gray-700: #333333;
+	--color-gray-800: #242424;
+	--color-gray-900: #1a1a1a;
+	--color-gray-950: #111111;
+
+	/* Compact system font stack matching design.md */
+	--font-sans: "Helvetica Neue", Arial, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
+
+@layer base {
+	/* Tailwind v4 removed the v3 preflight default border color.
+	   Restore it so bare `border` / `border-b` classes don't fall back to currentColor. */
+	*, ::before, ::after {
+		border-color: var(--color-gray-200);
+	}
+	html.dark *, html.dark ::before, html.dark ::after {
+		border-color: var(--color-gray-700);
+	}
+
+	html {
+		background-color: var(--color-gray-100);
+		color: var(--color-gray-900);
+	}
+
+	html.dark {
+		background-color: var(--color-gray-900);
+		color: var(--color-gray-200);
+	}
+}
+
+/* ── Flatpickr overrides ──────────────────────────────────────── */
+
+/* Replace flatpickr's default blue with our primary red */
+.flatpickr-day.selected,
+.flatpickr-day.selected:hover,
+.flatpickr-day.selected:focus,
+.flatpickr-day.startRange,
+.flatpickr-day.endRange {
+    background: var(--color-primary-500);
+    border-color: var(--color-primary-500);
+    color: #fff;
+}
+.flatpickr-day.today { border-color: var(--color-primary-300); }
+.flatpickr-day.today:hover { background: var(--color-primary-50); }
+
+/* Disabled dates (no games) — make them clearly unselectable */
+.flatpickr-day.flatpickr-disabled,
+.flatpickr-day.flatpickr-disabled:hover {
+    color: var(--color-gray-300);
+    background: transparent;
+    border-color: transparent;
+    cursor: not-allowed;
+    text-decoration: line-through;
+}
+
+/* Dark mode */
+.dark .flatpickr-calendar {
+    background: var(--color-gray-800);
+    border-color: var(--color-gray-700);
+    box-shadow: 0 4px 16px rgba(0,0,0,.4);
+}
+.dark .flatpickr-calendar.arrowTop::before { border-bottom-color: var(--color-gray-700); }
+.dark .flatpickr-calendar.arrowTop::after  { border-bottom-color: var(--color-gray-800); }
+.dark .flatpickr-months {
+    background: var(--color-gray-900);
+    border-bottom: 1px solid var(--color-gray-700);
+}
+.dark .flatpickr-month,
+.dark .flatpickr-prev-month,
+.dark .flatpickr-next-month { fill: var(--color-gray-300); color: var(--color-gray-300); }
+.dark .flatpickr-prev-month:hover svg,
+.dark .flatpickr-next-month:hover svg { fill: var(--color-primary-400); }
+.dark .flatpickr-current-month input.cur-year,
+.dark .flatpickr-current-month .flatpickr-monthDropdown-months {
+    color: var(--color-gray-200);
+    background: transparent;
+}
+.dark span.flatpickr-weekday {
+    background: var(--color-gray-900);
+    color: var(--color-gray-500);
+}
+.dark .flatpickr-day {
+    color: var(--color-gray-200);
+}
+.dark .flatpickr-day:hover,
+.dark .flatpickr-day:focus {
+    background: var(--color-gray-700);
+    border-color: var(--color-gray-600);
+}
+.dark .flatpickr-day.today { border-color: var(--color-primary-700); }
+.dark .flatpickr-day.today:hover { background: var(--color-gray-700); }
+.dark .flatpickr-day.prevMonthDay,
+.dark .flatpickr-day.nextMonthDay { color: var(--color-gray-600); }
+.dark .flatpickr-day.flatpickr-disabled,
+.dark .flatpickr-day.flatpickr-disabled:hover { color: var(--color-gray-700); }

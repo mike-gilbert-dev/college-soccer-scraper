@@ -45,7 +45,7 @@ export const load: PageServerLoad = async ({ params, url }) => {
 
 	const { data: team } = await supabaseAdmin
 		.from('teams')
-		.select('id, ncaa_team_id, name, short_name')
+		.select('id, ncaa_team_id, name, short_name, logo_url_dark, logo_url_light')
 		.eq('ncaa_team_id', params.ncaa_team_id)
 		.single();
 

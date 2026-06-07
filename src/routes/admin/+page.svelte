@@ -161,6 +161,82 @@
 		}
 	}
 
+	// ── Logos state ─────────────────────────────────────────────
+	type TeamRow = typeof data.allTeams[0];
+	const allTeams = $derived(data.allTeams);
+
+	function deriveSlug(name: string): string {
+		return name
+			.toLowerCase()
+			.replace(/[''`]/g, '')
+			.replace(/\s*&\s*/g, '-and-')
+			.replace(/[^a-z0-9]+/g, '-')
+			.replace(/^-|-$/g, '');
+	}
+
+	let slugs = $state<Record<string, string>>(
+		Object.fromEntries(
+			(data.allTeams ?? []).map(t => [
+				t.ncaa_team_id,
+				t.ncaa_logo_slug ?? deriveSlug(t.name)
+			])
+		)
+	);
+
+	let logoSearch  = $state('');
+	let scrapingAll = $state(false);
+
+	const filteredLogoTeams = $derived(
+		logoSearch.trim()
+			? allTeams.filter(t => t.name.toLowerCase().includes(logoSearch.toLowerCase()))
+			: allTeams
+	);
+
+	let logoScraping: Record<string, boolean> = $state({});
+	let logoResult:   Record<string, { success: boolean; message?: string; darkFound?: boolean; lightFound?: boolean; darkUrl?: string; lightUrl?: string }> = $state({});
+	let logoCacheLight: Record<string, string> = $state(
+		Object.fromEntries((data.allTeams ?? []).filter(t => t.logo_url_light).map(t => [t.ncaa_team_id, t.logo_url_light!]))
+	);
+	let logoCacheDark: Record<string, string> = $state(
+		Object.fromEntries((data.allTeams ?? []).filter(t => t.logo_url_dark).map(t => [t.ncaa_team_id, t.logo_url_dark!]))
+	);
+
+	async function scrapeLogo(team: TeamRow) {
+		const slug = slugs[team.ncaa_team_id]?.trim();
+		if (!slug) return;
+		logoScraping = { ...logoScraping, [team.ncaa_team_id]: true };
+		delete logoResult[team.ncaa_team_id];
+		logoResult = { ...logoResult };
+		try {
+			const res = await fetch('/api/scrape/logos', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ ncaaTeamId: team.ncaa_team_id, slug })
+			});
+			const r = await res.json();
+			logoResult = { ...logoResult, [team.ncaa_team_id]: r };
+			if (r.success) {
+				const bust = `?t=${Date.now()}`;
+				logoCacheDark  = { ...logoCacheDark,  [team.ncaa_team_id]: r.darkUrl  + bust };
+				logoCacheLight = { ...logoCacheLight, [team.ncaa_team_id]: r.lightUrl + bust };
+			}
+		} catch (e) {
+			logoResult = { ...logoResult, [team.ncaa_team_id]: { success: false, message: String(e) } };
+		} finally {
+			logoScraping = { ...logoScraping, [team.ncaa_team_id]: false };
+		}
+	}
+
+	async function scrapeAllVisible() {
+		scrapingAll = true;
+		for (const team of filteredLogoTeams) {
+			if (!slugs[team.ncaa_team_id]?.trim()) continue;
+			await scrapeLogo(team);
+			await new Promise(r => setTimeout(r, 600));
+		}
+		scrapingAll = false;
+	}
+
 	// ── Stat card helper ────────────────────────────────────────
 	const stats    = $derived(data.stats);
 	const recentLog = $derived(data.recentLog);
@@ -544,6 +620,141 @@
 						</p>
 					{/if}
 				{/if}
+			</div>
+		</TabItem>
+
+		<!-- ── Tab 6: Logos ─────────────────────────────────────── -->
+		<TabItem title="Logos">
+			<div class="space-y-3">
+				<div class="flex items-start justify-between gap-4">
+					<div>
+						<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Team Logos</h2>
+						<p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+							Scrapes SVG logos from NCAA. Requires a public <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">team-logos</code> bucket in Supabase Storage.
+							The slug is the identifier used in NCAA logo URLs — edit it if the auto-derived value is wrong, then click Scrape.
+						</p>
+					</div>
+					<Button
+						color="alternative"
+						size="xs"
+						class="shrink-0"
+						disabled={scrapingAll}
+						onclick={scrapeAllVisible}
+					>
+						{scrapingAll ? 'Scraping…' : `Scrape all visible (${filteredLogoTeams.length})`}
+					</Button>
+				</div>
+
+				<!-- Search -->
+				<Input
+					type="search"
+					size="sm"
+					placeholder="Filter teams…"
+					bind:value={logoSearch}
+					class="max-w-xs"
+				/>
+
+				<!-- Coverage summary -->
+				<p class="text-xs text-gray-400 dark:text-gray-500">
+					{allTeams.filter(t => t.logo_url_dark).length} / {allTeams.length} teams have logos
+				</p>
+
+				<!-- Team list -->
+				<div class="rounded border border-gray-200 dark:border-gray-700 overflow-hidden">
+					<div class="overflow-y-auto max-h-150">
+						<table class="w-full text-xs">
+							<thead class="sticky top-0 bg-gray-50 dark:bg-gray-900 text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 z-10">
+								<tr>
+									<th class="text-left px-3 py-2 font-semibold">Team</th>
+									<th class="px-3 py-2 font-semibold text-center">Dark</th>
+									<th class="px-3 py-2 font-semibold text-center">Light</th>
+									<th class="text-left px-3 py-2 font-semibold">NCAA Slug</th>
+									<th class="px-3 py-2"></th>
+									<th class="px-3 py-2 text-left font-semibold">Status</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each filteredLogoTeams as team (team.ncaa_team_id)}
+									{@const res = logoResult[team.ncaa_team_id]}
+									<tr class="border-t border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/40">
+										<!-- Team name -->
+										<td class="px-3 py-1.5 font-medium text-gray-800 dark:text-gray-200 whitespace-nowrap">
+											{team.name}
+										</td>
+
+										<!-- Dark logo preview -->
+										<td class="px-3 py-1.5 text-center">
+											{#if logoCacheDark[team.ncaa_team_id]}
+												<span class="inline-flex items-center justify-center w-8 h-8 rounded bg-gray-800">
+													<img
+														src={logoCacheDark[team.ncaa_team_id]}
+														alt="{team.name} dark logo"
+														class="w-6 h-6 object-contain"
+													/>
+												</span>
+											{:else}
+												<span class="inline-flex items-center justify-center w-8 h-8 rounded bg-gray-200 dark:bg-gray-700 text-gray-400 text-[10px]">—</span>
+											{/if}
+										</td>
+
+										<!-- Light logo preview -->
+										<td class="px-3 py-1.5 text-center">
+											{#if logoCacheLight[team.ncaa_team_id]}
+												<span class="inline-flex items-center justify-center w-8 h-8 rounded bg-white border border-gray-200">
+													<img
+														src={logoCacheLight[team.ncaa_team_id]}
+														alt="{team.name} light logo"
+														class="w-6 h-6 object-contain"
+													/>
+												</span>
+											{:else}
+												<span class="inline-flex items-center justify-center w-8 h-8 rounded bg-gray-100 dark:bg-gray-700 text-gray-400 text-[10px]">—</span>
+											{/if}
+										</td>
+
+										<!-- Slug input -->
+										<td class="px-3 py-1.5">
+											<input
+												type="text"
+												bind:value={slugs[team.ncaa_team_id]}
+												placeholder="e.g. north-carolina-st"
+												class="w-48 text-xs font-mono bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded px-2 py-1 focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500"
+											/>
+										</td>
+
+										<!-- Scrape button -->
+										<td class="px-3 py-1.5 whitespace-nowrap">
+											<Button
+												size="xs"
+												color="primary"
+												disabled={logoScraping[team.ncaa_team_id] || scrapingAll}
+												onclick={() => scrapeLogo(team)}
+											>
+												{logoScraping[team.ncaa_team_id] ? '…' : 'Scrape'}
+											</Button>
+										</td>
+
+										<!-- Status -->
+										<td class="px-3 py-1.5 whitespace-nowrap">
+											{#if res}
+												{#if res.success}
+													<span class="text-green-600 dark:text-green-400 text-[11px]">
+														✓
+														{#if !res.darkFound} dark missing, used light{:else if !res.lightFound} light missing, used dark{/if}
+													</span>
+												{:else}
+													<span class="text-red-500 text-[11px]" title={res.message}>✗ {res.message?.slice(0, 40)}</span>
+												{/if}
+											{:else if logoCacheDark[team.ncaa_team_id]}
+												<span class="text-gray-400 dark:text-gray-500 text-[11px]">saved</span>
+											{/if}
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				</div>
 			</div>
 		</TabItem>
 
