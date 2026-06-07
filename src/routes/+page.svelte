@@ -7,7 +7,6 @@
 	import type { Instance } from 'flatpickr/dist/types/instance';
 
 	let { data }: { data: PageData } = $props();
-	console.log('data', data);
 
 	type TeamInfo   = { name: string; short_name: string; ncaa_team_id: string; logo_url_dark: string | null; logo_url_light: string | null };
 	type ConfInfo   = { name: string; short_name: string } | null;

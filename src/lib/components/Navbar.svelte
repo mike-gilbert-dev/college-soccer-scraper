@@ -1,11 +1,17 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { browser } from '$app/environment';
+	import { afterNavigate } from '$app/navigation';
 	import { MoonSolid, SunSolid, BarsOutline, CloseOutline, UserCircleSolid } from 'flowbite-svelte-icons';
 
 	let isDark = $state(browser ? document.documentElement.classList.contains('dark') : false);
 	let mobileOpen = $state(false);
 	let userMenuOpen = $state(false);
+
+	afterNavigate(() => {
+		mobileOpen = false;
+		userMenuOpen = false;
+	});
 
 	function toggleDark() {
 		isDark = !isDark;

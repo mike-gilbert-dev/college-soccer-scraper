@@ -44,6 +44,10 @@ Supabase uses publishable/secret keys (not the legacy anon/service_role naming).
 
 `$lib` → `src/lib` (SvelteKit default). No custom aliases configured.
 
+## Component Library
+
+Flowbite Svelte is used for UI components (tables, icons, etc.). Usage patterns, import conventions, and known quirks are documented in [`docs/flowbite-svelte.md`](docs/flowbite-svelte.md).
+
 ## Design
 
 The target UI is a dense, sports-results–style interface with light/dark themes. Full design system spec (colors, typography, layout, components, spacing) is in [`docs/design.md`](docs/design.md). Accent color is `#e8463a` (red), used consistently across both themes.
