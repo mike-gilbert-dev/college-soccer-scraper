@@ -99,29 +99,28 @@
 	const seasons = [2025, 2024];
 </script>
 
-<div class="flex gap-2 items-start">
-	<!-- Sidebar filters -->
-	<aside class="w-44 shrink-0 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded">
-		<!-- Gender -->
-		<div class="border-b border-gray-200 dark:border-gray-700 p-2 flex gap-1">
-			{#each [{ label: 'Men', value: 'M' }, { label: 'Women', value: 'W' }] as g}
-				<button
-					onclick={() => setGender(g.value)}
-					class="flex-1 text-xs py-1 rounded font-semibold transition-colors
-						{gender === g.value
-							? 'bg-primary-500 text-white'
-							: 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}"
-				>
-					{g.label}
-				</button>
-			{/each}
-		</div>
+<div class="flex flex-col gap-2 md:flex-row md:items-start">
 
-		<!-- Season -->
-		<div class="border-b border-gray-200 dark:border-gray-700 px-2 py-2">
-			<p class="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-1">Season</p>
+	<!-- Navigation controls -->
+	<aside class="w-full md:w-44 md:shrink-0 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded">
+
+		<!-- Mobile: compact horizontal strip -->
+		<div class="flex items-center gap-2 flex-wrap p-2 md:hidden">
+			<!-- Gender -->
+			<div class="flex gap-1">
+				{#each [{ label: 'Men', value: 'M' }, { label: 'Women', value: 'W' }] as g}
+					<button
+						onclick={() => setGender(g.value)}
+						class="px-2 py-1 text-xs rounded font-semibold transition-colors
+							{gender === g.value
+								? 'bg-primary-500 text-white'
+								: 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}"
+					>{g.label}</button>
+				{/each}
+			</div>
+			<!-- Season -->
 			<select
-				class="w-full text-xs bg-transparent text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-600 rounded px-1.5 py-1"
+				class="text-xs bg-transparent text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-600 rounded px-1.5 py-1"
 				value={seasonYear}
 				onchange={(e) => navigate({ season: parseInt((e.target as HTMLSelectElement).value) })}
 			>
@@ -129,24 +128,68 @@
 					<option value={y}>{y}</option>
 				{/each}
 			</select>
+			<!-- Division -->
+			<div class="flex gap-1 ml-auto">
+				{#each divisions as d}
+					<button
+						onclick={() => navigate({ division: d.value })}
+						class="px-2 py-1 text-xs rounded font-semibold transition-colors
+							{division === d.value
+								? 'bg-primary-500 text-white'
+								: 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}"
+					>D{d.value}</button>
+				{/each}
+			</div>
 		</div>
 
-		<!-- Division -->
-		<div>
-			<p class="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-				Division
-			</p>
-			{#each divisions as d}
-				<button
-					onclick={() => navigate({ division: d.value })}
-					class="w-full flex items-center px-3 py-1.5 text-xs border-l-2 transition-colors
-						{division === d.value
-							? 'border-primary-500 text-primary-600 dark:text-primary-400 font-semibold bg-primary-50 dark:bg-primary-900/20'
-							: 'border-transparent text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white'}"
+		<!-- Desktop: vertical sidebar -->
+		<div class="hidden md:block">
+			<!-- Gender -->
+			<div class="border-b border-gray-200 dark:border-gray-700 p-2 flex gap-1">
+				{#each [{ label: 'Men', value: 'M' }, { label: 'Women', value: 'W' }] as g}
+					<button
+						onclick={() => setGender(g.value)}
+						class="flex-1 text-xs py-1 rounded font-semibold transition-colors
+							{gender === g.value
+								? 'bg-primary-500 text-white'
+								: 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}"
+					>
+						{g.label}
+					</button>
+				{/each}
+			</div>
+
+			<!-- Season -->
+			<div class="border-b border-gray-200 dark:border-gray-700 px-2 py-2">
+				<p class="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-1">Season</p>
+				<select
+					class="w-full text-xs bg-transparent text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-600 rounded px-1.5 py-1"
+					value={seasonYear}
+					onchange={(e) => navigate({ season: parseInt((e.target as HTMLSelectElement).value) })}
 				>
-					{d.label}
-				</button>
-			{/each}
+					{#each seasons as y}
+						<option value={y}>{y}</option>
+					{/each}
+				</select>
+			</div>
+
+			<!-- Division -->
+			<div>
+				<p class="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+					Division
+				</p>
+				{#each divisions as d}
+					<button
+						onclick={() => navigate({ division: d.value })}
+						class="w-full flex items-center px-3 py-1.5 text-xs border-l-2 transition-colors
+							{division === d.value
+								? 'border-primary-500 text-primary-600 dark:text-primary-400 font-semibold bg-primary-50 dark:bg-primary-900/20'
+								: 'border-transparent text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white'}"
+					>
+						{d.label}
+					</button>
+				{/each}
+			</div>
 		</div>
 	</aside>
 
