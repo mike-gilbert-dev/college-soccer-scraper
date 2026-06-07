@@ -2,17 +2,40 @@
 	import { goto } from '$app/navigation';
 	import { Table, TableHead, TableHeadCell, TableBody, TableBodyRow, TableBodyCell } from 'flowbite-svelte';
 	import TeamLogo from '$lib/components/TeamLogo.svelte';
+	import { ChevronDownOutline } from 'flowbite-svelte-icons';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
-	console.log('data', data);
-	
+
 	const team           = $derived(data.team);
 	const teamSeason     = $derived(data.teamSeason);
 	const conferenceName = $derived(data.conferenceName);
 	const sport          = $derived(data.sport);
 	const division       = $derived(data.division);
 	const seasonYear     = $derived(data.seasonYear);
+
+	let activeTab = $state<'roster' | 'schedule'>('schedule');
+
+	// Returns a darker, slightly desaturated version of a hex color — same hue, looks like a shadow.
+	function shadowColor(hex: string): string {
+		const h = hex.startsWith('#') ? hex.slice(1) : hex;
+		if (h.length !== 6) return hex;
+		const r = parseInt(h.slice(0, 2), 16) / 255;
+		const g = parseInt(h.slice(2, 4), 16) / 255;
+		const b = parseInt(h.slice(4, 6), 16) / 255;
+		const max = Math.max(r, g, b), min = Math.min(r, g, b);
+		const l = (max + min) / 2;
+		const d = max - min;
+		let hue = 0, sat = 0;
+		if (d !== 0) {
+			sat = d / (l > 0.5 ? 2 - max - min : max + min);
+			hue = max === r ? (g - b) / d + (g < b ? 6 : 0)
+				: max === g ? (b - r) / d + 2
+				: (r - g) / d + 4;
+			hue /= 6;
+		}
+		return `hsl(${Math.round(hue * 360)}, ${Math.round(sat * 85)}%, ${Math.round(l * 70 * 100) / 100}%)`;
+	}
 
 	const seasons = [2025, 2024];
 
@@ -123,23 +146,51 @@
 			<!-- Season selector -->
 			<div class="shrink-0">
 				<p class="text-[10px] font-semibold uppercase tracking-wider mb-1 {team.team_color ? 'text-white/70' : 'text-gray-500 dark:text-gray-400'}">Season</p>
-				<select
-					class="text-xs border rounded px-2 py-1 {team.team_color ? 'bg-white/20 text-white border-white/30' : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-600'}"
-					value={seasonYear}
-					onchange={(e) => navigateSeason(parseInt((e.target as HTMLSelectElement).value))}
-				>
-					{#each seasons as y}
-						<option value={y}>{y}</option>
-					{/each}
-				</select>
+				<div class="relative">
+					<select
+						class="appearance-none text-xs border rounded px-2 py-1 pr-6 {team.team_color ? 'bg-white/20 text-white border-white/30' : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-600'}"
+						value={seasonYear}
+						onchange={(e) => navigateSeason(parseInt((e.target as HTMLSelectElement).value))}
+					>
+						{#each seasons as y}
+							<option value={y}>{y}</option>
+						{/each}
+					</select>
+					<ChevronDownOutline class="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 {team.team_color ? 'text-white/70' : 'text-gray-500 dark:text-gray-400'}" />
+				</div>
 			</div>
 		</div>
 	</div>
 
-	<!-- Roster table -->
-	<div>
-		<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Roster</h2>
+	<!-- Roster / Schedule tabs -->
+	<div class="flex rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700">
+		{#each [
+			{ key: 'schedule' as const, label: 'Schedule' },
+			{ key: 'roster' as const, label: 'Roster' }
+		] as tab}
+			{@const isActive = activeTab === tab.key}
+			{@const tc = team.team_color}
+			<button
+				class="flex-1 flex items-center justify-center gap-2.5 px-4 py-3 text-sm font-medium transition-colors
+					{tc
+						? isActive ? 'text-white' : 'text-white/60'
+						: isActive
+							? 'bg-gray-700 dark:bg-gray-600 text-white'
+							: 'bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-700 dark:hover:bg-gray-600 hover:text-white'}"
+				style={tc
+					? isActive
+						? `background-color: ${tc};`
+						: `background-color: ${shadowColor(tc)};`
+					: ''}
+				onclick={() => (activeTab = tab.key)}
+			>
+				<span>{tab.label}</span>
+			</button>
+		{/each}
+	</div>
 
+	<!-- Tab content -->
+	{#if activeTab === 'roster'}
 		{#if !teamSeason}
 			<p class="text-sm text-gray-500 dark:text-gray-400">
 				No team data found for the {seasonYear} season.
@@ -173,7 +224,7 @@
 								<TableBodyCell class="py-1.5 text-gray-500">{p.jersey_number ?? '—'}</TableBodyCell>
 								<TableBodyCell class="py-1.5 font-medium">
 									<a href={playerHref(p.ncaa_player_id)}
-										class="text-primary-600 dark:text-primary-400 hover:underline">
+										class="hover:underline">
 										{p.player_name}
 									</a>
 								</TableBodyCell>
@@ -195,12 +246,7 @@
 				</Table>
 			</div>
 		{/if}
-	</div>
-
-	<!-- Schedule -->
-	<div>
-		<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Schedule</h2>
-
+	{:else}
 		{#if !teamSeason}
 			<p class="text-sm text-gray-500 dark:text-gray-400">No schedule data for the {seasonYear} season.</p>
 		{:else if data.schedule.length === 0}
@@ -230,7 +276,15 @@
 								<TableBodyCell class="py-1.5 font-medium">
 									{#if opp}
 										<a href="/teams/{opp.ncaa_team_id}?sport={sport}&division={division}&season={seasonYear}"
-											class="text-primary-600 dark:text-primary-400 hover:underline">
+											class="inline-flex items-center gap-1.5 hover:underline">
+											{#if opp.logo_url_dark || opp.logo_url_light}
+												<TeamLogo
+													lightUrl={opp.logo_url_light}
+													darkUrl={opp.logo_url_dark}
+													name={opp.name}
+													size={18}
+												/>
+											{/if}
 											{opp.name}
 										</a>
 									{:else}—{/if}
@@ -257,5 +311,5 @@
 				</Table>
 			</div>
 		{/if}
-	</div>
+	{/if}
 </div>

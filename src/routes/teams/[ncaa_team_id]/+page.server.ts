@@ -34,8 +34,8 @@ export type ScheduleGame = {
 	status: string;
 	home_team_season_id: number;
 	away_team_season_id: number;
-	home_team_season: { team: { ncaa_team_id: string; name: string } } | null;
-	away_team_season: { team: { ncaa_team_id: string; name: string } } | null;
+	home_team_season: { team: { ncaa_team_id: string; name: string; logo_url_dark: string | null; logo_url_light: string | null } } | null;
+	away_team_season: { team: { ncaa_team_id: string; name: string; logo_url_dark: string | null; logo_url_light: string | null } } | null;
 };
 
 export const load: PageServerLoad = async ({ params, url }) => {
@@ -88,10 +88,10 @@ export const load: PageServerLoad = async ({ params, url }) => {
 				home_team_season_id,
 				away_team_season_id,
 				home_team_season:team_seasons!home_team_season_id(
-					team:teams(ncaa_team_id, name)
+					team:teams(ncaa_team_id, name, logo_url_dark, logo_url_light)
 				),
 				away_team_season:team_seasons!away_team_season_id(
-					team:teams(ncaa_team_id, name)
+					team:teams(ncaa_team_id, name, logo_url_dark, logo_url_light)
 				)
 			`)
 			.or(`home_team_season_id.eq.${ts.id},away_team_season_id.eq.${ts.id}`)
