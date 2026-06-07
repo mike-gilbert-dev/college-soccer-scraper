@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { Button, Input, Label, Alert } from 'flowbite-svelte';
+	import PasswordInput from '$lib/components/PasswordInput.svelte';
 	import type { ActionData } from './$types';
 
 	let { form }: { form: ActionData } = $props();
@@ -39,15 +40,12 @@
 					Password
 					<span class="normal-case font-normal tracking-normal text-gray-400 dark:text-gray-500 ml-1">(min. 8 characters)</span>
 				</Label>
-				<Input
+				<PasswordInput
 					id="password"
-					type="password"
 					name="password"
 					required
 					autocomplete="new-password"
 					minlength={8}
-					size="sm"
-					class="text-sm"
 				/>
 			</div>
 

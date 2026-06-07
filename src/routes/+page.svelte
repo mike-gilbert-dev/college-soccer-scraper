@@ -239,7 +239,7 @@
 				onclick={prevDate}
 				disabled={!hasPrev}
 				aria-label="Previous day with games"
-				class="shrink-0 px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-primary-500 hover:text-primary-500 transition-colors text-sm leading-none disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:border-gray-200 disabled:hover:text-gray-500"
+				class="shrink-0 px-3 py-1.5 rounded border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-primary-500 hover:text-primary-500 transition-colors text-lg leading-none disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:border-gray-200 disabled:hover:text-gray-500"
 			>‹</button>
 
 			<span class="flex-1 text-xs font-semibold text-gray-700 dark:text-gray-300 text-center">{displayDate}</span>
@@ -248,7 +248,7 @@
 				onclick={nextDate}
 				disabled={!hasNext}
 				aria-label="Next day with games"
-				class="shrink-0 px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-primary-500 hover:text-primary-500 transition-colors text-sm leading-none disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:border-gray-200 disabled:hover:text-gray-500"
+				class="shrink-0 px-3 py-1.5 rounded border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-primary-500 hover:text-primary-500 transition-colors text-lg leading-none disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:border-gray-200 disabled:hover:text-gray-500"
 			>›</button>
 
 			<input
@@ -283,7 +283,6 @@
 					{@const isLive  = game.status === 'live'}
 					{@const homeWon = isFinal && game.home_score != null && game.away_score != null && game.home_score > game.away_score}
 					{@const awayWon = isFinal && game.home_score != null && game.away_score != null && game.away_score > game.home_score}
-
 					<li class="border-b border-gray-100 dark:border-gray-700/60 last:border-0 transition-colors">
 						<div role="link" tabindex="0"
 							onclick={() => goto(gameHref(game.ncaa_contest_id))}

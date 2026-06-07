@@ -1,8 +1,8 @@
-<script lang="ts">
+﻿<script lang="ts">
 	import { goto } from '$app/navigation';
-	import { Table, TableHead, TableHeadCell, TableBody, TableBodyRow, TableBodyCell } from 'flowbite-svelte';
-	import TeamLogo from '$lib/components/TeamLogo.svelte';
+	import { Table, TableHead, TableHeadCell, TableBody, TableBodyRow, TableBodyCell, Dropdown, DropdownItem } from 'flowbite-svelte';
 	import { ChevronDownOutline } from 'flowbite-svelte-icons';
+	import TeamLogo from '$lib/components/TeamLogo.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -38,6 +38,7 @@
 	}
 
 	const seasons = [2025, 2024];
+	let seasonDropdownOpen = $state(false);
 
 	function navigateSeason(year: number) {
 		const sp = new URLSearchParams({ sport, division: String(division), season: String(year) });
@@ -146,18 +147,19 @@
 			<!-- Season selector -->
 			<div class="shrink-0">
 				<p class="text-[10px] font-semibold uppercase tracking-wider mb-1 {team.team_color ? 'text-white/70' : 'text-gray-500 dark:text-gray-400'}">Season</p>
-				<div class="relative">
-					<select
-						class="appearance-none text-xs border rounded px-2 py-1 pr-6 {team.team_color ? 'bg-white/20 text-white border-white/30' : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-600'}"
-						value={seasonYear}
-						onchange={(e) => navigateSeason(parseInt((e.target as HTMLSelectElement).value))}
-					>
-						{#each seasons as y}
-							<option value={y}>{y}</option>
-						{/each}
-					</select>
-					<ChevronDownOutline class="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 {team.team_color ? 'text-white/70' : 'text-gray-500 dark:text-gray-400'}" />
-				</div>
+				<button
+					class="flex items-center gap-1.5 text-xs border rounded px-2 py-1 {team.team_color ? 'bg-white/20 text-white border-white/30' : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-600'}"
+				>
+					{seasonYear}
+					<ChevronDownOutline class="w-3 h-3 opacity-70 shrink-0" />
+				</button>
+				<Dropdown bind:isOpen={seasonDropdownOpen} placement="bottom-end">
+					{#each seasons as y}
+						<DropdownItem onclick={() => { navigateSeason(y); seasonDropdownOpen = false; }}>
+							{y}
+						</DropdownItem>
+					{/each}
+				</Dropdown>
 			</div>
 		</div>
 	</div>
@@ -256,7 +258,6 @@
 				<Table hoverable striped class="text-xs whitespace-nowrap">
 					<TableHead class="text-[11px] uppercase tracking-wide">
 						<TableHeadCell class="py-2">Date</TableHeadCell>
-						<TableHeadCell class="py-2">H/A</TableHeadCell>
 						<TableHeadCell class="py-2">Opponent</TableHeadCell>
 						<TableHeadCell class="py-2 text-right">Score</TableHeadCell>
 						<TableHeadCell class="py-2 text-center">Result</TableHeadCell>
@@ -272,7 +273,6 @@
 										{formatDate(game.contest_date)}
 									</a>
 								</TableBodyCell>
-								<TableBodyCell class="py-1.5 text-gray-400">{isHome(game) ? 'H' : 'A'}</TableBodyCell>
 								<TableBodyCell class="py-1.5 font-medium">
 									{#if opp}
 										<a href="/teams/{opp.ncaa_team_id}?sport={sport}&division={division}&season={seasonYear}"
@@ -285,7 +285,7 @@
 													size={18}
 												/>
 											{/if}
-											{opp.name}
+											{opp.name}{#if isHome(game)}<span class="text-gray-400 dark:text-gray-500 font-normal ml-0.5">*</span>{/if}
 										</a>
 									{:else}—{/if}
 								</TableBodyCell>
@@ -309,6 +309,7 @@
 						{/each}
 					</TableBody>
 				</Table>
+				<p class="px-3 py-1.5 text-[10px] text-gray-400 dark:text-gray-500 border-t border-gray-200 dark:border-gray-700">* = home game</p>
 			</div>
 		{/if}
 	{/if}
