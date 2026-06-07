@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 2: Database Schema</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 860px; margin: 0 auto; padding: 2rem; color: #1a1a1a; line-height: 1.6; }
+    h1 { font-size: 1.5rem; margin: 0 0 0.25rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin: 1.5rem 0 0.5rem; color: #333; }
+    h3 { font-size: 0.9rem; font-weight: 600; margin: 1.25rem 0 0.35rem; color: #444; }
+    .phase-meta { color: #666; font-size: 0.85rem; margin: 0 0 1.5rem; }
+    .description { background: #f0f7ff; border-left: 3px solid #0066cc; padding: 0.75rem 1rem; border-radius: 0 4px 4px 0; margin-bottom: 1.5rem; font-size: 0.9rem; }
+    .criteria ul { list-style: none; padding: 0; margin: 0; }
+    .criteria li { padding: 0.45rem 0.75rem; margin: 0.3rem 0; background: #fff; border: 1px solid #ddd; border-radius: 4px; font-size: 0.875rem; }
+    .criteria li.done { background: #f0fff4; border-color: #68d391; text-decoration: line-through; color: #666; }
+    .criteria li::before { content: '☐  '; color: #aaa; }
+    .criteria li.done::before { content: '☑  '; color: #38a169; }
+    .notes { margin-top: 1.5rem; font-size: 0.875rem; }
+    .notes p { margin: 0.5rem 0; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem; border-radius: 4px; overflow-x: auto; font-size: 0.78rem; line-height: 1.5; }
+    code { background: #eef2ff; color: #3730a3; padding: 0.1rem 0.3rem; border-radius: 2px; font-size: 0.85em; }
+    .warning { background: #fffbeb; border-left: 3px solid #f59e0b; padding: 0.6rem 0.9rem; border-radius: 0 4px 4px 0; margin: 1rem 0; font-size: 0.85rem; }
+    .banner-complete { background: #38a169; color: white; padding: 0.6rem 1rem; border-radius: 4px; margin-bottom: 1rem; font-weight: 600; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+
+<div style="background:#f0fdf4;border:1.5px solid #4ade80;border-radius:7px;padding:.65rem 1.1rem;margin-bottom:1.5rem;font-size:.9rem;color:#166534;font-weight:500;">
+  ✅ Phase complete — all criteria satisfied.
+</div>
+<h1>Phase 2: Database Schema</h1>
+<p class="phase-meta">Project: Players &amp; Player Seasons &nbsp;|&nbsp; Depends on: Phase 1 (stat field names must be verified)</p>
+
+<div class="description">
+  Create three new tables — <code>players</code>, <code>player_seasons</code>, and
+  <code>player_game_stats</code> — mirroring the existing <code>teams</code> / <code>team_seasons</code>
+  pattern. Add a <code>player_season_stats</code> view that aggregates per-game stats into season totals
+  (no redundant storage). Apply permissions identical to existing tables. Also add <code>sport_code</code>
+  to <code>team_seasons</code> so the teams list page can filter by sport without joining through games.
+</div>
+
+<section class="criteria">
+  <h2>Completion Criteria</h2>
+  <ul>
+    <li class="done">Migration file <code>supabase/migrations/20260606000006_players.sql</code> applied successfully in Supabase</li>
+    <li class="done"><code>players</code> table: columns <code>id</code> (bigserial PK), <code>ncaa_player_id</code> (text UNIQUE NOT NULL), <code>name</code> (text NOT NULL), <code>created_at</code></li>
+    <li class="done"><code>player_seasons</code> table: columns <code>id</code>, <code>player_id</code> (FK players), <code>team_season_id</code> (FK team_seasons), <code>jersey_number</code> (smallint), <code>position</code> (text), <code>class_year</code> (text), <code>created_at</code>; UNIQUE(player_id, team_season_id)</li>
+    <li class="done"><code>player_game_stats</code> table: columns <code>id</code>, <code>player_season_id</code> (FK player_seasons), <code>game_id</code> (FK games), all stat columns matching Phase 1 API findings, <code>created_at</code>; UNIQUE(player_season_id, game_id)</li>
+    <li class="done">Stat columns in <code>player_game_stats</code> include: <code>minutes_played</code>, <code>goals</code>, <code>assists</code>, <code>shots</code>, <code>shots_on_goal</code>, <code>fouls_committed</code>, <code>yellow_cards</code>, <code>red_cards</code>, <code>gk_saves</code>, <code>gk_goals_against</code>, <code>gk_shutout</code> (plus any additional fields found in Phase 1)</li>
+    <li class="done">Performance indexes created: <code>player_seasons(player_id)</code>, <code>player_seasons(team_season_id)</code>, <code>player_game_stats(player_season_id)</code>, <code>player_game_stats(game_id)</code></li>
+    <li class="done"><code>player_season_stats</code> view exists and returns correct season aggregate totals from <code>player_game_stats</code></li>
+    <li class="done"><code>GRANT ALL ON players, player_seasons, player_game_stats TO service_role</code> applied</li>
+    <li class="done"><code>GRANT SELECT ON players, player_seasons, player_game_stats, player_season_stats TO anon, authenticated</code> applied</li>
+    <li class="done">RLS enabled on all three tables with public <code>SELECT USING (true)</code> policies</li>
+    <li class="done">Migration file <code>supabase/migrations/20260606000007_team_seasons_sport_code.sql</code> applied; <code>team_seasons</code> has a <code>sport_code text NOT NULL DEFAULT 'MSO'</code> column backfilled from <code>games</code></li>
+  </ul>
+</section>
+
+<section class="notes">
+  <h2>Implementation Notes</h2>
+
+  <h3>Design rationale</h3>
+  <p>
+    <strong>players</strong> = one row per real-world player, identified by NCAA ID.<br>
+    <strong>player_seasons</strong> = one row per player per team-season (handles transfers cleanly).<br>
+    <strong>player_game_stats</strong> = one row per player per game. Season totals are always computed
+    from this table via the view — never stored separately. This avoids double-counting if stats are
+    re-scraped.
+  </p>
+
+  <h3>Migration 000006: players tables</h3>
+  <div class="warning">Before finalising stat column names, verify them against the actual API response fetched in Phase 1. The stat column list below is based on typical NCAA soccer data — add or rename columns to match every field returned by <code>NcaaPlayerGameStats</code>.</div>
+  <pre>-- players: master record, one per real-world player
+CREATE TABLE players (
+  id           bigserial PRIMARY KEY,
+  ncaa_player_id text NOT NULL UNIQUE,
+  name          text NOT NULL,
+  created_at    timestamptz DEFAULT now()
+);
+
+-- player_seasons: player enrolled on a team in a specific season
+CREATE TABLE player_seasons (
+  id             bigserial PRIMARY KEY,
+  player_id      bigint NOT NULL REFERENCES players(id),
+  team_season_id bigint NOT NULL REFERENCES team_seasons(id),
+  jersey_number  smallint,
+  position       text,    -- 'GK', 'D', 'M', 'F'
+  class_year     text,    -- 'FR', 'SO', 'JR', 'SR', 'GR'
+  created_at     timestamptz DEFAULT now(),
+  UNIQUE (player_id, team_season_id)
+);
+
+-- player_game_stats: per-game box score stats
+CREATE TABLE player_game_stats (
+  id                bigserial PRIMARY KEY,
+  player_season_id  bigint NOT NULL REFERENCES player_seasons(id),
+  game_id           bigint NOT NULL REFERENCES games(id),
+  -- Common stats
+  minutes_played    smallint,
+  goals             smallint DEFAULT 0,
+  assists           smallint DEFAULT 0,
+  shots             smallint DEFAULT 0,
+  shots_on_goal     smallint DEFAULT 0,
+  fouls_committed   smallint DEFAULT 0,
+  yellow_cards      smallint DEFAULT 0,
+  red_cards         smallint DEFAULT 0,
+  -- Goalkeeper stats (NULL for non-GK)
+  gk_saves          smallint,
+  gk_goals_against  smallint,
+  gk_shutout        boolean,
+  created_at        timestamptz DEFAULT now(),
+  UNIQUE (player_season_id, game_id)
+);
+
+-- Indexes for common query patterns
+CREATE INDEX player_seasons_player_idx     ON player_seasons(player_id);
+CREATE INDEX player_seasons_team_season_idx ON player_seasons(team_season_id);
+CREATE INDEX player_game_stats_ps_idx      ON player_game_stats(player_season_id);
+CREATE INDEX player_game_stats_game_idx    ON player_game_stats(game_id);
+
+-- Season aggregate view: always computed, never stored
+CREATE VIEW player_season_stats AS
+SELECT
+  ps.id              AS player_season_id,
+  ps.player_id,
+  p.ncaa_player_id,
+  p.name             AS player_name,
+  ps.team_season_id,
+  ps.jersey_number,
+  ps.position,
+  ps.class_year,
+  COUNT(DISTINCT pgs.game_id)                         AS games_played,
+  COALESCE(SUM(pgs.minutes_played),  0)               AS minutes_played,
+  COALESCE(SUM(pgs.goals),           0)               AS goals,
+  COALESCE(SUM(pgs.assists),         0)               AS assists,
+  COALESCE(SUM(pgs.goals), 0) + COALESCE(SUM(pgs.assists), 0) AS points,
+  COALESCE(SUM(pgs.shots),           0)               AS shots,
+  COALESCE(SUM(pgs.shots_on_goal),   0)               AS shots_on_goal,
+  COALESCE(SUM(pgs.fouls_committed), 0)               AS fouls,
+  COALESCE(SUM(pgs.yellow_cards),    0)               AS yellow_cards,
+  COALESCE(SUM(pgs.red_cards),       0)               AS red_cards,
+  SUM(pgs.gk_saves)                                   AS gk_saves,
+  SUM(pgs.gk_goals_against)                           AS gk_goals_against,
+  COALESCE(SUM(CASE WHEN pgs.gk_shutout THEN 1 ELSE 0 END), 0) AS gk_shutouts
+FROM player_seasons ps
+JOIN players p ON p.id = ps.player_id
+LEFT JOIN player_game_stats pgs ON pgs.player_season_id = ps.id
+GROUP BY ps.id, ps.player_id, p.ncaa_player_id, p.name,
+         ps.team_season_id, ps.jersey_number, ps.position, ps.class_year;
+
+-- Permissions
+GRANT ALL   ON players, player_seasons, player_game_stats TO service_role;
+GRANT ALL   ON SEQUENCE players_id_seq, player_seasons_id_seq, player_game_stats_id_seq TO service_role;
+GRANT SELECT ON players, player_seasons, player_game_stats, player_season_stats TO anon, authenticated;
+
+ALTER TABLE players          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE player_seasons   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE player_game_stats ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "public read players"           ON players           FOR SELECT USING (true);
+CREATE POLICY "public read player_seasons"    ON player_seasons    FOR SELECT USING (true);
+CREATE POLICY "public read player_game_stats" ON player_game_stats FOR SELECT USING (true);</pre>
+
+  <h3>Migration 000007: sport_code on team_seasons</h3>
+  <p>The teams list page (Phase 4) needs to filter team_seasons by sport (MSO/WSO). Adding it to
+  <code>team_seasons</code> avoids a complex join through <code>games</code> at query time.</p>
+  <pre>-- Add sport_code to team_seasons
+ALTER TABLE team_seasons
+  ADD COLUMN sport_code text NOT NULL DEFAULT 'MSO';
+
+-- Backfill from games — prefer home_team_season first, fall back to away
+UPDATE team_seasons ts
+SET sport_code = g.sport_code
+FROM (
+  SELECT DISTINCT ON (team_season_id) team_season_id, sport_code
+  FROM (
+    SELECT home_team_season_id AS team_season_id, sport_code FROM games
+    UNION ALL
+    SELECT away_team_season_id AS team_season_id, sport_code FROM games
+  ) combined
+  ORDER BY team_season_id
+) g
+WHERE g.team_season_id = ts.id;</pre>
+
+  <h3>Verifying the migration</h3>
+  <p>After applying both migrations, run these checks in the Supabase SQL editor:</p>
+  <pre>-- Confirm tables exist
+SELECT table_name FROM information_schema.tables
+WHERE table_schema = 'public'
+  AND table_name IN ('players','player_seasons','player_game_stats');
+
+-- Confirm view exists
+SELECT viewname FROM pg_views WHERE viewname = 'player_season_stats';
+
+-- Confirm sport_code backfill
+SELECT sport_code, count(*) FROM team_seasons GROUP BY sport_code;</pre>
+</section>
+
+</body>
+</html>

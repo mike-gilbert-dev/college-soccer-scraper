@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 4: Teams List &amp; Roster Pages</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 860px; margin: 0 auto; padding: 2rem; color: #1a1a1a; line-height: 1.6; }
+    h1 { font-size: 1.5rem; margin: 0 0 0.25rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin: 1.5rem 0 0.5rem; color: #333; }
+    h3 { font-size: 0.9rem; font-weight: 600; margin: 1.25rem 0 0.35rem; color: #444; }
+    .phase-meta { color: #666; font-size: 0.85rem; margin: 0 0 1.5rem; }
+    .description { background: #f0f7ff; border-left: 3px solid #0066cc; padding: 0.75rem 1rem; border-radius: 0 4px 4px 0; margin-bottom: 1.5rem; font-size: 0.9rem; }
+    .criteria ul { list-style: none; padding: 0; margin: 0; }
+    .criteria li { padding: 0.45rem 0.75rem; margin: 0.3rem 0; background: #fff; border: 1px solid #ddd; border-radius: 4px; font-size: 0.875rem; }
+    .criteria li.done { background: #f0fff4; border-color: #68d391; text-decoration: line-through; color: #666; }
+    .criteria li::before { content: '☐  '; color: #aaa; }
+    .criteria li.done::before { content: '☑  '; color: #38a169; }
+    .notes { margin-top: 1.5rem; font-size: 0.875rem; }
+    .notes p { margin: 0.5rem 0; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem; border-radius: 4px; overflow-x: auto; font-size: 0.78rem; line-height: 1.5; }
+    code { background: #eef2ff; color: #3730a3; padding: 0.1rem 0.3rem; border-radius: 2px; font-size: 0.85em; }
+    .info { background: #f0f9ff; border-left: 3px solid #38bdf8; padding: 0.6rem 0.9rem; border-radius: 0 4px 4px 0; margin: 1rem 0; font-size: 0.85rem; }
+    .banner-complete { background: #38a169; color: white; padding: 0.6rem 1rem; border-radius: 4px; margin-bottom: 1rem; font-weight: 600; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+
+<div style="background:#f0fdf4;border:1.5px solid #4ade80;border-radius:7px;padding:.65rem 1.1rem;margin-bottom:1.5rem;font-size:.9rem;color:#166534;font-weight:500;">
+  ✅ Phase complete — all criteria satisfied.
+</div>
+<h1>Phase 4: Teams List &amp; Roster Pages</h1>
+<p class="phase-meta">Project: Players &amp; Player Seasons &nbsp;|&nbsp; Depends on: Phase 2 (schema), Phase 3 (data populated via backfill)</p>
+
+<div class="description">
+  Build two new routes: <code>/teams</code> (filterable team list) and
+  <code>/teams/[ncaa_team_id]</code> (team roster with season stats). Both pages share the same
+  sport/division/season filter parameters used by the scoreboard. Add a "Teams" link to the main
+  navigation. Player names on the roster page link forward to Phase 5's player detail page.
+</div>
+
+<section class="criteria">
+  <h2>Completion Criteria</h2>
+  <ul>
+    <li class="done">Route <code>src/routes/teams/+page.server.ts</code> loads teams filtered by <code>sportCode</code>, <code>division</code>, and <code>seasonYear</code> URL params</li>
+    <li class="done">Route <code>src/routes/teams/+page.svelte</code> renders a list of teams with sport/division/season filter sidebar, matching the scoreboard page's sidebar layout and navigation pattern</li>
+    <li class="done">Teams list shows: team name (as a link to <code>/teams/[ncaa_team_id]</code>), conference name, sorted alphabetically by team name</li>
+    <li class="done">Teams list includes the current <code>sportCode</code>, <code>division</code>, and <code>seasonYear</code> in the link URLs so filters persist when navigating to a team</li>
+    <li class="done">Route <code>src/routes/teams/[ncaa_team_id]/+page.server.ts</code> loads: team record, team_season record (for the selected season), and all player_season_stats for that team_season joined with player data</li>
+    <li class="done">Route <code>src/routes/teams/[ncaa_team_id]/+page.svelte</code> shows team name, conference, season, and a player roster table</li>
+    <li class="done">Roster table columns: # (jersey), Name (link to <code>/players/[ncaa_player_id]</code>), Pos, Yr, GP, G, A, Pts, Shots, SOG, Min; goalkeepers additionally show Saves, GA, Shutouts</li>
+    <li class="done">Roster table is sorted: GK first, then by goals descending</li>
+    <li class="done">If no player data exists yet (backfill not run with player stats), the roster section shows a graceful empty state: "No player stats available for this season yet."</li>
+    <li class="done">A "Teams" link is added to the main layout navigation (<code>src/routes/+layout.svelte</code>)</li>
+    <li class="done">Navigating to <code>/teams</code> with no URL params defaults to MSO, Division I, and the most recent season (same defaulting logic as the scoreboard)</li>
+  </ul>
+</section>
+
+<section class="notes">
+  <h2>Implementation Notes</h2>
+
+  <h3>URL parameter conventions</h3>
+  <p>Both pages use the same query params as the scoreboard:</p>
+  <pre>?sport=MSO&amp;division=1&amp;season=2025</pre>
+  <p>The <code>[ncaa_team_id]</code> segment is the team's seoname slug (e.g. <code>michigan-st</code>).</p>
+
+  <h3>Teams list server load (<code>src/routes/teams/+page.server.ts</code>)</h3>
+  <pre>import type { PageServerLoad } from './$types';
+import { supabaseAdmin } from '$lib/server/supabase-admin';
+
+export const load: PageServerLoad = async ({ url }) => {
+  const sportCode  = url.searchParams.get('sport')    ?? 'MSO';
+  const division   = parseInt(url.searchParams.get('division') ?? '1', 10);
+  const seasonYear = parseInt(url.searchParams.get('season')   ?? '2025', 10);
+
+  // Resolve season id
+  const { data: season } = await supabaseAdmin
+    .from('seasons')
+    .select('id')
+    .eq('year', seasonYear)
+    .single();
+
+  if (!season) return { teams: [], sportCode, division, seasonYear };
+
+  const { data: teams } = await supabaseAdmin
+    .from('team_seasons')
+    .select(`
+      id,
+      division,
+      sport_code,
+      team:teams ( id, ncaa_team_id, name, short_name ),
+      conference:conferences ( name, short_name )
+    `)
+    .eq('season_id', season.id)
+    .eq('division', division)
+    .eq('sport_code', sportCode)
+    .order('name', { foreignTable: 'teams' });
+
+  return { teams: teams ?? [], sportCode, division, seasonYear };
+};</pre>
+
+  <h3>Teams list page (<code>src/routes/teams/+page.svelte</code>)</h3>
+  <p>Mirror the scoreboard layout: sidebar on left with sport toggle, division buttons, season select;
+  main content on right with team list. Use <code>goto()</code> or anchor links for filter navigation
+  (same pattern as the scoreboard's <code>navigate()</code> function). Display teams in an alphabetical
+  card list or simple table — keep it minimal for now.</p>
+  <pre>&lt;!-- Sample team row --&gt;
+&lt;a href="/teams/{team.team.ncaa_team_id}?sport={sportCode}&amp;division={division}&amp;season={seasonYear}"
+   class="block p-3 border-b border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"&gt;
+  &lt;span class="font-medium text-sm"&gt;{team.team.name}&lt;/span&gt;
+  &lt;span class="text-xs text-gray-500 ml-2"&gt;{team.conference?.name ?? ''}&lt;/span&gt;
+&lt;/a&gt;</pre>
+
+  <h3>Team detail server load (<code>src/routes/teams/[ncaa_team_id]/+page.server.ts</code>)</h3>
+  <pre>import { error } from '@sveltejs/kit';
+import type { PageServerLoad } from './$types';
+import { supabaseAdmin } from '$lib/server/supabase-admin';
+
+export const load: PageServerLoad = async ({ params, url }) => {
+  const sportCode  = url.searchParams.get('sport')    ?? 'MSO';
+  const division   = parseInt(url.searchParams.get('division') ?? '1', 10);
+  const seasonYear = parseInt(url.searchParams.get('season')   ?? '2025', 10);
+
+  // Load team record
+  const { data: team } = await supabaseAdmin
+    .from('teams')
+    .select('id, ncaa_team_id, name, short_name')
+    .eq('ncaa_team_id', params.ncaa_team_id)
+    .single();
+
+  if (!team) error(404, 'Team not found');
+
+  // Load team_season for the requested year
+  const { data: season } = await supabaseAdmin
+    .from('seasons').select('id').eq('year', seasonYear).single();
+
+  let teamSeason = null;
+  let players: unknown[] = [];
+
+  if (season) {
+    const { data: ts } = await supabaseAdmin
+      .from('team_seasons')
+      .select('id, division, sport_code, conference:conferences(name)')
+      .eq('team_id', team.id)
+      .eq('season_id', season.id)
+      .single();
+
+    teamSeason = ts;
+
+    if (ts) {
+      // Query player_season_stats view joined with players
+      const { data: roster } = await supabaseAdmin
+        .from('player_season_stats')
+        .select('*, player:players(ncaa_player_id, name)')
+        .eq('team_season_id', ts.id);
+
+      players = roster ?? [];
+    }
+  }
+
+  return { team, teamSeason, players, sportCode, division, seasonYear };
+};</pre>
+
+  <h3>Roster table sort order</h3>
+  <p>Sort in the Svelte component (client-side) since the view doesn't support ordering easily:</p>
+  <pre>const posOrder: Record&lt;string, number&gt; = { GK: 0, D: 1, M: 2, F: 3 };
+const sortedPlayers = $derived(
+  [...data.players].sort((a, b) => {
+    const pa = posOrder[a.position ?? ''] ?? 9;
+    const pb = posOrder[b.position ?? ''] ?? 9;
+    if (pa !== pb) return pa - pb;
+    return (b.goals ?? 0) - (a.goals ?? 0);
+  })
+);</pre>
+
+  <h3>Roster table columns</h3>
+  <p>Use a Flowbite <code>Table</code> component. Columns: <strong>#</strong> (jersey_number),
+  <strong>Name</strong> (link), <strong>Pos</strong>, <strong>Yr</strong>, <strong>GP</strong>,
+  <strong>G</strong>, <strong>A</strong>, <strong>Pts</strong>, <strong>Shots</strong>,
+  <strong>SOG</strong>, <strong>Min</strong>. For players where <code>position === 'GK'</code>,
+  additionally show <strong>Sv</strong>, <strong>GA</strong>, <strong>SO</strong> columns.
+  Show GK-specific columns for all rows but display <code>—</code> when the value is null.</p>
+
+  <h3>Navigation link in layout</h3>
+  <p>Add to <code>src/routes/+layout.svelte</code> alongside existing nav links:</p>
+  <pre>&lt;a href="/teams" class="..."&gt;Teams&lt;/a&gt;</pre>
+  <p>Inspect the existing layout to match the nav link styling exactly.</p>
+</section>
+
+</body>
+</html>

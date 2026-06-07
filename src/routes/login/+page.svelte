@@ -1,71 +1,60 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import type { ActionData } from './$types';
+	import { Button, Input, Label, Alert } from 'flowbite-svelte';
+	import type { ActionData, PageData } from './$types';
 
-	let { form }: { form: ActionData } = $props();
+	let { form, data }: { form: ActionData; data: PageData } = $props();
 </script>
 
-<div class="auth-container">
-	<h1>Sign in</h1>
+<div class="flex justify-center py-12 px-4">
+	<div class="w-full max-w-sm bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-6 flex flex-col gap-5">
+		<h1 class="text-base font-bold text-gray-900 dark:text-white">Sign in</h1>
 
-	{#if form?.error}
-		<p class="error">{form.error}</p>
-	{/if}
+		{#if data.reason === 'unauthorized'}
+			<Alert color="yellow" class="text-xs py-2">
+				Your account does not have permission to access this application.
+			</Alert>
+		{:else if form?.error}
+			<Alert color="red" class="text-xs py-2">{form.error}</Alert>
+		{/if}
 
-	<form method="POST" use:enhance>
-		<label>
-			Email
-			<input type="email" name="email" required autocomplete="email" />
-		</label>
-		<label>
-			Password
-			<input type="password" name="password" required autocomplete="current-password" />
-		</label>
-		<button type="submit">Sign in</button>
-	</form>
+		<form method="POST" use:enhance class="flex flex-col gap-4">
+			<div>
+				<Label for="email" class="mb-1 text-[11px] uppercase tracking-wider font-semibold text-gray-500 dark:text-gray-400">
+					Email
+				</Label>
+				<Input
+					id="email"
+					type="email"
+					name="email"
+					required
+					autocomplete="email"
+					size="sm"
+					class="text-sm"
+				/>
+			</div>
 
-	<p>Don't have an account? <a href="/register">Register</a></p>
+			<div>
+				<Label for="password" class="mb-1 text-[11px] uppercase tracking-wider font-semibold text-gray-500 dark:text-gray-400">
+					Password
+				</Label>
+				<Input
+					id="password"
+					type="password"
+					name="password"
+					required
+					autocomplete="current-password"
+					size="sm"
+					class="text-sm"
+				/>
+			</div>
+
+			<Button type="submit" color="primary" size="sm" class="w-full mt-1">Sign in</Button>
+		</form>
+
+		<p class="text-xs text-center text-gray-500 dark:text-gray-400">
+			Don't have an account?
+			<a href="/register" class="text-primary-600 dark:text-primary-400 font-semibold hover:underline">Register</a>
+		</p>
+	</div>
 </div>
-
-<style>
-	.auth-container {
-		max-width: 360px;
-		margin: 4rem auto;
-		display: flex;
-		flex-direction: column;
-		gap: 1rem;
-	}
-	form {
-		display: flex;
-		flex-direction: column;
-		gap: 0.75rem;
-	}
-	label {
-		display: flex;
-		flex-direction: column;
-		gap: 0.25rem;
-		font-size: 0.9rem;
-	}
-	input {
-		padding: 0.5rem;
-		border: 1px solid #ccc;
-		border-radius: 4px;
-		font-size: 1rem;
-	}
-	button {
-		padding: 0.6rem;
-		background: #3b82f6;
-		color: white;
-		border: none;
-		border-radius: 4px;
-		font-size: 1rem;
-		cursor: pointer;
-	}
-	button:hover {
-		background: #2563eb;
-	}
-	.error {
-		color: #dc2626;
-		font-size: 0.9rem;
-	}
-</style>

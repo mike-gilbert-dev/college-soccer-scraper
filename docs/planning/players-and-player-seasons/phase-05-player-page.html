@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 5: Player Detail Page</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 860px; margin: 0 auto; padding: 2rem; color: #1a1a1a; line-height: 1.6; }
+    h1 { font-size: 1.5rem; margin: 0 0 0.25rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin: 1.5rem 0 0.5rem; color: #333; }
+    h3 { font-size: 0.9rem; font-weight: 600; margin: 1.25rem 0 0.35rem; color: #444; }
+    .phase-meta { color: #666; font-size: 0.85rem; margin: 0 0 1.5rem; }
+    .description { background: #f0f7ff; border-left: 3px solid #0066cc; padding: 0.75rem 1rem; border-radius: 0 4px 4px 0; margin-bottom: 1.5rem; font-size: 0.9rem; }
+    .criteria ul { list-style: none; padding: 0; margin: 0; }
+    .criteria li { padding: 0.45rem 0.75rem; margin: 0.3rem 0; background: #fff; border: 1px solid #ddd; border-radius: 4px; font-size: 0.875rem; }
+    .criteria li.done { background: #f0fff4; border-color: #68d391; text-decoration: line-through; color: #666; }
+    .criteria li::before { content: '☐  '; color: #aaa; }
+    .criteria li.done::before { content: '☑  '; color: #38a169; }
+    .notes { margin-top: 1.5rem; font-size: 0.875rem; }
+    .notes p { margin: 0.5rem 0; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem; border-radius: 4px; overflow-x: auto; font-size: 0.78rem; line-height: 1.5; }
+    code { background: #eef2ff; color: #3730a3; padding: 0.1rem 0.3rem; border-radius: 2px; font-size: 0.85em; }
+    .info { background: #f0f9ff; border-left: 3px solid #38bdf8; padding: 0.6rem 0.9rem; border-radius: 0 4px 4px 0; margin: 1rem 0; font-size: 0.85rem; }
+    .banner-complete { background: #38a169; color: white; padding: 0.6rem 1rem; border-radius: 4px; margin-bottom: 1rem; font-weight: 600; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+
+<div style="background:#f0fdf4;border:1.5px solid #4ade80;border-radius:7px;padding:.65rem 1.1rem;margin-bottom:1.5rem;font-size:.9rem;color:#166534;font-weight:500;">
+  ✅ Phase complete — all criteria satisfied.
+</div>
+<h1>Phase 5: Player Detail Page</h1>
+<p class="phase-meta">Project: Players &amp; Player Seasons &nbsp;|&nbsp; Depends on: Phase 4 (team roster links here)</p>
+
+<div class="description">
+  Build the player detail page at <code>/players/[ncaa_player_id]</code>. Shows the player's career
+  overview (season stats by year) and a per-game log (game log table). The player is linked to from
+  the team roster page built in Phase 4. Includes a breadcrumb trail back to the team page.
+</div>
+
+<section class="criteria">
+  <h2>Completion Criteria</h2>
+  <ul>
+    <li class="done">Route <code>src/routes/players/[ncaa_player_id]/+page.server.ts</code> loads: player record, all player_seasons with joined team and season data, all player_game_stats joined with game data</li>
+    <li class="done">If no player record exists for the given <code>ncaa_player_id</code>, the server returns a 404 error</li>
+    <li class="done">Page header shows: player full name, position badge, and class year (from their most recent player_season)</li>
+    <li class="done">Career stats table shows one row per season: Year, Team (link to <code>/teams/[ncaa_team_id]</code>), GP, G, A, Pts, Shots, SOG, Min; goalkeepers show Sv, GA, SO instead of Shots/SOG</li>
+    <li class="done">Game log table shows one row per game: Date, Opponent (with link to that team), Score (home vs away), Min, G, A, Shots; goalkeepers show Sv, GA, SO</li>
+    <li class="done">Game log is sorted by contest_date descending (most recent first)</li>
+    <li class="done">If a player has stats in multiple seasons (career), the career table shows all seasons</li>
+    <li class="done">If no stats exist for the player yet, both tables show a graceful empty state</li>
+    <li class="done">Breadcrumb at top of page: "Teams / [Team Name] / [Player Name]" — team link uses the player's most recent team and preserves sport/division/season params</li>
+  </ul>
+</section>
+
+<section class="notes">
+  <h2>Implementation Notes</h2>
+
+  <h3>Server load (<code>src/routes/players/[ncaa_player_id]/+page.server.ts</code>)</h3>
+  <pre>import { error } from '@sveltejs/kit';
+import type { PageServerLoad } from './$types';
+import { supabaseAdmin } from '$lib/server/supabase-admin';
+
+export const load: PageServerLoad = async ({ params, url }) => {
+  const sportCode  = url.searchParams.get('sport')    ?? 'MSO';
+  const division   = parseInt(url.searchParams.get('division') ?? '1', 10);
+  const seasonYear = parseInt(url.searchParams.get('season')   ?? '2025', 10);
+
+  // Player master record
+  const { data: player } = await supabaseAdmin
+    .from('players')
+    .select('id, ncaa_player_id, name')
+    .eq('ncaa_player_id', params.ncaa_player_id)
+    .single();
+
+  if (!player) error(404, 'Player not found');
+
+  // All seasons the player has appeared in
+  const { data: careerSeasons } = await supabaseAdmin
+    .from('player_season_stats')
+    .select(`
+      player_season_id, team_season_id, jersey_number, position, class_year,
+      games_played, minutes_played, goals, assists, points, shots, shots_on_goal,
+      fouls, yellow_cards, red_cards, gk_saves, gk_goals_against, gk_shutouts,
+      team_season:team_seasons (
+        division, sport_code,
+        season:seasons ( year ),
+        team:teams ( ncaa_team_id, name )
+      )
+    `)
+    .eq('player_id', player.id)
+    .order('year', { foreignTable: 'team_seasons.seasons' });
+
+  // Per-game stats
+  const { data: gameLog } = await supabaseAdmin
+    .from('player_game_stats')
+    .select(`
+      id, minutes_played, goals, assists, shots, shots_on_goal,
+      fouls_committed, yellow_cards, red_cards,
+      gk_saves, gk_goals_against, gk_shutout,
+      game:games (
+        id, ncaa_contest_id, contest_date, home_score, away_score, sport_code,
+        home_team_season:team_seasons!home_team_season_id (
+          team:teams ( ncaa_team_id, name )
+        ),
+        away_team_season:team_seasons!away_team_season_id (
+          team:teams ( ncaa_team_id, name )
+        )
+      ),
+      player_season:player_seasons (
+        team_season_id,
+        team_season:team_seasons ( team:teams ( ncaa_team_id, name ) )
+      )
+    `)
+    .in('player_season_id',
+      (careerSeasons ?? []).map(s => s.player_season_id)
+    )
+    .order('contest_date', { foreignTable: 'games', ascending: false });
+
+  return {
+    player,
+    careerSeasons: careerSeasons ?? [],
+    gameLog: gameLog ?? [],
+    sportCode, division, seasonYear
+  };
+};</pre>
+
+  <div class="info">
+    The nested select depth here (player_game_stats → games → team_seasons → teams) is supported
+    by Supabase PostgREST. If the query becomes too complex, split it into two separate queries
+    (one for career stats, one for game log) and join in the load function.
+  </div>
+
+  <h3>Page structure (<code>src/routes/players/[ncaa_player_id]/+page.svelte</code>)</h3>
+  <p>Three sections from top to bottom:</p>
+  <ol>
+    <li><strong>Breadcrumb + header</strong>: back link to team, player name, position badge, class year</li>
+    <li><strong>Career stats table</strong>: one row per season</li>
+    <li><strong>Game log table</strong>: one row per game, most recent first</li>
+  </ol>
+
+  <h3>Determining the breadcrumb team</h3>
+  <p>Use the most recent player_season's team for the breadcrumb. "Most recent" = highest season year
+  from <code>careerSeasons</code>:</p>
+  <pre>const mostRecentSeason = $derived(
+  data.careerSeasons.length &gt; 0
+    ? [...data.careerSeasons].sort((a, b) =>
+        (b.team_season?.season?.year ?? 0) - (a.team_season?.season?.year ?? 0)
+      )[0]
+    : null
+);
+
+const breadcrumbTeam = $derived(mostRecentSeason?.team_season?.team);</pre>
+
+  <h3>Game log: opponent and score display</h3>
+  <p>For each game in the game log, you need to know which team the player was on (to determine
+  "opponent"). The player's team is available via <code>player_season.team_season.team</code>.
+  The opponent is the other team in the game.</p>
+  <pre>function getOpponent(game: GameRow, playerTeamNcaaId: string) {
+  const home = game.home_team_season?.team;
+  const away = game.away_team_season?.team;
+  if (home?.ncaa_team_id === playerTeamNcaaId) return away;
+  return home;
+}
+
+function getScore(game: GameRow, playerTeamNcaaId: string) {
+  const isHome = game.home_team_season?.team?.ncaa_team_id === playerTeamNcaaId;
+  return isHome
+    ? `${game.home_score}–${game.away_score}`
+    : `${game.away_score}–${game.home_score}`;
+}</pre>
+
+  <h3>GK vs outfield column visibility</h3>
+  <p>Determine if the player is a goalkeeper from their most common position in <code>careerSeasons</code>
+  or from the most recent player_season's <code>position</code> field. If <code>position === 'GK'</code>,
+  show GK columns (Sv, GA, SO) and hide Shots/SOG; otherwise show Shots/SOG and hide GK columns.
+  A simpler approach: always show all columns and display <code>—</code> for null values.</p>
+
+  <h3>TypeScript types</h3>
+  <p>The Supabase nested select returns complex inferred types. Cast via <code>as unknown as YourType[]</code>
+  to avoid TypeScript errors, as done in the scoreboard page (<code>data.games as unknown as Game[]</code>).</p>
+</section>
+
+</body>
+</html>

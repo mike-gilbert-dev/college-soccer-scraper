@@ -44,6 +44,10 @@ Supabase uses publishable/secret keys (not the legacy anon/service_role naming).
 
 `$lib` → `src/lib` (SvelteKit default). No custom aliases configured.
 
+## Design
+
+The target UI is a dense, sports-results–style interface with light/dark themes. Full design system spec (colors, typography, layout, components, spacing) is in [`docs/design.md`](docs/design.md). Accent color is `#e8463a` (red), used consistently across both themes.
+
 ## Data Source
 
 The app scrapes the NCAA Men's Soccer scoreboard via its internal GraphQL API (Automatic Persisted Queries). Full endpoint documentation — including hashes, variables, and the request lifecycle — is in [`docs/ncaa-mens-soccer-api-endpoints.md`](docs/ncaa-mens-soccer-api-endpoints.md).

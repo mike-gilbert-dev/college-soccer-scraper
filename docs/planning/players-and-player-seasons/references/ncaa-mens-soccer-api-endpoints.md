@@ -245,74 +245,7 @@ These fire on every page load but do not carry men's soccer data:
 
 ---
 
-### 6. `NCAA_GetGamecenterBoxscoreSoccerById_web` ⭐ Per-Game Player Box Score
-
-**Purpose:** Returns full player-level box score for a single game by contest ID. Used for scraping
-per-player stats (goals, assists, shots, minutes, cards). Called once per final game during the
-player stats backfill.
-
-**Method:** `GET`
-**Base URL:** `https://sdataprod.ncaa.com`
-
-**Full URL Pattern:**
-```
-https://sdataprod.ncaa.com
-  ?meta=NCAA_GetGamecenterBoxscoreSoccerById_web
-  &extensions={"persistedQuery":{"version":1,"sha256Hash":"c9070c4e5a76468a4025896df89f8a7b22be8275c54a22ff79619cbb27d63d7d"}}
-  &variables={"contestId":"6465168","staticTestEnv":null}
-```
-
-**Persisted Query Hash:** `c9070c4e5a76468a4025896df89f8a7b22be8275c54a22ff79619cbb27d63d7d`
-
-**Variables:**
-| Variable | Type | Example | Notes |
-|---|---|---|---|
-| `contestId` | string | `"6465168"` | String, not integer. Matches `games.ncaa_contest_id` in the DB. |
-| `staticTestEnv` | null | `null` | Always null in production. |
-
-**Response shape:**
-```
-data.boxscore
-├── contestId: number
-├── description: string        e.g. "Vermont vs Sacred Heart"
-├── status: string             "F" = final
-├── period: string             "FINAL"
-├── sportCode: string          "MSO" | "WSO"
-├── division: number
-├── teams: ContestTeam[]       team identity (isHome, teamId as string, seoname, ...)
-└── teamBoxscore: BoxscoreDetails[]
-    ├── teamId: number         matches teams[i].teamId (after parseInt)
-    ├── playerStats: PlayerStatsSoccer[]
-    │   ├── firstName: string
-    │   ├── lastName: string
-    │   ├── position: string   "GK" | "D" | "M" | "F"
-    │   ├── number: number     jersey number (integer)
-    │   ├── goals: string      numeric string — parse with parseInt
-    │   ├── assists: string
-    │   ├── shots: string
-    │   ├── shotsOnGoal: string
-    │   ├── minutesPlayed: string
-    │   ├── starter: boolean
-    │   ├── participated: boolean  false = did not play
-    │   ├── penaltyShotGoals: string
-    │   ├── penaltyShotAttempts: string
-    │   └── penalties: { fouls, greenCards, yellowCards, redCards, count }  all strings
-    └── teamStats.goalie        GK stats are TEAM-LEVEL only; per-player saves is always "0"
-        ├── saves: string
-        ├── goalsAllowed: string
-        └── shutouts: string
-```
-
-**Important caveats:**
-- All numeric stat fields are returned as **strings** — parse with `parseInt(val, 10)` or `parseFloat`.
-- **No stable player ID** in the response. Synthetic IDs are generated as `{teamId}_{firstName}_{lastName}` (normalized).
-- **GK saves/goals are team-level** (`teamStats.goalie`), not per-player. Per-player `saves` is always `"0"`.
-  Attribution to a specific GK player is possible only when a single GK played the full game.
-- `participated: false` means the player is on the roster but did not play — skip these rows.
-
----
-
-## Quick Reference — All 6 NCAA GraphQL Endpoints
+## Quick Reference — All 5 NCAA GraphQL Endpoints
 
 | # | `meta` name | Hash (sha256) | Fires | Polling |
 |---|---|---|---|---|
@@ -321,4 +254,3 @@ data.boxscore
 | 3 | `GetLiveSchedulePlusMmlEventVideo_web` | `145b6f09…252a1f` | Page load | Yes (~5s) |
 | 4 | `NCAA_GetConferences_web` | `6795d6b1…f8c3f` | Lazy / on-demand | No |
 | 5 | `NCAA_schedules_games_web` | `c653d0ac…e8d80` | Lazy / month view | No |
-| 6 | `NCAA_GetGamecenterBoxscoreSoccerById_web` | `c9070c4e…63d7d` | Per-game player stats | No |

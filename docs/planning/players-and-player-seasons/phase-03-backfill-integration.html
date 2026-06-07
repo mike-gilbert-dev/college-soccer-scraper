@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 3: Backfill Integration</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 860px; margin: 0 auto; padding: 2rem; color: #1a1a1a; line-height: 1.6; }
+    h1 { font-size: 1.5rem; margin: 0 0 0.25rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin: 1.5rem 0 0.5rem; color: #333; }
+    h3 { font-size: 0.9rem; font-weight: 600; margin: 1.25rem 0 0.35rem; color: #444; }
+    .phase-meta { color: #666; font-size: 0.85rem; margin: 0 0 1.5rem; }
+    .description { background: #f0f7ff; border-left: 3px solid #0066cc; padding: 0.75rem 1rem; border-radius: 0 4px 4px 0; margin-bottom: 1.5rem; font-size: 0.9rem; }
+    .criteria ul { list-style: none; padding: 0; margin: 0; }
+    .criteria li { padding: 0.45rem 0.75rem; margin: 0.3rem 0; background: #fff; border: 1px solid #ddd; border-radius: 4px; font-size: 0.875rem; }
+    .criteria li.done { background: #f0fff4; border-color: #68d391; text-decoration: line-through; color: #666; }
+    .criteria li::before { content: '☐  '; color: #aaa; }
+    .criteria li.done::before { content: '☑  '; color: #38a169; }
+    .notes { margin-top: 1.5rem; font-size: 0.875rem; }
+    .notes p { margin: 0.5rem 0; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem; border-radius: 4px; overflow-x: auto; font-size: 0.78rem; line-height: 1.5; }
+    code { background: #eef2ff; color: #3730a3; padding: 0.1rem 0.3rem; border-radius: 2px; font-size: 0.85em; }
+    .warning { background: #fffbeb; border-left: 3px solid #f59e0b; padding: 0.6rem 0.9rem; border-radius: 0 4px 4px 0; margin: 1rem 0; font-size: 0.85rem; }
+    .info { background: #f0f9ff; border-left: 3px solid #38bdf8; padding: 0.6rem 0.9rem; border-radius: 0 4px 4px 0; margin: 1rem 0; font-size: 0.85rem; }
+    .banner-complete { background: #38a169; color: white; padding: 0.6rem 1rem; border-radius: 4px; margin-bottom: 1rem; font-weight: 600; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+
+<div style="background:#f0fdf4;border:1.5px solid #4ade80;border-radius:7px;padding:.65rem 1.1rem;margin-bottom:1.5rem;font-size:.9rem;color:#166534;font-weight:500;">
+  ✅ Phase complete — all criteria satisfied.
+</div>
+<h1>Phase 3: Backfill Integration</h1>
+<p class="phase-meta">Project: Players &amp; Player Seasons &nbsp;|&nbsp; Depends on: Phase 1 (fetchBoxScore types), Phase 2 (schema)</p>
+
+<div class="description">
+  Extend the existing backfill endpoint to optionally scrape player stats from box scores. When
+  <code>includePlayerStats: true</code> is sent, the backfill fetches a box score for each final game
+  and upserts players, player_seasons, and player_game_stats. Also update
+  <code>upsertTeamSeason</code> to record <code>sport_code</code> (used by the teams page in Phase 4).
+  Player stats are off by default to keep the standard backfill fast.
+</div>
+
+<section class="criteria">
+  <h2>Completion Criteria</h2>
+  <ul>
+    <li class="done">Backfill route accepts <code>includePlayerStats?: boolean</code> (default <code>false</code>) in the JSON request body</li>
+    <li class="done"><code>upsertTeamSeason</code> helper updated to pass <code>sport_code</code> in the <code>team_seasons</code> upsert call</li>
+    <li class="done">When <code>includePlayerStats</code> is true, the route calls <code>fetchBoxScore(ncaa_contest_id)</code> for each game with status <code>'final'</code></li>
+    <li class="done">For each player in the box score: upserts <code>players</code> (on conflict <code>ncaa_player_id</code>), then <code>player_seasons</code> (on conflict <code>player_id, team_season_id</code>), then <code>player_game_stats</code> (on conflict <code>player_season_id, game_id</code>)</li>
+    <li class="done">Each box score fetch has a 1-second delay (<code>await sleep(1000)</code>) to respect rate limits</li>
+    <li class="done">Results object includes <code>playersUpserted: number</code> and <code>playerStatsUpserted: number</code> counters</li>
+    <li class="done">Box score fetch errors are caught per-game, logged to <code>scrape_log</code>, and do not abort the rest of the backfill</li>
+    <li class="done">Admin "Scraper" tab has a checkbox "Include player stats (slower — 1 box score call per game)" bound to the <code>includePlayerStats</code> request flag</li>
+    <li class="done">Admin results panel shows <code>playersUpserted</code> and <code>playerStatsUpserted</code> when they are non-zero</li>
+    <li class="done">The description text in the Scraper tab is updated to mention that player stats require the box score endpoint</li>
+  </ul>
+</section>
+
+<section class="notes">
+  <h2>Implementation Notes</h2>
+
+  <h3>Rate limiting context</h3>
+  <div class="info">
+    The existing backfill makes 1 API call per date (GetContests_web). With player stats enabled,
+    it makes 1 additional call per <em>final</em> game on that date. A busy Saturday in DI Men's
+    might have 40+ games, adding ~40 extra seconds per date. Recommend keeping <code>limit</code>
+    to 5–10 dates per run when player stats are enabled.
+  </div>
+
+  <h3>Changes to <code>src/routes/api/scrape/backfill/+server.ts</code></h3>
+
+  <p><strong>1. Update request body destructuring</strong></p>
+  <pre>const {
+  startDate,
+  endDate,
+  seasonYear = 2025,
+  division = 1,
+  sportCode = 'MSO',
+  limit = 30,
+  includePlayerStats = false   // new
+} = body as {
+  startDate: string;
+  endDate: string;
+  seasonYear?: number;
+  division?: number;
+  sportCode?: string;
+  limit?: number;
+  includePlayerStats?: boolean; // new
+};</pre>
+
+  <p><strong>2. Update results object</strong></p>
+  <pre>const results = {
+  processed: 0,
+  gamesUpserted: 0,
+  teamsUpserted: 0,
+  playersUpserted: 0,      // new
+  playerStatsUpserted: 0,  // new
+  errors: [] as { date: string; message: string }[],
+  nextDate: null as string | null
+};</pre>
+
+  <p><strong>3. Update <code>upsertTeamSeason</code> to include sport_code</strong></p>
+  <p>Add <code>sport_code: sportCode</code> to the <code>team_seasons</code> upsert payload. The
+  <code>team_seasons</code> table now has this column after Phase 2's migration 000007.</p>
+  <pre>const { data: teamSeason } = await supabaseAdmin
+  .from('team_seasons')
+  .upsert(
+    {
+      team_id: team.id,
+      season_id: seasonId,
+      division,
+      conference_id: conf?.id ?? null,
+      sport_code: sportCode   // add this line
+    },
+    { onConflict: 'team_id,season_id' }
+  )
+  .select('id')
+  .single();</pre>
+  <div class="warning">The UNIQUE constraint on team_seasons is currently <code>(team_id, season_id)</code>.
+  Since the same team now appears in both MSO and WSO (different ncaa_team_id values — different NCAA entities),
+  this constraint remains correct. Do not change the constraint.</div>
+
+  <p><strong>4. Player stats upsert helper</strong></p>
+  <p>Add this helper function inside the POST handler (alongside <code>upsertTeamSeason</code>):</p>
+  <pre>async function upsertPlayerGameStats(
+  contestId: string,
+  gameId: number,
+  homeTeamSeasonId: number,
+  awayTeamSeasonId: number
+): Promise&lt;{ playersUpserted: number; statsUpserted: number }&gt; {
+  const boxScore = await fetchBoxScore(contestId);
+  let playersUpserted = 0;
+  let statsUpserted = 0;
+
+  for (const team of boxScore.teams) {
+    const teamSeasonId = team.seoname === /* homeData.seoname — pass as param */ ?
+      homeTeamSeasonId : awayTeamSeasonId;
+    // Note: pass homeTeamSeoname and awayTeamSeoname as params to resolve this
+
+    for (const player of team.players) {
+      // Upsert player master record
+      const { data: playerRow } = await supabaseAdmin
+        .from('players')
+        .upsert(
+          { ncaa_player_id: player.playerId, name: player.name },
+          { onConflict: 'ncaa_player_id' }
+        )
+        .select('id')
+        .single();
+      if (!playerRow) continue;
+      playersUpserted++;
+
+      // Upsert player_season
+      const { data: playerSeason } = await supabaseAdmin
+        .from('player_seasons')
+        .upsert(
+          {
+            player_id: playerRow.id,
+            team_season_id: teamSeasonId,
+            jersey_number: player.uniformNumber ? parseInt(player.uniformNumber, 10) : null,
+            position: player.position ?? null,
+            class_year: player.classYear ?? null
+          },
+          { onConflict: 'player_id,team_season_id' }
+        )
+        .select('id')
+        .single();
+      if (!playerSeason) continue;
+
+      // Upsert player_game_stats — map API stat fields to DB columns
+      const s = player.stats;
+      const { error: statsErr } = await supabaseAdmin
+        .from('player_game_stats')
+        .upsert(
+          {
+            player_season_id: playerSeason.id,
+            game_id: gameId,
+            minutes_played:   s.minutesPlayed   ?? null,
+            goals:            s.goals            ?? 0,
+            assists:          s.assists          ?? 0,
+            shots:            s.shots            ?? 0,
+            shots_on_goal:    s.shotsOnGoal      ?? 0,
+            fouls_committed:  s.foulsCommitted   ?? 0,
+            yellow_cards:     s.yellowCards      ?? 0,
+            red_cards:        s.redCards         ?? 0,
+            gk_saves:         s.gkSaves          ?? null,
+            gk_goals_against: s.gkGoalsAgainst   ?? null,
+            gk_shutout:       s.gkShutouts != null ? s.gkShutouts &gt; 0 : null
+          },
+          { onConflict: 'player_season_id,game_id' }
+        );
+      if (!statsErr) statsUpserted++;
+    }
+  }
+  return { playersUpserted, statsUpserted };
+}</pre>
+
+  <div class="warning">
+    The API stat field names (<code>minutesPlayed</code>, <code>shotsOnGoal</code>, etc.) are
+    based on the TypeScript interfaces from Phase 1. Update these mappings if the actual field
+    names differ. Specifically verify: goals, assists, shots, minutes, fouls, cards, GK stats.
+  </div>
+
+  <p><strong>5. Call player stats after each game upsert</strong></p>
+  <p>Inside the per-contest loop, after the game is upserted successfully, add:</p>
+  <pre>// After the game upsert succeeds and we have a game ID:
+if (includePlayerStats &amp;&amp; normalizeStatus(contest.statusCodeDisplay) === 'final') {
+  try {
+    // Need the DB game id — add .select('id') to the game upsert
+    const { playersUpserted: pu, statsUpserted: su } = await upsertPlayerGameStats(
+      String(contest.contestId),
+      gameDbId,             // from game upsert .select('id').single()
+      homeTeamSeasonId,
+      awayTeamSeasonId,
+      homeData.seoname,
+      awayData.seoname
+    );
+    results.playersUpserted += pu;
+    results.playerStatsUpserted += su;
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    results.errors.push({ date: ncaaDate, message: `Box score ${contest.contestId}: ${message}` });
+  }
+  await sleep(1000); // rate limit box score calls
+}</pre>
+  <p>To get <code>gameDbId</code>, update the game upsert to chain <code>.select('id').single()</code>
+  and capture the result.</p>
+
+  <h3>Admin UI changes (<code>src/routes/admin/+page.svelte</code>)</h3>
+
+  <p><strong>1. Add state variable</strong></p>
+  <pre>let includePlayerStats = $state(false);</pre>
+
+  <p><strong>2. Pass in fetch body</strong></p>
+  <pre>body: JSON.stringify({
+  startDate: fromDate ?? startDate,
+  endDate, seasonYear, division, sportCode, limit,
+  includePlayerStats   // add
+})</pre>
+
+  <p><strong>3. Update result type</strong></p>
+  <pre>let result: {
+  processed: number;
+  gamesUpserted: number;
+  teamsUpserted: number;
+  playersUpserted: number;      // add
+  playerStatsUpserted: number;  // add
+  errors: { date: string; message: string }[];
+  nextDate: string | null;
+} | null = $state(null);</pre>
+
+  <p><strong>4. Checkbox in the form</strong> — add after the "Dates per run" field:</p>
+  <pre>&lt;div class="col-span-2"&gt;
+  &lt;label class="flex items-center gap-2 cursor-pointer select-none"&gt;
+    &lt;input type="checkbox" bind:checked={includePlayerStats} class="rounded" /&gt;
+    &lt;span class="text-xs text-gray-700 dark:text-gray-300"&gt;
+      Include player stats &lt;span class="text-gray-400"&gt;(slower — 1 box score call per final game)&lt;/span&gt;
+    &lt;/span&gt;
+  &lt;/label&gt;
+&lt;/div&gt;</pre>
+
+  <p><strong>5. Show extra counters in results</strong> — add after "Teams upserted":</p>
+  <pre>{#if result.playersUpserted &gt; 0}
+  &lt;p&gt;Players upserted: &lt;span class="font-semibold"&gt;{result.playersUpserted}&lt;/span&gt;&lt;/p&gt;
+  &lt;p&gt;Player stats upserted: &lt;span class="font-semibold"&gt;{result.playerStatsUpserted}&lt;/span&gt;&lt;/p&gt;
+{/if}</pre>
+</section>
+
+</body>
+</html>

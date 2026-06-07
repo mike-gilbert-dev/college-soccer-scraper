@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 1: Box Score API Discovery &amp; Types</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 860px; margin: 0 auto; padding: 2rem; color: #1a1a1a; line-height: 1.6; }
+    h1 { font-size: 1.5rem; margin: 0 0 0.25rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin: 1.5rem 0 0.5rem; color: #333; }
+    h3 { font-size: 0.9rem; font-weight: 600; margin: 1.25rem 0 0.35rem; color: #444; }
+    .phase-meta { color: #666; font-size: 0.85rem; margin: 0 0 1.5rem; }
+    .description { background: #f0f7ff; border-left: 3px solid #0066cc; padding: 0.75rem 1rem; border-radius: 0 4px 4px 0; margin-bottom: 1.5rem; font-size: 0.9rem; }
+    .criteria ul { list-style: none; padding: 0; margin: 0; }
+    .criteria li { padding: 0.45rem 0.75rem; margin: 0.3rem 0; background: #fff; border: 1px solid #ddd; border-radius: 4px; font-size: 0.875rem; }
+    .criteria li.done { background: #f0fff4; border-color: #68d391; text-decoration: line-through; color: #666; }
+    .criteria li::before { content: '☐  '; color: #aaa; }
+    .criteria li.done::before { content: '☑  '; color: #38a169; }
+    .notes { margin-top: 1.5rem; font-size: 0.875rem; }
+    .notes p { margin: 0.5rem 0; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem; border-radius: 4px; overflow-x: auto; font-size: 0.78rem; line-height: 1.5; }
+    code { background: #eef2ff; color: #3730a3; padding: 0.1rem 0.3rem; border-radius: 2px; font-size: 0.85em; }
+    .warning { background: #fffbeb; border-left: 3px solid #f59e0b; padding: 0.6rem 0.9rem; border-radius: 0 4px 4px 0; margin: 1rem 0; font-size: 0.85rem; }
+    .banner-complete { background: #38a169; color: white; padding: 0.6rem 1rem; border-radius: 4px; margin-bottom: 1rem; font-weight: 600; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+
+<div style="background:#f0fdf4;border:1.5px solid #4ade80;border-radius:7px;padding:.65rem 1.1rem;margin-bottom:1.5rem;font-size:.9rem;color:#166534;font-weight:500;">
+  ✅ Phase complete — all criteria satisfied.
+</div>
+<h1>Phase 1: Box Score API Discovery &amp; Types</h1>
+<p class="phase-meta">Project: Players &amp; Player Seasons &nbsp;|&nbsp; Dependencies: none &nbsp;|&nbsp; All subsequent phases depend on this one</p>
+
+<div class="description">
+  Discover the exact shape of the NCAA box score API response for a real game. Create a test endpoint and
+  admin UI control to inspect raw data. Write TypeScript interfaces and a <code>fetchBoxScore()</code>
+  function in <code>src/lib/server/ncaa-api.ts</code>. Document the endpoint. Every field name in the
+  interfaces must be verified against an actual API response — do not guess field names.
+</div>
+
+<section class="criteria">
+  <h2>Completion Criteria</h2>
+  <ul>
+    <li class="done">New file <code>src/routes/api/scrape/test-boxscore/+server.ts</code> exists — GET endpoint accepting <code>?contestId=</code>, returning raw NCAA JSON</li>
+    <li class="done">Admin "API Test" tab has a "Box Score Test" sub-section with a contestId text input (default <code>6465168</code>), a "Fetch" button, and a raw JSON display pane</li>
+    <li class="done">Box score for <code>contestId=6465168</code> successfully fetched; the actual response JSON is observed and all field names confirmed</li>
+    <li class="done"><code>src/lib/server/ncaa-api.ts</code> exports <code>NcaaBoxScorePlayer</code> interface with all fields present in the API response (including exact camelCase field names)</li>
+    <li class="done"><code>src/lib/server/ncaa-api.ts</code> exports <code>NcaaBoxScoreTeam</code> and <code>NcaaBoxScore</code> interfaces with the correct data path to reach the teams array</li>
+    <li class="done"><code>src/lib/server/ncaa-api.ts</code> exports <code>fetchRawBoxScore(contestId: string): Promise&lt;unknown&gt;</code></li>
+    <li class="done"><code>src/lib/server/ncaa-api.ts</code> exports <code>fetchBoxScore(contestId: string): Promise&lt;NcaaBoxScore&gt;</code> extracting data via the confirmed response path</li>
+    <li class="done"><code>docs/ncaa-mens-soccer-api-endpoints.md</code> updated with endpoint #6 (<code>NCAA_GetGamecenterBoxscoreSoccerById_web</code>), including hash, variable table, and example response shape</li>
+  </ul>
+</section>
+
+<section class="notes">
+  <h2>Implementation Notes</h2>
+
+  <h3>Endpoint details</h3>
+  <p>The box score uses the same NCAA APQ pattern as existing endpoints. Full URL (ready to test):</p>
+  <pre>https://sdataprod.ncaa.com/?meta=NCAA_GetGamecenterBoxscoreSoccerById_web&extensions={"persistedQuery":{"version":1,"sha256Hash":"c9070c4e5a76468a4025896df89f8a7b22be8275c54a22ff79619cbb27d63d7d"}}&variables={"contestId":"6465168","staticTestEnv":null}</pre>
+  <p>
+    Hash: <code>c9070c4e5a76468a4025896df89f8a7b22be8275c54a22ff79619cbb27d63d7d</code><br>
+    Variable: <code>contestId</code> (string, not integer) — matches <code>games.ncaa_contest_id</code> in the DB.<br>
+    Always pass <code>staticTestEnv: null</code>.
+  </p>
+
+  <h3>New test endpoint: <code>src/routes/api/scrape/test-boxscore/+server.ts</code></h3>
+  <p>Follow the same pattern as the existing <code>/api/scrape/test/+server.ts</code>. Auth-gate with <code>safeGetSession()</code>.</p>
+  <pre>import { json, error } from '@sveltejs/kit';
+import type { RequestHandler } from './$types';
+import { fetchRawBoxScore } from '$lib/server/ncaa-api';
+
+export const GET: RequestHandler = async ({ url, locals }) => {
+  const { user } = await locals.safeGetSession();
+  if (!user) error(401, 'Unauthorized');
+
+  const contestId = url.searchParams.get('contestId');
+  if (!contestId) error(400, 'contestId is required');
+
+  const data = await fetchRawBoxScore(contestId);
+  return json(data);
+};</pre>
+
+  <h3>Admin UI: Box Score Test sub-section</h3>
+  <p>Add a second test block inside the existing "API Test" tab in <code>src/routes/admin/+page.svelte</code>,
+  below the contests test. Add Svelte 5 <code>$state</code> variables:</p>
+  <pre>let bsContestId = $state('6465168');
+let bsRunning   = $state(false);
+let bsRaw: unknown = $state(null);
+let bsError     = $state('');
+
+async function runBoxScoreTest() {
+  bsRunning = true; bsRaw = null; bsError = '';
+  try {
+    const res = await fetch(`/api/scrape/test-boxscore?contestId=${bsContestId}`);
+    if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+    bsRaw = await res.json();
+  } catch (e) {
+    bsError = e instanceof Error ? e.message : String(e);
+  } finally {
+    bsRunning = false;
+  }
+}</pre>
+  <p>Render with a label, text input bound to <code>bsContestId</code>, fetch button, error Alert, and JSON pre block — matching the visual style of the existing contests test block.</p>
+
+  <h3>TypeScript additions to <code>src/lib/server/ncaa-api.ts</code></h3>
+  <div class="warning">
+    <strong>Required step before writing interfaces:</strong> fetch the actual API response using the
+    test endpoint above and inspect every field. The interfaces below use placeholder field names.
+    Replace them with the exact camelCase names from the real response. Also confirm the data path
+    (e.g., <code>raw?.data?.contestByContestId</code> is a guess).
+  </div>
+  <p>Add after existing exports:</p>
+  <pre>const BOX_SCORE_HASH = 'c9070c4e5a76468a4025896df89f8a7b22be8275c54a22ff79619cbb27d63d7d';
+
+// Update all field names and types after inspecting the real API response
+export interface NcaaPlayerGameStats {
+  minutesPlayed?: number;
+  goals?: number;
+  assists?: number;
+  shots?: number;
+  shotsOnGoal?: number;
+  foulsCommitted?: number;
+  yellowCards?: number;
+  redCards?: number;
+  // Goalkeeper fields (null/absent for outfield players)
+  gkSaves?: number;
+  gkGoalsAgainst?: number;
+  gkShutouts?: number;
+  [key: string]: unknown; // safety net until all fields are named
+}
+
+export interface NcaaBoxScorePlayer {
+  playerId: string;       // stored as players.ncaa_player_id
+  uniformNumber?: string;
+  name: string;
+  position?: string;      // 'GK', 'D', 'M', 'F'
+  classYear?: string;     // 'FR', 'SO', 'JR', 'SR', 'GR'
+  stats: NcaaPlayerGameStats;
+}
+
+export interface NcaaBoxScoreTeam {
+  seoname: string;        // matches teams.ncaa_team_id
+  ncaaOrgId?: string;
+  players: NcaaBoxScorePlayer[];
+}
+
+export interface NcaaBoxScore {
+  teams: NcaaBoxScoreTeam[];
+}
+
+export async function fetchRawBoxScore(contestId: string): Promise&lt;unknown&gt; {
+  const url = new URL(GQL_HOST);
+  url.searchParams.set('meta', 'NCAA_GetGamecenterBoxscoreSoccerById_web');
+  url.searchParams.set('extensions', JSON.stringify({
+    persistedQuery: { version: 1, sha256Hash: BOX_SCORE_HASH }
+  }));
+  url.searchParams.set('variables', JSON.stringify({ contestId, staticTestEnv: null }));
+
+  const res = await fetch(url.toString(), {
+    headers: {
+      'Accept': 'application/json',
+      'User-Agent': 'Mozilla/5.0 (compatible; college-soccer-scraper/1.0)'
+    }
+  });
+  if (!res.ok) throw new Error(`NCAA box score API ${res.status} for contestId=${contestId}`);
+  return res.json();
+}
+
+export async function fetchBoxScore(contestId: string): Promise&lt;NcaaBoxScore&gt; {
+  const raw = await fetchRawBoxScore(contestId) as { data?: { contestByContestId?: NcaaBoxScore } };
+  // CONFIRM this path matches the actual API response before proceeding to Phase 3
+  const boxScore = raw?.data?.contestByContestId;
+  if (!boxScore) throw new Error(`No box score data for contestId=${contestId}`);
+  return boxScore;
+}</pre>
+
+  <h3>After confirming the response</h3>
+  <p>Once the real response is inspected:</p>
+  <ul>
+    <li>Replace all <code>?</code> optional markers with required fields where the API always returns them</li>
+    <li>Remove the <code>[key: string]: unknown</code> index signature once all real fields are named</li>
+    <li>Correct the data extraction path in <code>fetchBoxScore()</code></li>
+    <li>Note the confirmed field names in the API docs update</li>
+  </ul>
+</section>
+
+</body>
+</html>

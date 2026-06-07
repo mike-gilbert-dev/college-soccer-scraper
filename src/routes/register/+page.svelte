@@ -1,73 +1,62 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { Button, Input, Label, Alert } from 'flowbite-svelte';
 	import type { ActionData } from './$types';
 
 	let { form }: { form: ActionData } = $props();
 </script>
 
-<div class="auth-container">
-	<h1>Create account</h1>
+<div class="flex justify-center py-12 px-4">
+	<div class="w-full max-w-sm bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-6 flex flex-col gap-5">
+		<h1 class="text-base font-bold text-gray-900 dark:text-white">Create account</h1>
 
-	{#if form?.error}
-		<p class="error">{form.error}</p>
-	{/if}
+		{#if form?.error}
+			<Alert color="red" class="text-xs py-2">{form.error}</Alert>
+		{/if}
 
-	{#if form?.message}
-		<p class="success">{form.message}</p>
-	{/if}
+		{#if form?.message}
+			<Alert color="green" class="text-xs py-2">{form.message}</Alert>
+		{/if}
 
-	<form method="POST" use:enhance>
-		<label>
-			Email
-			<input type="email" name="email" required autocomplete="email" />
-		</label>
-		<label>
-			Password
-			<input type="password" name="password" required autocomplete="new-password" minlength="8" />
-		</label>
-		<button type="submit">Create account</button>
-	</form>
+		<form method="POST" use:enhance class="flex flex-col gap-4">
+			<div>
+				<Label for="email" class="mb-1 text-[11px] uppercase tracking-wider font-semibold text-gray-500 dark:text-gray-400">
+					Email
+				</Label>
+				<Input
+					id="email"
+					type="email"
+					name="email"
+					required
+					autocomplete="email"
+					size="sm"
+					class="text-sm"
+				/>
+			</div>
 
-	<p>Already have an account? <a href="/login">Sign in</a></p>
+			<div>
+				<Label for="password" class="mb-1 text-[11px] uppercase tracking-wider font-semibold text-gray-500 dark:text-gray-400">
+					Password
+					<span class="normal-case font-normal tracking-normal text-gray-400 dark:text-gray-500 ml-1">(min. 8 characters)</span>
+				</Label>
+				<Input
+					id="password"
+					type="password"
+					name="password"
+					required
+					autocomplete="new-password"
+					minlength={8}
+					size="sm"
+					class="text-sm"
+				/>
+			</div>
+
+			<Button type="submit" color="primary" size="sm" class="w-full mt-1">Create account</Button>
+		</form>
+
+		<p class="text-xs text-center text-gray-500 dark:text-gray-400">
+			Already have an account?
+			<a href="/login" class="text-primary-600 dark:text-primary-400 font-semibold hover:underline">Sign in</a>
+		</p>
+	</div>
 </div>
-
-<style>
-	.auth-container {
-		max-width: 360px;
-		margin: 4rem auto;
-		display: flex;
-		flex-direction: column;
-		gap: 1rem;
-	}
-	form {
-		display: flex;
-		flex-direction: column;
-		gap: 0.75rem;
-	}
-	label {
-		display: flex;
-		flex-direction: column;
-		gap: 0.25rem;
-		font-size: 0.9rem;
-	}
-	input {
-		padding: 0.5rem;
-		border: 1px solid #ccc;
-		border-radius: 4px;
-		font-size: 1rem;
-	}
-	button {
-		padding: 0.6rem;
-		background: #3b82f6;
-		color: white;
-		border: none;
-		border-radius: 4px;
-		font-size: 1rem;
-		cursor: pointer;
-	}
-	button:hover {
-		background: #2563eb;
-	}
-	.error { color: #dc2626; font-size: 0.9rem; }
-	.success { color: #16a34a; font-size: 0.9rem; }
-</style>
