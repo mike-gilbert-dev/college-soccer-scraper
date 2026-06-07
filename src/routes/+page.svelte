@@ -289,10 +289,10 @@
 						<div role="link" tabindex="0"
 							onclick={() => goto(gameHref(game.ncaa_contest_id))}
 							onkeydown={(e) => e.key === 'Enter' && goto(gameHref(game.ncaa_contest_id))}
-							class="px-3 py-2 space-y-0.5 hover:bg-gray-50 dark:hover:bg-gray-700/40 cursor-pointer">
+							class="px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700/40 cursor-pointer">
 
 							<!-- Header row: round/broadcaster left, status/time right -->
-							<div class="flex items-center justify-between gap-2">
+							<div class="flex items-center justify-between gap-2 mb-1.5">
 								<div class="flex items-center gap-1.5 min-w-0 text-[10px]">
 									{#if game.round_description}
 										<span class="font-semibold text-primary-600 dark:text-primary-400 uppercase tracking-wide">{game.round_description}</span>
@@ -319,13 +319,13 @@
 							<div class="flex items-center justify-between gap-2">
 								<a href={away?.team.ncaa_team_id ? teamHref(away.team.ncaa_team_id) : '#'}
 									onclick={(e) => e.stopPropagation()}
-									class="flex items-center gap-1.5 min-w-0 text-xs hover:underline
+									class="flex items-center gap-2 min-w-0 text-xs hover:underline
 										{awayWon ? 'font-bold text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400'}">
-									<TeamLogo lightUrl={away?.team.logo_url_light} darkUrl={away?.team.logo_url_dark} name={away?.team.name ?? ''} size={24} />
+									<TeamLogo lightUrl={away?.team.logo_url_light} darkUrl={away?.team.logo_url_dark} name={away?.team.name ?? ''} size={32} />
 									<span class="truncate">{away?.team.name ?? '—'}</span>
 								</a>
 								{#if game.away_score != null}
-									<span class="text-xs font-bold tabular-nums shrink-0
+									<span class="text-base font-bold tabular-nums shrink-0
 										{awayWon ? 'text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'}">
 										{game.away_score}
 									</span>
@@ -333,12 +333,12 @@
 							</div>
 
 							<!-- Home row -->
-							<div class="flex items-center justify-between gap-2">
+							<div class="flex items-center justify-between gap-2 mt-2">
 								<a href={home?.team.ncaa_team_id ? teamHref(home.team.ncaa_team_id) : '#'}
 									onclick={(e) => e.stopPropagation()}
-									class="flex items-center gap-1.5 min-w-0 text-xs hover:underline
+									class="flex items-center gap-2 min-w-0 text-xs hover:underline
 										{homeWon ? 'font-bold text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400'}">
-									<TeamLogo lightUrl={home?.team.logo_url_light} darkUrl={home?.team.logo_url_dark} name={home?.team.name ?? ''} size={24} />
+									<TeamLogo lightUrl={home?.team.logo_url_light} darkUrl={home?.team.logo_url_dark} name={home?.team.name ?? ''} size={32} />
 									<span class="truncate">
 										{home?.team.name ?? '—'}
 										{#if !game.neutral_site}
@@ -347,7 +347,7 @@
 									</span>
 								</a>
 								{#if game.home_score != null}
-									<span class="text-xs font-bold tabular-nums shrink-0
+									<span class="text-base font-bold tabular-nums shrink-0
 										{homeWon ? 'text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'}">
 										{game.home_score}
 									</span>

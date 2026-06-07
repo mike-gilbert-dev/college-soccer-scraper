@@ -43,10 +43,10 @@ export const load: PageServerLoad = async ({ params, url }) => {
 			home_team_season_id,
 			away_team_season_id,
 			home_team_season:team_seasons!home_team_season_id(
-				team:teams(ncaa_team_id, name)
+				team:teams(ncaa_team_id, name, logo_url_dark, logo_url_light, team_color)
 			),
 			away_team_season:team_seasons!away_team_season_id(
-				team:teams(ncaa_team_id, name)
+				team:teams(ncaa_team_id, name, logo_url_dark, logo_url_light, team_color)
 			)
 		`)
 		.eq('ncaa_contest_id', params.ncaa_contest_id)
@@ -116,8 +116,9 @@ export const load: PageServerLoad = async ({ params, url }) => {
 	const homeStats = allStats.filter(s => s.team_season_id === game.home_team_season_id);
 	const awayStats = allStats.filter(s => s.team_season_id === game.away_team_season_id);
 
-	const homeTeam = (game.home_team_season as unknown as { team: { ncaa_team_id: string; name: string } } | null)?.team ?? null;
-	const awayTeam = (game.away_team_season as unknown as { team: { ncaa_team_id: string; name: string } } | null)?.team ?? null;
+	type GameTeam = { ncaa_team_id: string; name: string; logo_url_dark: string | null; logo_url_light: string | null; team_color: string | null };
+	const homeTeam = (game.home_team_season as unknown as { team: GameTeam } | null)?.team ?? null;
+	const awayTeam = (game.away_team_season as unknown as { team: GameTeam } | null)?.team ?? null;
 
 	return {
 		game: {

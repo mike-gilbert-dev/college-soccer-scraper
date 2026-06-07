@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Table, TableHead, TableHeadCell, TableBody, TableBodyRow, TableBodyCell } from 'flowbite-svelte';
+	import TeamLogo from '$lib/components/TeamLogo.svelte';
 	import type { PageData } from './$types';
 	import type { PlayerStat } from './+page.server';
 
@@ -12,6 +13,11 @@
 	const division   = $derived(data.division);
 	const seasonYear = $derived(data.seasonYear);
 	const fromTeam   = $derived(data.fromTeam);
+
+	// Start on the tab for the team the user came from; default to away
+	let activeTab = $state<'away' | 'home'>(
+		data.fromTeam === data.homeTeam?.ncaa_team_id ? 'home' : 'away'
+	);
 
 	const posOrder: Record<string, number> = { GK: 0, D: 1, M: 2, F: 3 };
 
@@ -52,9 +58,9 @@
 	);
 
 	const backLabel = $derived(
-		fromTeam && (fromTeam === homeTeam?.ncaa_team_id ? homeTeam?.name : awayTeam?.name)
-			? (fromTeam === homeTeam?.ncaa_team_id ? homeTeam?.name : awayTeam?.name)
-			: 'Teams'
+		fromTeam === homeTeam?.ncaa_team_id ? homeTeam?.name
+		: fromTeam === awayTeam?.ncaa_team_id ? awayTeam?.name
+		: 'Teams'
 	);
 
 	const statusLabel = $derived(
@@ -65,79 +71,130 @@
 </script>
 
 <div class="space-y-6 max-w-4xl">
-	<!-- Breadcrumb -->
-	<div>
-		<a href={backHref}
-			class="text-xs text-gray-500 dark:text-gray-400 hover:text-primary-500 dark:hover:text-primary-400 mb-3 block">
-			← {backLabel}
-		</a>
+	<!-- Back link -->
+	<a href={backHref}
+		class="text-xs text-gray-500 dark:text-gray-400 hover:text-primary-500 dark:hover:text-primary-400 block">
+		← {backLabel}
+	</a>
 
-		<!-- Game header -->
-		<div class="rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
-			<p class="text-xs text-gray-500 dark:text-gray-400 mb-3">{formatDate(game.contest_date)}</p>
+	<!-- Game header -->
+	<div class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-5 pt-4 pb-5">
+		<p class="text-xs text-gray-500 dark:text-gray-400 mb-4">{formatDate(game.contest_date)}</p>
 
-			<div class="flex items-center justify-between gap-4">
-				<!-- Away team -->
-				<div class="flex-1 text-right">
+		<div class="flex items-center gap-4">
+			<!-- Away team -->
+			<div class="flex-1 flex items-center justify-end gap-3 min-w-0">
+				<div class="text-right min-w-0">
 					{#if awayTeam}
 						<a href={teamHref(awayTeam.ncaa_team_id)}
-							class="text-base font-semibold text-gray-900 dark:text-white hover:text-primary-500 dark:hover:text-primary-400">
+							class="text-sm font-semibold text-gray-900 dark:text-white hover:text-primary-500 dark:hover:text-primary-400 block truncate">
 							{awayTeam.name}
 						</a>
 					{:else}
-						<span class="text-base font-semibold text-gray-900 dark:text-white">Away</span>
+						<span class="text-sm font-semibold text-gray-900 dark:text-white">Away</span>
 					{/if}
-					<p class="text-xs text-gray-400 dark:text-gray-500">Away</p>
+					<p class="text-[11px] text-gray-400 dark:text-gray-500">Away</p>
 				</div>
+				{#if awayTeam?.logo_url_dark || awayTeam?.logo_url_light}
+					<div class="shrink-0 w-10 h-10 flex items-center justify-center">
+						<TeamLogo
+							lightUrl={awayTeam.logo_url_light}
+							darkUrl={awayTeam.logo_url_dark}
+							name={awayTeam.name}
+							size={40}
+						/>
+					</div>
+				{/if}
+			</div>
 
-				<!-- Score -->
-				<div class="text-center shrink-0">
-					{#if game.home_score != null && game.away_score != null}
-						<p class="text-2xl font-bold font-mono text-gray-900 dark:text-white tracking-wider">
-							{game.away_score} – {game.home_score}
-						</p>
-					{:else}
-						<p class="text-2xl font-bold text-gray-400">vs</p>
-					{/if}
-					<p class="text-xs text-gray-500 dark:text-gray-400 mt-1">{statusLabel}</p>
-				</div>
+			<!-- Score -->
+			<div class="text-center shrink-0 px-2">
+				{#if game.home_score != null && game.away_score != null}
+					<p class="text-2xl font-bold font-mono text-gray-900 dark:text-white tracking-wider">
+						{game.away_score} – {game.home_score}
+					</p>
+				{:else}
+					<p class="text-2xl font-bold text-gray-400">vs</p>
+				{/if}
+				<p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{statusLabel}</p>
+			</div>
 
-				<!-- Home team -->
-				<div class="flex-1 text-left">
+			<!-- Home team -->
+			<div class="flex-1 flex items-center gap-3 min-w-0">
+				{#if homeTeam?.logo_url_dark || homeTeam?.logo_url_light}
+					<div class="shrink-0 w-10 h-10 flex items-center justify-center">
+						<TeamLogo
+							lightUrl={homeTeam.logo_url_light}
+							darkUrl={homeTeam.logo_url_dark}
+							name={homeTeam.name}
+							size={40}
+						/>
+					</div>
+				{/if}
+				<div class="text-left min-w-0">
 					{#if homeTeam}
 						<a href={teamHref(homeTeam.ncaa_team_id)}
-							class="text-base font-semibold text-gray-900 dark:text-white hover:text-primary-500 dark:hover:text-primary-400">
+							class="text-sm font-semibold text-gray-900 dark:text-white hover:text-primary-500 dark:hover:text-primary-400 block truncate">
 							{homeTeam.name}
 						</a>
 					{:else}
-						<span class="text-base font-semibold text-gray-900 dark:text-white">Home</span>
+						<span class="text-sm font-semibold text-gray-900 dark:text-white">Home</span>
 					{/if}
-					<p class="text-xs text-gray-400 dark:text-gray-500">Home</p>
+					<p class="text-[11px] text-gray-400 dark:text-gray-500">Home</p>
 				</div>
 			</div>
 		</div>
 	</div>
 
-	<!-- Player stats tables -->
+	<!-- Player stats -->
 	{#if data.homeStats.length === 0 && data.awayStats.length === 0}
 		<p class="text-sm text-gray-500 dark:text-gray-400">
 			No player stats for this game yet. Run the backfill with "Include player stats" to populate.
 		</p>
 	{:else}
-		{#each [{ team: awayTeam, stats: sortedAway, label: 'Away' }, { team: homeTeam, stats: sortedHome, label: 'Home' }] as side}
-			<div>
-				<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-					{#if side.team}
-						<a href={teamHref(side.team.ncaa_team_id)}
-							class="hover:text-primary-500 dark:hover:text-primary-400">
-							{side.team.name}
-						</a>
-					{:else}
-						{side.label}
+		<!-- Team tabs -->
+		<div class="flex rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700">
+			{#each [
+				{ side: 'away' as const, team: awayTeam, count: sortedAway.length },
+				{ side: 'home' as const, team: homeTeam, count: sortedHome.length }
+			] as t}
+				{@const isActive = activeTab === t.side}
+				{@const hasColor = isActive && !!t.team?.team_color}
+				<button
+					class="flex-1 flex items-center justify-center gap-2.5 px-4 py-3 text-sm font-medium transition-colors
+						{isActive
+							? hasColor ? 'text-white' : 'bg-gray-900 dark:bg-white text-white dark:text-gray-900'
+							: 'bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-750'}"
+					style={hasColor ? `background-color: ${t.team!.team_color};` : ''}
+					onclick={() => (activeTab = t.side)}
+				>
+					{#if t.team?.logo_url_dark || t.team?.logo_url_light}
+						<span class="shrink-0 w-7 h-7 flex items-center justify-center">
+							<TeamLogo
+								lightUrl={hasColor ? null : (t.team?.logo_url_light ?? null)}
+								darkUrl={t.team?.logo_url_dark ?? t.team?.logo_url_light ?? null}
+								name={t.team?.name ?? ''}
+								size={28}
+							/>
+						</span>
 					{/if}
-				</h2>
+					<span class="truncate">{t.team?.name ?? (t.side === 'away' ? 'Away' : 'Home')}</span>
+					{#if t.count > 0}
+						<span class="text-[11px] shrink-0 {hasColor ? 'text-white/60' : 'text-gray-400 dark:text-gray-500'}">
+							{t.count}
+						</span>
+					{/if}
+				</button>
+			{/each}
+		</div>
 
-				{#if side.stats.length === 0}
+		<!-- Active team's stats table -->
+		{#each [
+			{ side: 'away' as const, stats: sortedAway },
+			{ side: 'home' as const, stats: sortedHome }
+		] as t}
+			{#if activeTab === t.side}
+				{#if t.stats.length === 0}
 					<p class="text-xs text-gray-500 dark:text-gray-400">No stats recorded for this team.</p>
 				{:else}
 					<div class="overflow-x-auto rounded border border-gray-200 dark:border-gray-700">
@@ -160,7 +217,7 @@
 								<TableHeadCell class="py-2 text-right">ShO</TableHeadCell>
 							</TableHead>
 							<TableBody>
-								{#each side.stats as p}
+								{#each t.stats as p}
 									<TableBodyRow>
 										<TableBodyCell class="py-1.5 text-gray-500">{p.jersey_number ?? '—'}</TableBodyCell>
 										<TableBodyCell class="py-1.5 font-medium">
@@ -181,14 +238,14 @@
 										<TableBodyCell class="py-1.5 text-right">{p.red_cards || '—'}</TableBodyCell>
 										<TableBodyCell class="py-1.5 text-right">{dash(p.gk_saves)}</TableBodyCell>
 										<TableBodyCell class="py-1.5 text-right">{dash(p.gk_goals_against)}</TableBodyCell>
-										<TableBodyCell class="py-1.5 text-right">{p.gk_shutout === true ? '✓' : p.gk_shutout === false ? '—' : '—'}</TableBodyCell>
+										<TableBodyCell class="py-1.5 text-right">{p.gk_shutout === true ? '✓' : '—'}</TableBodyCell>
 									</TableBodyRow>
 								{/each}
 							</TableBody>
 						</Table>
 					</div>
 				{/if}
-			</div>
+			{/if}
 		{/each}
 	{/if}
 </div>

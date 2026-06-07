@@ -5,7 +5,8 @@
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
-
+	console.log('data', data);
+	
 	const team           = $derived(data.team);
 	const teamSeason     = $derived(data.teamSeason);
 	const conferenceName = $derived(data.conferenceName);
@@ -85,45 +86,53 @@
 </script>
 
 <div class="space-y-6">
-	<!-- Header row -->
-	<div class="flex items-start justify-between gap-4">
-		<div>
+	<!-- Team header card — colored background when team_color is available -->
+	<div
+		class="rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 {!team.team_color ? 'bg-white dark:bg-gray-800' : ''}"
+		style={team.team_color ? `background-color: ${team.team_color}` : ''}
+	>
+		<!-- Back link -->
+		<div class="px-4 pt-3 pb-1">
 			<a href="/teams?sport={sport}&division={division}&season={seasonYear}"
-				class="text-xs text-gray-500 dark:text-gray-400 hover:text-primary-500 dark:hover:text-primary-400 mb-2 block">
+				class="text-xs {team.team_color ? 'text-white/70 hover:text-white' : 'text-gray-500 dark:text-gray-400 hover:text-primary-500 dark:hover:text-primary-400'}">
 				← Teams
 			</a>
-			<div class="flex items-center gap-3">
+		</div>
+
+		<!-- Logo + name + season selector -->
+		<div class="px-4 pb-4 flex items-center justify-between gap-4">
+			<div class="flex items-center gap-4">
 				{#if team.logo_url_dark || team.logo_url_light}
-					<div class="w-12 h-12 shrink-0 flex items-center justify-center">
+					<div class="w-14 h-14 shrink-0 flex items-center justify-center">
 						<TeamLogo
-							lightUrl={team.logo_url_light}
-							darkUrl={team.logo_url_dark}
+							lightUrl={team.team_color ? null : team.logo_url_light}
+							darkUrl={team.logo_url_dark ?? team.logo_url_light}
 							name={team.name}
-							size={48}
+							size={56}
 						/>
 					</div>
 				{/if}
 				<div>
-					<h1 class="text-lg font-bold text-gray-900 dark:text-white">{team.name}</h1>
+					<h1 class="text-lg font-bold {team.team_color ? 'text-white' : 'text-gray-900 dark:text-white'}">{team.name}</h1>
 					{#if conferenceName}
-						<p class="text-xs text-gray-500 dark:text-gray-400">{conferenceName}</p>
+						<p class="text-xs {team.team_color ? 'text-white/75' : 'text-gray-500 dark:text-gray-400'}">{conferenceName}</p>
 					{/if}
 				</div>
 			</div>
-		</div>
 
-		<!-- Season selector -->
-		<div class="shrink-0">
-			<p class="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-1">Season</p>
-			<select
-				class="text-xs bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-600 rounded px-2 py-1"
-				value={seasonYear}
-				onchange={(e) => navigateSeason(parseInt((e.target as HTMLSelectElement).value))}
-			>
-				{#each seasons as y}
-					<option value={y}>{y}</option>
-				{/each}
-			</select>
+			<!-- Season selector -->
+			<div class="shrink-0">
+				<p class="text-[10px] font-semibold uppercase tracking-wider mb-1 {team.team_color ? 'text-white/70' : 'text-gray-500 dark:text-gray-400'}">Season</p>
+				<select
+					class="text-xs border rounded px-2 py-1 {team.team_color ? 'bg-white/20 text-white border-white/30' : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-600'}"
+					value={seasonYear}
+					onchange={(e) => navigateSeason(parseInt((e.target as HTMLSelectElement).value))}
+				>
+					{#each seasons as y}
+						<option value={y}>{y}</option>
+					{/each}
+				</select>
+			</div>
 		</div>
 	</div>
 

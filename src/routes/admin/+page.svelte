@@ -14,6 +14,7 @@
 	let limit       = $state(30);
 	let running            = $state(false);
 	let includePlayerStats = $state(false);
+	let captureTeamColors  = $state(true);
 	let result: {
 		processed: number;
 		gamesUpserted: number;
@@ -40,7 +41,8 @@
 					division,
 					sportCode,
 					limit,
-					includePlayerStats
+					includePlayerStats,
+					captureTeamColors
 				})
 			});
 			if (!res.ok) {
@@ -315,11 +317,19 @@
 						<Input id="limit" type="number" size="sm" min={1} max={90} bind:value={limit} />
 					</div>
 					<div class="col-span-2 flex items-center gap-2 pt-1">
+						<input id="captureTeamColors" type="checkbox" bind:checked={captureTeamColors}
+							class="w-3.5 h-3.5 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+						<label for="captureTeamColors" class="text-xs text-gray-700 dark:text-gray-300 cursor-pointer select-none">
+							Capture team colors
+							<span class="text-gray-400">(1 box score call per final game)</span>
+						</label>
+					</div>
+					<div class="col-span-2 flex items-center gap-2">
 						<input id="includePlayerStats" type="checkbox" bind:checked={includePlayerStats}
 							class="w-3.5 h-3.5 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
 						<label for="includePlayerStats" class="text-xs text-gray-700 dark:text-gray-300 cursor-pointer select-none">
 							Include player stats
-							<span class="text-gray-400">(slower — 1 box score call per final game; use limit ≤ 10)</span>
+							<span class="text-gray-400">(slower — use limit ≤ 10)</span>
 						</label>
 					</div>
 				</div>

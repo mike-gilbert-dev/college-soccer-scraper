@@ -8,7 +8,8 @@ import {
 	dateRange,
 	sleep,
 	syntheticPlayerId,
-	type NcaaContestTeam
+	type NcaaContestTeam,
+	type NcaaBoxScore
 } from '$lib/server/ncaa-api';
 import { supabaseAdmin } from '$lib/server/supabase-admin';
 
@@ -27,7 +28,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		division = 1,
 		sportCode = 'MSO',
 		limit = 30,
-		includePlayerStats = false
+		includePlayerStats = false,
+		captureTeamColors = false
 	} = body as {
 		startDate: string;
 		endDate: string;
@@ -36,7 +38,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		sportCode?: string;
 		limit?: number;
 		includePlayerStats?: boolean;
+		captureTeamColors?: boolean;
 	};
+
+	// Fetch a box score for any final game when either flag is set.
+	const needsBoxScore = includePlayerStats || captureTeamColors;
 
 	if (!startDate || !endDate) {
 		error(400, 'startDate and endDate are required (YYYY-MM-DD)');
@@ -122,16 +128,29 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		return teamSeason?.id ?? null;
 	}
 
-	// Fetch box score and upsert player data for a single game.
+	// Update team_color for any teams in the box score that don't have one yet.
+	async function captureTeamColorsFromBoxScore(boxScore: NcaaBoxScore): Promise<void> {
+		await Promise.all(
+			boxScore.teams
+				.filter(t => t.color)
+				.map(t =>
+					supabaseAdmin
+						.from('teams')
+						.update({ team_color: t.color })
+						.eq('ncaa_team_id', t.seoname)
+						.is('team_color', null)
+				)
+		);
+	}
+
+	// Upsert player data for a single game using an already-fetched box score.
 	async function upsertPlayerGameStats(
-		contestId: string,
+		boxScore: NcaaBoxScore,
 		gameDbId: number,
 		homeTeamSeasonId: number,
 		awayTeamSeasonId: number
 	): Promise<{ playersUpserted: number; statsUpserted: number }> {
 		const p = (s: string) => parseInt(s || '0', 10) || 0;
-
-		const boxScore = await fetchBoxScore(contestId);
 		let playersUpserted = 0;
 		let statsUpserted = 0;
 
@@ -282,21 +301,21 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 				if (!gameErr) results.gamesUpserted++;
 
-				// Optionally fetch player box score for final games.
-				if (
-					includePlayerStats &&
-					gameRow &&
-					normalizeStatus(contest.statusCodeDisplay) === 'final'
-				) {
+				// Fetch box score for final games when colors or player stats are requested.
+				if (needsBoxScore && gameRow && normalizeStatus(contest.statusCodeDisplay) === 'final') {
 					try {
-						const { playersUpserted, statsUpserted } = await upsertPlayerGameStats(
-							String(contest.contestId),
-							gameRow.id,
-							homeTeamSeasonId,
-							awayTeamSeasonId
-						);
-						results.playersUpserted += playersUpserted;
-						results.playerStatsUpserted += statsUpserted;
+						const boxScore = await fetchBoxScore(String(contest.contestId));
+						await captureTeamColorsFromBoxScore(boxScore);
+						if (includePlayerStats) {
+							const { playersUpserted, statsUpserted } = await upsertPlayerGameStats(
+								boxScore,
+								gameRow.id,
+								homeTeamSeasonId,
+								awayTeamSeasonId
+							);
+							results.playersUpserted += playersUpserted;
+							results.playerStatsUpserted += statsUpserted;
+						}
 					} catch (e) {
 						const msg = e instanceof Error ? e.message : String(e);
 						results.errors.push({
