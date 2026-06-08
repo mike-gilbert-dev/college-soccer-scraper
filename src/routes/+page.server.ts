@@ -9,32 +9,29 @@ function seasonBounds(year: number) {
 export const load: PageServerLoad = async ({ url, locals }) => {
 	const supabase = locals.supabase;
 
-	const today      = new Date().toISOString().slice(0, 10);
-	const gender     = url.searchParams.get('gender') ?? 'M';
-	const division   = parseInt(url.searchParams.get('division') ?? '1');
-	const seasonYear = parseInt(url.searchParams.get('season') ?? '2025');
-	const sportCode  = gender === 'W' ? 'WSO' : 'MSO';
-
-	const bounds = seasonBounds(seasonYear);
+	const today       = new Date().toISOString().slice(0, 10);
+	const gender      = url.searchParams.get('gender') ?? 'M';
+	const division    = parseInt(url.searchParams.get('division') ?? '1');
+	const seasonParam = url.searchParams.get('season');
+	const sportCode   = gender === 'W' ? 'WSO' : 'MSO';
 
 	// Determine the best default date for this season.
-	// Falls back to hardcoded bounds so the calendar always shows the right year
-	// even if the seasons table isn't reachable.
 	function defaultDate(startDate: string, endDate: string): string {
 		const rawDate = url.searchParams.get('date');
 		if (rawDate && rawDate >= startDate && rawDate <= endDate) return rawDate;
-		// Clamp: past season → last day, current → today, future → first day
 		if (today > endDate)   return endDate;
 		if (today < startDate) return startDate;
 		return today;
 	}
 
-	const { data: season } = await supabase
-		.from('seasons')
-		.select('id, start_date, end_date')
-		.eq('year', seasonYear)
-		.single();
+	const seasonBase = supabase.from('seasons').select('id, label, start_date, end_date');
+	const { data: season } = await (seasonParam
+		? seasonBase.eq('label', seasonParam).single()
+		: seasonBase.order('start_date', { ascending: false }).limit(1).single());
 
+	const seasonLabel = season?.label ?? seasonParam ?? '';
+
+	const bounds    = seasonBounds(parseInt(seasonLabel) || 2025);
 	const startDate = season?.start_date ?? bounds.start;
 	const endDate   = season?.end_date   ?? bounds.end;
 	const contestDate = defaultDate(startDate, endDate);
@@ -46,7 +43,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 			availableDates: [] as string[],
 			gender,
 			division,
-			seasonYear,
+			seasonLabel,
 			seasonStartDate: startDate,
 			seasonEndDate:   endDate
 		};
@@ -104,7 +101,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 		availableDates,
 		gender,
 		division,
-		seasonYear,
+		seasonLabel,
 		seasonStartDate: startDate,
 		seasonEndDate:   endDate
 	};

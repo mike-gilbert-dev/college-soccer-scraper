@@ -24,7 +24,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	const {
 		startDate,
 		endDate,
-		seasonYear = 2025,
+		seasonLabel = '2025',
 		division = 1,
 		sportCode = 'MSO',
 		limit = 30,
@@ -33,7 +33,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	} = body as {
 		startDate: string;
 		endDate: string;
-		seasonYear?: number;
+		seasonLabel?: string;
 		division?: number;
 		sportCode?: string;
 		limit?: number;
@@ -50,16 +50,16 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 	const { data: season, error: seasonErr } = await supabaseAdmin
 		.from('seasons')
-		.upsert(
-			{ year: seasonYear, start_date: `${seasonYear}-08-01`, end_date: `${seasonYear}-12-15` },
-			{ onConflict: 'year' }
-		)
-		.select('id')
+		.select('id, start_date')
+		.eq('label', seasonLabel)
 		.single();
 
 	if (seasonErr || !season) {
-		error(500, `Failed to upsert season ${seasonYear}: ${seasonErr?.message}`);
+		error(400, `Season "${seasonLabel}" not found`);
 	}
+
+	// Derive the year for the NCAA API from the season's start date.
+	const seasonYear = parseInt(season.start_date.slice(0, 4));
 
 	const results = {
 		processed: 0,

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { Table, TableHead, TableHeadCell, TableBody, TableBodyRow, TableBodyCell } from 'flowbite-svelte';
+	import { Table, TableHead, TableHeadCell, TableBody, TableBodyRow, TableBodyCell, Dropdown, DropdownItem } from 'flowbite-svelte';
 	import TeamLogo from '$lib/components/TeamLogo.svelte';
 	import type { PageData } from './$types';
 
@@ -9,7 +9,8 @@
 
 	const sport        = $derived(data.sport);
 	const division     = $derived(data.division);
-	const seasonYear   = $derived(data.seasonYear);
+	const seasonLabel  = $derived(data.seasonLabel);
+	const seasons      = $derived(data.seasons);
 	const teams        = $derived(data.teams);
 	const conferences  = $derived(data.conferences);
 
@@ -26,20 +27,22 @@
 	);
 
 
-	const seasons = [2025, 2024];
-
 	function navigate(overrides: Record<string, string | number> = {}) {
 		const sp = new URLSearchParams({
 			sport:    sport,
 			division: String(division),
-			season:   String(seasonYear),
+			season:   seasonLabel,
 			...Object.fromEntries(Object.entries(overrides).map(([k, v]) => [k, String(v)]))
 		});
 		goto(`/teams?${sp}`);
 	}
 
+	function navigateSeason(label: string) {
+		navigate({ season: label });
+	}
+
 	function teamHref(ncaaTeamId: string) {
-		return `/teams/${ncaaTeamId}?sport=${sport}&division=${division}&season=${seasonYear}`;
+		return `/teams/${ncaaTeamId}?sport=${sport}&division=${division}&season=${seasonLabel}`;
 	}
 
 	function sign(n: number) {
@@ -50,8 +53,8 @@
 	const divisionLabel = $derived(division === 1 ? 'DI' : division === 2 ? 'DII' : 'DIII');
 	const genderLabel = $derived(sport === 'WSO' ? "Women's" : "Men's");
 	const canonicalUrl = $derived(`${page.url.origin}${page.url.pathname}`);
-	const pageTitle = $derived(`NCAA ${genderLabel} ${divisionLabel} Soccer Teams — ${seasonYear} | CollegeSoccer.IO`);
-	const pageDesc = $derived(`NCAA ${genderLabel.toLowerCase()} ${divisionLabel} college soccer team standings and records for the ${seasonYear} season.`);
+	const pageTitle = $derived(`NCAA ${genderLabel} ${divisionLabel} Soccer Teams — ${seasonLabel} | CollegeSoccer.IO`);
+	const pageDesc = $derived(`NCAA ${genderLabel.toLowerCase()} ${divisionLabel} college soccer team standings and records for the ${seasonLabel} season.`);
 </script>
 
 <svelte:head>
@@ -87,15 +90,17 @@
 				{/each}
 			</div>
 			<!-- Season -->
-			<select
-				class="text-xs bg-transparent text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-600 rounded px-1.5 py-1"
-				value={seasonYear}
-				onchange={(e) => navigate({ season: parseInt((e.target as HTMLSelectElement).value) })}
+			<button
+				id="mob-season-teams"
+				class="text-xs text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-1.5 py-1 flex items-center gap-1"
 			>
-				{#each seasons as y}
-					<option value={y}>{y}</option>
+				{seasonLabel} <span class="text-gray-400 dark:text-gray-500 text-[10px]">▾</span>
+			</button>
+			<Dropdown triggeredBy="#mob-season-teams" placement="bottom-start" simple>
+				{#each seasons as s}
+					<DropdownItem onclick={() => navigateSeason(s.label)}>{s.label}</DropdownItem>
 				{/each}
-			</select>
+			</Dropdown>
 		</div>
 
 		<!-- Desktop: vertical sidebar -->
@@ -120,11 +125,11 @@
 				<p class="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-1">Season</p>
 				<select
 					class="w-full text-xs bg-transparent text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-600 rounded px-1.5 py-1"
-					value={seasonYear}
-					onchange={(e) => navigate({ season: parseInt((e.target as HTMLSelectElement).value) })}
+					value={seasonLabel}
+					onchange={(e) => navigateSeason((e.target as HTMLSelectElement).value)}
 				>
-					{#each seasons as y}
-						<option value={y}>{y}</option>
+					{#each seasons as s}
+						<option value={s.label}>{s.label}</option>
 					{/each}
 				</select>
 			</div>
@@ -136,7 +141,7 @@
 		<!-- Panel header -->
 		<div class="flex items-center justify-between gap-3 px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
 			<h1 class="text-sm font-semibold text-gray-700 dark:text-gray-200 shrink-0">
-				{sport === 'WSO' ? "Women's" : "Men's"} Division {division} — {seasonYear}
+				{sport === 'WSO' ? "Women's" : "Men's"} Division {division} — {seasonLabel}
 			</h1>
 			{#if conferences.length > 0}
 				<select
@@ -164,7 +169,7 @@
 			<div class="overflow-x-auto">
 				<Table hoverable class="text-xs whitespace-nowrap">
 					<TableHead class="text-[11px] uppercase tracking-wide">
-						<TableHeadCell class="py-2 w-8 text-right">#</TableHeadCell>
+						<TableHeadCell class="py-2 w-px whitespace-nowrap text-right">#</TableHeadCell>
 						<TableHeadCell class="py-2">Team</TableHeadCell>
 						<TableHeadCell class="py-2 text-right">W</TableHeadCell>
 						<TableHeadCell class="py-2 text-right">L</TableHeadCell>
@@ -179,7 +184,7 @@
 					<TableBody>
 						{#each visibleTeams as row, i}
 							<TableBodyRow>
-								<TableBodyCell class="py-1.5 text-right text-gray-400 dark:text-gray-500 tabular-nums">{i + 1}</TableBodyCell>
+								<TableBodyCell class="py-1.5 w-px whitespace-nowrap text-right text-gray-400 dark:text-gray-500 tabular-nums">{i + 1}</TableBodyCell>
 								<TableBodyCell class="py-1.5 font-medium">
 									<a href={teamHref(row.team.ncaa_team_id)} class="flex items-center gap-2 hover:text-gray-900 dark:hover:text-white hover:underline">
 										<span class="shrink-0 w-5 h-5 flex items-center justify-center">

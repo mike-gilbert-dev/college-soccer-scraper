@@ -1,12 +1,13 @@
 <script lang="ts">
 	import { Button, Input, Label, Select, Alert, Badge, Table,
 		TableHead, TableHeadCell, TableBody, TableBodyRow, TableBodyCell } from 'flowbite-svelte';
+	import { invalidateAll } from '$app/navigation';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
 
 	// ── Sidebar navigation ──────────────────────────────────────
-	type ViewId = 'backfill' | 'missing-stats' | 'api-test' | 'logos' | 'data-overview' | 'scrape-log';
+	type ViewId = 'backfill' | 'missing-stats' | 'api-test' | 'logos' | 'data-overview' | 'scrape-log' | 'manage-seasons';
 
 	let activeView = $state<ViewId>('backfill');
 	let collapsed: Record<string, boolean> = $state({});
@@ -45,18 +46,25 @@
 				{ id: 'data-overview', label: 'Overview' },
 				{ id: 'scrape-log', label: 'Scrape Log' },
 			]
+		},
+		{
+			id: 'seasons',
+			label: 'Seasons',
+			tools: [
+				{ id: 'manage-seasons', label: 'Manage Seasons' },
+			]
 		}
 	];
 
 	// ── Backfill state ──────────────────────────────────────────
-	let startDate   = $state('2025-08-01');
-	let endDate     = $state('2025-12-15');
-	let seasonYear  = $state(2025);
-	let division    = $state(1);
+	let startDate       = $state((data.seasons as SeasonRow[])[0]?.start_date ?? '2025-08-01');
+	let endDate         = $state((data.seasons as SeasonRow[])[0]?.end_date   ?? '2025-12-15');
+	let backfillSeason  = $state((data.seasons as SeasonRow[])[0]?.label      ?? '');
+	let division        = $state(1);
 	let sportCode   = $state('MSO');
-	let limit       = $state(30);
+	let limit       = $state(1);
 	let running            = $state(false);
-	let includePlayerStats = $state(false);
+	let includePlayerStats = $state(true);
 	let captureTeamColors  = $state(true);
 	let result: {
 		processed: number;
@@ -80,7 +88,7 @@
 				body: JSON.stringify({
 					startDate: fromDate ?? startDate,
 					endDate,
-					seasonYear,
+					seasonLabel: backfillSeason,
 					division,
 					sportCode,
 					limit,
@@ -150,7 +158,7 @@
 	// ── Missing stats state ─────────────────────────────────────
 	let missSport    = $state('MSO');
 	let missDivision = $state(1);
-	let missSeason   = $state(2025);
+	let missSeason   = $state((data.seasons as SeasonRow[])[0]?.label ?? '');
 	let missDates: { contest_date: string; game_count: number }[] = $state([]);
 	let missChecked  = $state(false);
 	let missLoading  = $state(false);
@@ -188,7 +196,7 @@
 				body: JSON.stringify({
 					startDate: date,
 					endDate:   date,
-					seasonYear: missSeason,
+					seasonLabel: missSeason,
 					division:   missDivision,
 					sportCode:  missSport,
 					limit:      100,
@@ -291,6 +299,69 @@
 		if (s === 'error')   return 'red';
 		return 'gray';
 	}
+
+	// ── Seasons management ───────────────────────────────────────
+	type SeasonRow = { id: number; label: string; start_date: string; end_date: string };
+	const allSeasons = $derived(data.seasons as SeasonRow[]);
+
+	let seasonForm = $state({ label: '', start_date: '', end_date: '' });
+	let editingId: number | null = $state(null);
+	let seasonSaving = $state(false);
+	let seasonError  = $state('');
+
+	function startEdit(s: SeasonRow) {
+		editingId = s.id;
+		seasonForm = { label: s.label, start_date: s.start_date, end_date: s.end_date };
+		seasonError = '';
+	}
+
+	function cancelEdit() {
+		editingId = null;
+		seasonForm = { label: '', start_date: '', end_date: '' };
+		seasonError = '';
+	}
+
+	async function saveSeason() {
+		seasonSaving = true;
+		seasonError = '';
+		try {
+			const isEdit = editingId !== null;
+			const body = isEdit
+				? { id: editingId, ...seasonForm }
+				: seasonForm;
+			const res = await fetch('/api/seasons', {
+				method: isEdit ? 'PATCH' : 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(body)
+			});
+			if (!res.ok) throw new Error(await res.text());
+			cancelEdit();
+			await invalidateAll();
+		} catch (e) {
+			seasonError = e instanceof Error ? e.message : String(e);
+		} finally {
+			seasonSaving = false;
+		}
+	}
+
+	async function deleteSeason(id: number) {
+		if (!confirm('Delete this season? This cannot be undone.')) return;
+		seasonSaving = true;
+		seasonError = '';
+		try {
+			const res = await fetch('/api/seasons', {
+				method: 'DELETE',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ id })
+			});
+			if (!res.ok) throw new Error(await res.text());
+			await invalidateAll();
+		} catch (e) {
+			seasonError = e instanceof Error ? e.message : String(e);
+		} finally {
+			seasonSaving = false;
+		}
+	}
 </script>
 
 <div class="max-w-5xl mx-auto px-3 py-4">
@@ -354,11 +425,11 @@
 							<Input id="endDate" type="date" size="sm" bind:value={endDate} />
 						</div>
 						<div>
-							<Label for="seasonYear" class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-								Season year
+							<Label for="backfillSeason" class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+								Season
 							</Label>
-							<Select id="seasonYear" size="sm" bind:value={seasonYear}
-								items={[{ value: 2025, name: '2025' }, { value: 2024, name: '2024' }]}
+							<Select id="backfillSeason" size="sm" bind:value={backfillSeason}
+								items={allSeasons.map(s => ({ value: s.label, name: s.label }))}
 							/>
 						</div>
 						<div>
@@ -495,7 +566,7 @@
 								Season
 							</Label>
 							<Select size="sm" bind:value={missSeason}
-								items={[{ value: 2025, name: '2025' }, { value: 2024, name: '2024' }]}
+								items={allSeasons.map(s => ({ value: s.label, name: s.label }))}
 							/>
 						</div>
 					</div>
@@ -820,6 +891,95 @@
 								{/each}
 							</TableBody>
 						</Table>
+					{/if}
+				</div>
+
+			{:else if activeView === 'manage-seasons'}
+				<!-- ── Manage Seasons ─────────────────────────────── -->
+				<div class="space-y-4">
+					<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Manage Seasons</h2>
+
+					{#if seasonError}
+						<Alert color="red" class="text-xs">{seasonError}</Alert>
+					{/if}
+
+					<!-- Seasons table -->
+					{#if allSeasons.length === 0}
+						<p class="text-xs text-gray-500 dark:text-gray-400">No seasons found.</p>
+					{:else}
+						<div class="rounded border border-gray-200 dark:border-gray-700 overflow-hidden">
+							<table class="w-full text-xs">
+								<thead class="bg-gray-50 dark:bg-gray-900 text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
+									<tr>
+										<th class="text-left px-3 py-2 font-semibold">Label</th>
+										<th class="text-left px-3 py-2 font-semibold">Start</th>
+										<th class="text-left px-3 py-2 font-semibold">End</th>
+										<th class="px-3 py-2"></th>
+									</tr>
+								</thead>
+								<tbody class="divide-y divide-gray-100 dark:divide-gray-700">
+									{#each allSeasons as s}
+										{#if editingId === s.id}
+											<tr class="bg-primary-50 dark:bg-primary-900/10">
+												<td class="px-3 py-2">
+													<Input size="sm" bind:value={seasonForm.label} placeholder="e.g. 2026-2027" class="w-28" />
+												</td>
+												<td class="px-3 py-2">
+													<Input size="sm" type="date" bind:value={seasonForm.start_date} class="w-36" />
+												</td>
+												<td class="px-3 py-2">
+													<Input size="sm" type="date" bind:value={seasonForm.end_date} class="w-36" />
+												</td>
+												<td class="px-3 py-2">
+													<div class="flex gap-2">
+														<Button size="xs" color="primary" disabled={seasonSaving} onclick={saveSeason}>
+															{seasonSaving ? 'Saving…' : 'Save'}
+														</Button>
+														<Button size="xs" color="alternative" onclick={cancelEdit}>Cancel</Button>
+													</div>
+												</td>
+											</tr>
+										{:else}
+											<tr class="hover:bg-gray-50 dark:hover:bg-gray-700/30">
+												<td class="px-3 py-2 font-medium text-gray-800 dark:text-gray-200">{s.label}</td>
+												<td class="px-3 py-2 text-gray-500 dark:text-gray-400 font-mono">{s.start_date}</td>
+												<td class="px-3 py-2 text-gray-500 dark:text-gray-400 font-mono">{s.end_date}</td>
+												<td class="px-3 py-2">
+													<div class="flex gap-2">
+														<Button size="xs" color="alternative" onclick={() => startEdit(s)}>Edit</Button>
+														<Button size="xs" color="primary" disabled={seasonSaving} onclick={() => deleteSeason(s.id)}>Delete</Button>
+													</div>
+												</td>
+											</tr>
+										{/if}
+									{/each}
+								</tbody>
+							</table>
+						</div>
+					{/if}
+
+					<!-- Add new season form -->
+					{#if editingId === null}
+						<div class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-3">
+							<h3 class="text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">Add Season</h3>
+							<div class="flex flex-wrap gap-3 items-end">
+								<div>
+									<Label class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Label</Label>
+									<Input size="sm" bind:value={seasonForm.label} placeholder="e.g. 2026-2027" class="w-32" />
+								</div>
+								<div>
+									<Label class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Start Date</Label>
+									<Input size="sm" type="date" bind:value={seasonForm.start_date} class="w-36" />
+								</div>
+								<div>
+									<Label class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">End Date</Label>
+									<Input size="sm" type="date" bind:value={seasonForm.end_date} class="w-36" />
+								</div>
+								<Button size="sm" color="primary" disabled={seasonSaving} onclick={saveSeason}>
+									{seasonSaving ? 'Saving…' : 'Add Season'}
+								</Button>
+							</div>
+						</div>
 					{/if}
 				</div>
 

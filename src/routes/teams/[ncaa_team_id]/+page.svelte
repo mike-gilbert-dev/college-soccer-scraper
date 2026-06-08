@@ -13,7 +13,8 @@
 	const conferenceName = $derived(data.conferenceName);
 	const sport          = $derived(data.sport);
 	const division       = $derived(data.division);
-	const seasonYear     = $derived(data.seasonYear);
+	const seasonLabel    = $derived(data.seasonLabel);
+	const seasons        = $derived(data.seasons);
 
 	let activeTab = $state<'roster' | 'schedule'>('schedule');
 
@@ -38,17 +39,17 @@
 		return `hsl(${Math.round(hue * 360)}, ${Math.round(sat * 85)}%, ${Math.round(l * 70 * 100) / 100}%)`;
 	}
 
-	const seasons = [2025, 2024];
 	let seasonDropdownOpen = $state(false);
 
-	function navigateSeason(year: number) {
-		const sp = new URLSearchParams({ sport, division: String(division), season: String(year) });
+	function navigateSeason(label: string) {
+		const sp = new URLSearchParams({ sport, division: String(division), season: label });
 		goto(`/teams/${team.ncaa_team_id}?${sp}`);
+		seasonDropdownOpen = false;
 	}
 
 	const canonicalUrl = $derived(`${page.url.origin}${page.url.pathname}`);
-	const pageTitle = $derived(`${team.name} — ${seasonYear} Soccer Schedule & Roster | CollegeSoccer.IO`);
-	const pageDesc = $derived(`${team.name} ${seasonYear} NCAA soccer schedule, roster, and player stats.${conferenceName ? ` ${conferenceName}.` : ''}`);
+	const pageTitle = $derived(`${team.name} — ${seasonLabel} Soccer Schedule & Roster | CollegeSoccer.IO`);
+	const pageDesc = $derived(`${team.name} ${seasonLabel} NCAA soccer schedule, roster, and player stats.${conferenceName ? ` ${conferenceName}.` : ''}`);
 
 	const posOrder: Record<string, number> = { GK: 0, D: 1, M: 2, F: 3 };
 
@@ -62,11 +63,11 @@
 	);
 
 	function playerHref(ncaaPlayerId: string) {
-		return `/players/${ncaaPlayerId}?sport=${sport}&division=${division}&season=${seasonYear}`;
+		return `/players/${ncaaPlayerId}?sport=${sport}&division=${division}&season=${seasonLabel}`;
 	}
 
 	function gameHref(ncaaContestId: string) {
-		return `/games/${ncaaContestId}?sport=${sport}&division=${division}&season=${seasonYear}&from=${team.ncaa_team_id}`;
+		return `/games/${ncaaContestId}?sport=${sport}&division=${division}&season=${seasonLabel}&from=${team.ncaa_team_id}`;
 	}
 
 	function dash(v: number | null | undefined) {
@@ -135,7 +136,7 @@
 	>
 		<!-- Back link -->
 		<div class="px-4 pt-3 pb-1">
-			<a href="/teams?sport={sport}&division={division}&season={seasonYear}"
+			<a href="/teams?sport={sport}&division={division}&season={seasonLabel}"
 				class="text-xs {team.team_color ? 'text-white/70 hover:text-white' : 'text-gray-500 dark:text-gray-400 hover:text-primary-500 dark:hover:text-primary-400'}">
 				← Teams
 			</a>
@@ -166,15 +167,16 @@
 			<div class="shrink-0">
 				<p class="text-[10px] font-semibold uppercase tracking-wider mb-1 {team.team_color ? 'text-white/70' : 'text-gray-500 dark:text-gray-400'}">Season</p>
 				<button
+					onclick={() => (seasonDropdownOpen = !seasonDropdownOpen)}
 					class="flex items-center gap-1.5 text-xs border rounded px-2 py-1 {team.team_color ? 'bg-white/20 text-white border-white/30' : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-600'}"
 				>
-					{seasonYear}
+					{seasonLabel}
 					<ChevronDownOutline class="w-3 h-3 opacity-70 shrink-0" />
 				</button>
 				<Dropdown bind:isOpen={seasonDropdownOpen} placement="bottom-end">
-					{#each seasons as y}
-						<DropdownItem onclick={() => { navigateSeason(y); seasonDropdownOpen = false; }}>
-							{y}
+					{#each seasons as s}
+						<DropdownItem onclick={() => navigateSeason(s.label)}>
+							{s.label}
 						</DropdownItem>
 					{/each}
 				</Dropdown>
@@ -213,7 +215,7 @@
 	{#if activeTab === 'roster'}
 		{#if !teamSeason}
 			<p class="text-sm text-gray-500 dark:text-gray-400">
-				No team data found for the {seasonYear} season.
+				No team data found for the {seasonLabel} season.
 			</p>
 		{:else if sortedPlayers.length === 0}
 			<p class="text-sm text-gray-500 dark:text-gray-400">
@@ -268,7 +270,7 @@
 		{/if}
 	{:else}
 		{#if !teamSeason}
-			<p class="text-sm text-gray-500 dark:text-gray-400">No schedule data for the {seasonYear} season.</p>
+			<p class="text-sm text-gray-500 dark:text-gray-400">No schedule data for the {seasonLabel} season.</p>
 		{:else if data.schedule.length === 0}
 			<p class="text-sm text-gray-500 dark:text-gray-400">No games found. Run the backfill to populate.</p>
 		{:else}
@@ -294,7 +296,7 @@
 								</TableBodyCell>
 								<TableBodyCell class="py-1.5 font-medium">
 									{#if opp}
-										<a href="/teams/{opp.ncaa_team_id}?sport={sport}&division={division}&season={seasonYear}"
+										<a href="/teams/{opp.ncaa_team_id}?sport={sport}&division={division}&season={seasonLabel}"
 											class="inline-flex items-center gap-1.5 hover:underline">
 											{#if opp.logo_url_dark || opp.logo_url_light}
 												<TeamLogo

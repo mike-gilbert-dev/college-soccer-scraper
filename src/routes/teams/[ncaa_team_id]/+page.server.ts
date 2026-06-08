@@ -39,9 +39,9 @@ export type ScheduleGame = {
 };
 
 export const load: PageServerLoad = async ({ params, url }) => {
-	const sport      = url.searchParams.get('sport')    ?? 'MSO';
-	const division   = parseInt(url.searchParams.get('division') ?? '1', 10);
-	const seasonYear = parseInt(url.searchParams.get('season')   ?? '2025', 10);
+	const sport        = url.searchParams.get('sport')    ?? 'MSO';
+	const division     = parseInt(url.searchParams.get('division') ?? '1', 10);
+	const seasonParam  = url.searchParams.get('season');
 
 	const { data: team } = await supabaseAdmin
 		.from('teams')
@@ -51,13 +51,14 @@ export const load: PageServerLoad = async ({ params, url }) => {
 
 	if (!team) error(404, 'Team not found');
 
-	const { data: season } = await supabaseAdmin
-		.from('seasons')
-		.select('id')
-		.eq('year', seasonYear)
-		.single();
+	const seasonBase = supabaseAdmin.from('seasons').select('id, label');
+	const { data: season } = await (seasonParam
+		? seasonBase.eq('label', seasonParam).single()
+		: seasonBase.order('start_date', { ascending: false }).limit(1).single());
 
-	const empty = { team, teamSeason: null, conferenceName: null, players: [] as PlayerSeasonStat[], schedule: [] as ScheduleGame[], sport, division, seasonYear };
+	const seasonLabel = season?.label ?? seasonParam ?? '';
+
+	const empty = { team, teamSeason: null, conferenceName: null, players: [] as PlayerSeasonStat[], schedule: [] as ScheduleGame[], sport, division, seasonLabel };
 	if (!season) return empty;
 
 	const { data: ts } = await supabaseAdmin
@@ -106,6 +107,6 @@ export const load: PageServerLoad = async ({ params, url }) => {
 		schedule: (schedule ?? []) as unknown as ScheduleGame[],
 		sport,
 		division,
-		seasonYear
+		seasonLabel
 	};
 };

@@ -50,22 +50,23 @@ const VALID_PLAYER_SORT_KEYS = new Set([
 ]);
 
 export const load: PageServerLoad = async ({ url }) => {
-	const sport      = url.searchParams.get('sport')    ?? 'MSO';
-	const division   = parseInt(url.searchParams.get('division') ?? '1', 10);
-	const seasonYear = parseInt(url.searchParams.get('season')   ?? '2025', 10);
+	const sport        = url.searchParams.get('sport')    ?? 'MSO';
+	const division     = parseInt(url.searchParams.get('division') ?? '1', 10);
+	const seasonParam  = url.searchParams.get('season');
 
 	const rawSortBy  = url.searchParams.get('sortBy')  ?? 'goals';
 	const sortBy     = VALID_PLAYER_SORT_KEYS.has(rawSortBy) ? rawSortBy : 'goals';
 	const sortDir    = url.searchParams.get('sortDir') === 'asc' ? 'asc' : 'desc';
 
-	const { data: season } = await supabaseAdmin
-		.from('seasons')
-		.select('id')
-		.eq('year', seasonYear)
-		.single();
+	const seasonBase = supabaseAdmin.from('seasons').select('id, label');
+	const { data: season } = await (seasonParam
+		? seasonBase.eq('label', seasonParam).single()
+		: seasonBase.order('start_date', { ascending: false }).limit(1).single());
+
+	const seasonLabel = season?.label ?? seasonParam ?? '';
 
 	if (!season) {
-		return { playerStats: [] as PlayerStat[], teamStats: [] as TeamStat[], sport, division, seasonYear, sortBy, sortDir };
+		return { playerStats: [] as PlayerStat[], teamStats: [] as TeamStat[], sport, division, seasonLabel, sortBy, sortDir };
 	}
 
 	// All team_seasons for the selected sport/division/season
@@ -97,7 +98,7 @@ export const load: PageServerLoad = async ({ url }) => {
 	}
 
 	if (teamSeasonIds.length === 0) {
-		return { playerStats: [] as PlayerStat[], teamStats: [] as TeamStat[], sport, division, seasonYear, sortBy, sortDir };
+		return { playerStats: [] as PlayerStat[], teamStats: [] as TeamStat[], sport, division, seasonLabel, sortBy, sortDir };
 	}
 
 	// Player season stats — sort server-side so any stat column returns the correct top players.
@@ -208,5 +209,5 @@ export const load: PageServerLoad = async ({ url }) => {
 		}))
 		.sort((a, b) => b.wins - a.wins || b.gf - a.gf || a.ga - b.ga);
 
-	return { playerStats, teamStats, sport, division, seasonYear, sortBy, sortDir };
+	return { playerStats, teamStats, sport, division, seasonLabel, sortBy, sortDir };
 };

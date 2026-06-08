@@ -1,14 +1,13 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { Badge } from 'flowbite-svelte';
+	import { Badge, Dropdown, DropdownItem } from 'flowbite-svelte';
 	import TeamLogo from '$lib/components/TeamLogo.svelte';
 	import type { PageData } from './$types';
 	import flatpickr from 'flatpickr';
 	import type { Instance } from 'flatpickr/dist/types/instance';
 
 	let { data }: { data: PageData } = $props();
-
 	type TeamInfo   = { name: string; short_name: string; ncaa_team_id: string; logo_url_dark: string | null; logo_url_light: string | null };
 	type ConfInfo   = { name: string; short_name: string } | null;
 	type TeamSeason = { team: TeamInfo; conference: ConfInfo } | null;
@@ -31,15 +30,16 @@
 	const contestDate     = $derived(data.contestDate);
 	const gender          = $derived(data.gender);
 	const division        = $derived(data.division);
-	const seasonYear      = $derived(data.seasonYear);
+	const seasonLabel     = $derived(data.seasonLabel);
+	const seasons         = $derived(data.seasons);
 	const sportCode       = $derived(gender === 'W' ? 'WSO' : 'MSO');
 
 	function gameHref(ncaaContestId: string) {
-		return `/games/${ncaaContestId}?sport=${sportCode}&division=${division}&season=${seasonYear}`;
+		return `/games/${ncaaContestId}?sport=${sportCode}&division=${division}&season=${seasonLabel}`;
 	}
 
 	function teamHref(ncaaTeamId: string) {
-		return `/teams/${ncaaTeamId}?sport=${sportCode}&division=${division}&season=${seasonYear}`;
+		return `/teams/${ncaaTeamId}?sport=${sportCode}&division=${division}&season=${seasonLabel}`;
 	}
 
 	// Always build the full URL from current state so no param ever gets dropped.
@@ -47,7 +47,7 @@
 		const sp = new URLSearchParams({
 			gender,
 			division: String(division),
-			season:   String(seasonYear),
+			season:   seasonLabel,
 			date:     contestDate ?? '',
 			...Object.fromEntries(Object.entries(overrides).map(([k, v]) => [k, String(v)]))
 		});
@@ -93,16 +93,6 @@
 		};
 	}
 
-	function navigateSeason(year: number) {
-		// Omit date so the server picks the right default for the new season's range.
-		const sp = new URLSearchParams({
-			gender,
-			division: String(division),
-			season:   String(year)
-		});
-		goto(`?${sp}`);
-	}
-
 	function formatTime(iso: string | null): string {
 		if (!iso) return '';
 		return new Date(iso).toLocaleTimeString('en-US', {
@@ -124,7 +114,10 @@
 	}
 
 
-	const seasons = [2025, 2024];
+	function navigateSeason(label: string) {
+		const sp = new URLSearchParams({ gender, division: String(division), season: label });
+		goto(`?${sp}`);
+	}
 
 	const displayDate = $derived(
 		new Date(contestDate + 'T00:00:00Z').toLocaleDateString('en-US', {
@@ -176,15 +169,17 @@
 				{/each}
 			</div>
 			<!-- Season -->
-			<select
-				class="text-xs bg-transparent text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-600 rounded px-1.5 py-1"
-				value={seasonYear}
-				onchange={(e) => navigateSeason(parseInt((e.target as HTMLSelectElement).value))}
+			<button
+				id="mob-season-scores"
+				class="text-xs text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-1.5 py-1 flex items-center gap-1"
 			>
-				{#each seasons as y}
-					<option value={y}>{y}</option>
+				{seasonLabel} <span class="text-gray-400 dark:text-gray-500 text-[10px]">▾</span>
+			</button>
+			<Dropdown triggeredBy="#mob-season-scores" placement="bottom-start" simple>
+				{#each seasons as s}
+					<DropdownItem onclick={() => navigateSeason(s.label)}>{s.label}</DropdownItem>
 				{/each}
-			</select>
+			</Dropdown>
 		</div>
 
 		<!-- Desktop: vertical sidebar -->
@@ -209,11 +204,11 @@
 				<p class="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-1">Season</p>
 				<select
 					class="w-full text-xs bg-transparent text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-600 rounded px-1.5 py-1"
-					value={seasonYear}
-					onchange={(e) => navigateSeason(parseInt((e.target as HTMLSelectElement).value))}
+					value={seasonLabel}
+					onchange={(e) => navigateSeason((e.target as HTMLSelectElement).value)}
 				>
-					{#each seasons as y}
-						<option value={y}>{y}</option>
+					{#each seasons as s}
+						<option value={s.label}>{s.label}</option>
 					{/each}
 				</select>
 			</div>

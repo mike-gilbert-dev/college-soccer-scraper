@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
+	import { Dropdown, DropdownItem } from 'flowbite-svelte';
 	import type { PageData } from './$types';
 	import type { PlayerStat, TeamStat } from './+page.server';
 
@@ -10,7 +11,8 @@
 	const teamStats   = $derived(data.teamStats   as TeamStat[]);
 	const gender      = $derived(data.sport === 'WSO' ? 'W' : 'M');
 	const division    = $derived(data.division);
-	const seasonYear  = $derived(data.seasonYear);
+	const seasonLabel = $derived(data.seasonLabel);
+	const seasons     = $derived(data.seasons);
 
 	// Tab: read from URL, default to 'players'
 	const tab = $derived(page.url.searchParams.get('tab') ?? 'players');
@@ -52,13 +54,17 @@
 		const sp = new URLSearchParams({
 			sport:    data.sport,
 			division: String(division),
-			season:   String(seasonYear),
+			season:   seasonLabel,
 			tab,
 			sortBy:   playerSortKey,
 			sortDir:  playerSortDir,
 			...Object.fromEntries(Object.entries(overrides).map(([k, v]) => [k, String(v)]))
 		});
 		goto(`?${sp}`);
+	}
+
+	function navigateSeason(label: string) {
+		navigate({ season: label });
 	}
 
 	function setTab(t: string) {
@@ -71,11 +77,11 @@
 
 	// ── Link helpers ─────────────────────────────────────────────────────────
 	function playerHref(p: PlayerStat) {
-		return `/players/${p.ncaa_player_id}?sport=${data.sport}&division=${division}&season=${seasonYear}`;
+		return `/players/${p.ncaa_player_id}?sport=${data.sport}&division=${division}&season=${seasonLabel}`;
 	}
 
 	function teamHref(ncaaTeamId: string) {
-		return `/teams/${ncaaTeamId}?sport=${data.sport}&division=${division}&season=${seasonYear}`;
+		return `/teams/${ncaaTeamId}?sport=${data.sport}&division=${division}&season=${seasonLabel}`;
 	}
 
 	// ── Sort indicators ──────────────────────────────────────────────────────
@@ -91,12 +97,11 @@
 	}
 
 
-	const seasons = [2025, 2024];
 	const divisionLabel = $derived(division === 1 ? 'DI' : division === 2 ? 'DII' : 'DIII');
 	const genderLabel = $derived(gender === 'W' ? "Women's" : "Men's");
 	const canonicalUrl = $derived(`${page.url.origin}${page.url.pathname}`);
-	const pageTitle = $derived(`NCAA ${genderLabel} ${divisionLabel} Soccer Stats — ${seasonYear} | CollegeSoccer.IO`);
-	const pageDesc = $derived(`NCAA ${genderLabel.toLowerCase()} ${divisionLabel} college soccer individual and team stats for the ${seasonYear} season. Sortable goals, assists, and more.`);
+	const pageTitle = $derived(`NCAA ${genderLabel} ${divisionLabel} Soccer Stats — ${seasonLabel} | CollegeSoccer.IO`);
+	const pageDesc = $derived(`NCAA ${genderLabel.toLowerCase()} ${divisionLabel} college soccer individual and team stats for the ${seasonLabel} season. Sortable goals, assists, and more.`);
 </script>
 
 <svelte:head>
@@ -132,15 +137,17 @@
 				{/each}
 			</div>
 			<!-- Season -->
-			<select
-				class="text-xs bg-transparent text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-600 rounded px-1.5 py-1"
-				value={seasonYear}
-				onchange={(e) => navigate({ season: parseInt((e.target as HTMLSelectElement).value) })}
+			<button
+				id="mob-season-stats"
+				class="text-xs text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-1.5 py-1 flex items-center gap-1"
 			>
-				{#each seasons as y}
-					<option value={y}>{y}</option>
+				{seasonLabel} <span class="text-gray-400 dark:text-gray-500 text-[10px]">▾</span>
+			</button>
+			<Dropdown triggeredBy="#mob-season-stats" placement="bottom-start" simple>
+				{#each seasons as s}
+					<DropdownItem onclick={() => navigateSeason(s.label)}>{s.label}</DropdownItem>
 				{/each}
-			</select>
+			</Dropdown>
 		</div>
 
 		<!-- Desktop: vertical sidebar -->
@@ -165,11 +172,11 @@
 				<p class="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-1">Season</p>
 				<select
 					class="w-full text-xs bg-transparent text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-600 rounded px-1.5 py-1"
-					value={seasonYear}
-					onchange={(e) => navigate({ season: parseInt((e.target as HTMLSelectElement).value) })}
+					value={seasonLabel}
+					onchange={(e) => navigateSeason((e.target as HTMLSelectElement).value)}
 				>
-					{#each seasons as y}
-						<option value={y}>{y}</option>
+					{#each seasons as s}
+						<option value={s.label}>{s.label}</option>
 					{/each}
 				</select>
 			</div>

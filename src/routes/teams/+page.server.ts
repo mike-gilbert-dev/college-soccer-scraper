@@ -14,18 +14,19 @@ export type TeamStanding = {
 };
 
 export const load: PageServerLoad = async ({ url }) => {
-	const sport      = url.searchParams.get('sport')    ?? 'MSO';
-	const division   = parseInt(url.searchParams.get('division') ?? '1', 10);
-	const seasonYear = parseInt(url.searchParams.get('season')   ?? '2025', 10);
+	const sport        = url.searchParams.get('sport')    ?? 'MSO';
+	const division     = parseInt(url.searchParams.get('division') ?? '1', 10);
+	const seasonParam  = url.searchParams.get('season');
 
-	const { data: season } = await supabaseAdmin
-		.from('seasons')
-		.select('id')
-		.eq('year', seasonYear)
-		.single();
+	const seasonBase = supabaseAdmin.from('seasons').select('id, label');
+	const { data: season } = await (seasonParam
+		? seasonBase.eq('label', seasonParam).single()
+		: seasonBase.order('start_date', { ascending: false }).limit(1).single());
+
+	const seasonLabel = season?.label ?? seasonParam ?? '';
 
 	if (!season) {
-		return { teams: [] as TeamStanding[], conferences: [] as { name: string; short_name: string }[], sport, division, seasonYear };
+		return { teams: [] as TeamStanding[], conferences: [] as { name: string; short_name: string }[], sport, division, seasonLabel };
 	}
 
 	const [{ data: teamSeasons }, { data: games }] = await Promise.all([
@@ -106,5 +107,5 @@ export const load: PageServerLoad = async ({ url }) => {
 	}
 	conferences.sort((a, b) => a.name.localeCompare(b.name));
 
-	return { teams, conferences, sport, division, seasonYear };
+	return { teams, conferences, sport, division, seasonLabel };
 };

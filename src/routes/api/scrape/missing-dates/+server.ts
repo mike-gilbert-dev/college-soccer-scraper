@@ -6,14 +6,22 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	const { user } = await locals.safeGetSession();
 	if (!user) error(401, 'Unauthorized');
 
-	const sportCode  = url.searchParams.get('sport')    ?? 'MSO';
-	const division   = parseInt(url.searchParams.get('division') ?? '1', 10);
-	const seasonYear = parseInt(url.searchParams.get('season')   ?? '2025', 10);
+	const sportCode   = url.searchParams.get('sport')    ?? 'MSO';
+	const division    = parseInt(url.searchParams.get('division') ?? '1', 10);
+	const seasonLabel = url.searchParams.get('season') ?? '2025';
+
+	const { data: season, error: seasonErr } = await supabaseAdmin
+		.from('seasons')
+		.select('id')
+		.eq('label', seasonLabel)
+		.single();
+
+	if (seasonErr || !season) error(400, `Season "${seasonLabel}" not found`);
 
 	const { data, error: rpcError } = await supabaseAdmin.rpc('get_dates_missing_player_stats', {
-		p_sport_code:  sportCode,
-		p_division:    division,
-		p_season_year: seasonYear
+		p_sport_code: sportCode,
+		p_division:   division,
+		p_season_id:  season.id
 	});
 
 	if (rpcError) error(500, rpcError.message);

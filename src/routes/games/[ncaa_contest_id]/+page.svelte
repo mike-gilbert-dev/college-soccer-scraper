@@ -108,8 +108,18 @@
 
 		<div class="flex items-center gap-4">
 			<!-- Away team -->
-			<div class="flex-1 flex items-center justify-end gap-3 min-w-0">
-				<div class="text-right min-w-0">
+			<div class="flex-1 flex flex-col items-end gap-1 sm:flex-row sm:items-center sm:justify-end sm:gap-3 min-w-0">
+				{#if awayTeam?.logo_url_dark || awayTeam?.logo_url_light}
+					<div class="shrink-0 w-10 h-10 flex items-center justify-center order-1 sm:order-2">
+						<TeamLogo
+							lightUrl={awayTeam.logo_url_light}
+							darkUrl={awayTeam.logo_url_dark}
+							name={awayTeam.name}
+							size={40}
+						/>
+					</div>
+				{/if}
+				<div class="text-right min-w-0 order-2 sm:order-1">
 					{#if awayTeam}
 						<a href={teamHref(awayTeam.ncaa_team_id)}
 							class="text-sm font-semibold text-gray-900 dark:text-white hover:text-primary-500 dark:hover:text-primary-400 block truncate">
@@ -120,16 +130,6 @@
 					{/if}
 					<p class="text-[11px] text-gray-400 dark:text-gray-500">Away</p>
 				</div>
-				{#if awayTeam?.logo_url_dark || awayTeam?.logo_url_light}
-					<div class="shrink-0 w-10 h-10 flex items-center justify-center">
-						<TeamLogo
-							lightUrl={awayTeam.logo_url_light}
-							darkUrl={awayTeam.logo_url_dark}
-							name={awayTeam.name}
-							size={40}
-						/>
-					</div>
-				{/if}
 			</div>
 
 			<!-- Score -->
@@ -145,7 +145,7 @@
 			</div>
 
 			<!-- Home team -->
-			<div class="flex-1 flex items-center gap-3 min-w-0">
+			<div class="flex-1 flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:gap-3 min-w-0">
 				{#if homeTeam?.logo_url_dark || homeTeam?.logo_url_light}
 					<div class="shrink-0 w-10 h-10 flex items-center justify-center">
 						<TeamLogo
@@ -174,7 +174,7 @@
 	<!-- Player stats -->
 	{#if data.homeStats.length === 0 && data.awayStats.length === 0}
 		<p class="text-sm text-gray-500 dark:text-gray-400">
-			No player stats for this game yet. Run the backfill with "Include player stats" to populate.
+			No player stats for this game yet. Check back later.
 		</p>
 	{:else}
 		<!-- Team tabs -->
@@ -204,11 +204,6 @@
 						</span>
 					{/if}
 					<span class="truncate">{t.team?.name ?? (t.side === 'away' ? 'Away' : 'Home')}</span>
-					{#if t.count > 0}
-						<span class="text-[11px] shrink-0 {hasColor ? 'text-white/60' : 'text-gray-400 dark:text-gray-500'}">
-							{t.count}
-						</span>
-					{/if}
 				</button>
 			{/each}
 		</div>
