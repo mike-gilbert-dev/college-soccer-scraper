@@ -1,3 +1,6 @@
 # allow crawling everything by default
 User-agent: *
-Disallow:
+Disallow: /admin
+Disallow: /api/
+
+Sitemap: https://collegesoccer.io/sitemap.xml

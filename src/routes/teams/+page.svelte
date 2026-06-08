@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import { Table, TableHead, TableHeadCell, TableBody, TableBodyRow, TableBodyCell } from 'flowbite-svelte';
 	import TeamLogo from '$lib/components/TeamLogo.svelte';
 	import type { PageData } from './$types';
@@ -51,7 +52,25 @@
 		if (n < 0) return `${n}`;
 		return '0';
 	}
+	const divisionLabel = $derived(division === 1 ? 'DI' : division === 2 ? 'DII' : 'DIII');
+	const genderLabel = $derived(sport === 'WSO' ? "Women's" : "Men's");
+	const canonicalUrl = $derived(`${page.url.origin}${page.url.pathname}`);
+	const pageTitle = $derived(`NCAA ${genderLabel} ${divisionLabel} Soccer Teams — ${seasonYear} | CollegeSoccer.IO`);
+	const pageDesc = $derived(`NCAA ${genderLabel.toLowerCase()} ${divisionLabel} college soccer team standings and records for the ${seasonYear} season.`);
 </script>
+
+<svelte:head>
+	<title>{pageTitle}</title>
+	<meta name="description" content={pageDesc} />
+	<link rel="canonical" href={canonicalUrl} />
+	<meta property="og:title" content={pageTitle} />
+	<meta property="og:description" content={pageDesc} />
+	<meta property="og:type" content="website" />
+	<meta property="og:url" content={canonicalUrl} />
+	<meta name="twitter:card" content="summary" />
+	<meta name="twitter:title" content={pageTitle} />
+	<meta name="twitter:description" content={pageDesc} />
+</svelte:head>
 
 <div class="flex flex-col gap-2 md:flex-row md:items-start">
 

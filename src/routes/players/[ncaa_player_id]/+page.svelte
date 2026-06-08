@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Table, TableHead, TableHeadCell, TableBody, TableBodyRow, TableBodyCell } from 'flowbite-svelte';
+	import { page } from '$app/state';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -59,7 +60,29 @@
 	}
 
 	const isGk = $derived(position === 'GK');
+	const canonicalUrl = $derived(`${page.url.origin}${page.url.pathname}`);
+	const pageTitle = $derived(
+		mostRecentTeam
+			? `${player.name} — ${mostRecentTeam.name} Soccer Stats | CollegeSoccer.IO`
+			: `${player.name} Soccer Stats | CollegeSoccer.IO`
+	);
+	const pageDesc = $derived(
+		`${player.name} NCAA college soccer stats${position ? ` (${position})` : ''}${mostRecentTeam ? `, ${mostRecentTeam.name}` : ''}. Career totals and game log.`
+	);
 </script>
+
+<svelte:head>
+	<title>{pageTitle}</title>
+	<meta name="description" content={pageDesc} />
+	<link rel="canonical" href={canonicalUrl} />
+	<meta property="og:title" content={pageTitle} />
+	<meta property="og:description" content={pageDesc} />
+	<meta property="og:type" content="article" />
+	<meta property="og:url" content={canonicalUrl} />
+	<meta name="twitter:card" content="summary" />
+	<meta name="twitter:title" content={pageTitle} />
+	<meta name="twitter:description" content={pageDesc} />
+</svelte:head>
 
 <div class="space-y-6 max-w-4xl">
 	<!-- Breadcrumb + header -->

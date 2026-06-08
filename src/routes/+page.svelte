@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import { Badge } from 'flowbite-svelte';
 	import TeamLogo from '$lib/components/TeamLogo.svelte';
 	import type { PageData } from './$types';
@@ -135,7 +136,30 @@
 			weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC'
 		})
 	);
+	const shortDate = $derived(
+		contestDate
+			? new Date(contestDate + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+			: ''
+	);
+	const genderLabel = $derived(gender === 'W' ? "Women's" : "Men's");
+	const divisionLabel = $derived(division === 1 ? 'DI' : division === 2 ? 'DII' : 'DIII');
+	const canonicalUrl = $derived(`${page.url.origin}${page.url.pathname}`);
+	const pageTitle = $derived(`NCAA ${genderLabel} ${divisionLabel} Soccer Scores — ${shortDate} | CollegeSoccer.IO`);
+	const pageDesc = $derived(`Live NCAA ${genderLabel.toLowerCase()} ${divisionLabel} college soccer scores for ${displayDate}. Results, boxscores, and player stats.`);
 </script>
+
+<svelte:head>
+	<title>{pageTitle}</title>
+	<meta name="description" content={pageDesc} />
+	<link rel="canonical" href={canonicalUrl} />
+	<meta property="og:title" content={pageTitle} />
+	<meta property="og:description" content={pageDesc} />
+	<meta property="og:type" content="website" />
+	<meta property="og:url" content={canonicalUrl} />
+	<meta name="twitter:card" content="summary" />
+	<meta name="twitter:title" content={pageTitle} />
+	<meta name="twitter:description" content={pageDesc} />
+</svelte:head>
 
 <div class="flex flex-col gap-2 md:flex-row md:items-start">
 

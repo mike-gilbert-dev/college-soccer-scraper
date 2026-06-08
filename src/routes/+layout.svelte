@@ -27,6 +27,8 @@
 
 <svelte:head>
 	<link rel="icon" href={favicon} />
+	<title>CollegeSoccer.IO — NCAA Soccer Scores, Stats & More</title>
+	<meta property="og:site_name" content="CollegeSoccer.IO" />
 </svelte:head>
 
 <Navbar />

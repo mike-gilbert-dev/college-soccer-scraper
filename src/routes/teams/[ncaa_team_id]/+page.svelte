@@ -1,5 +1,6 @@
 ﻿<script lang="ts">
 	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import { Table, TableHead, TableHeadCell, TableBody, TableBodyRow, TableBodyCell, Dropdown, DropdownItem } from 'flowbite-svelte';
 	import { ChevronDownOutline } from 'flowbite-svelte-icons';
 	import TeamLogo from '$lib/components/TeamLogo.svelte';
@@ -44,6 +45,10 @@
 		const sp = new URLSearchParams({ sport, division: String(division), season: String(year) });
 		goto(`/teams/${team.ncaa_team_id}?${sp}`);
 	}
+
+	const canonicalUrl = $derived(`${page.url.origin}${page.url.pathname}`);
+	const pageTitle = $derived(`${team.name} — ${seasonYear} Soccer Schedule & Roster | CollegeSoccer.IO`);
+	const pageDesc = $derived(`${team.name} ${seasonYear} NCAA soccer schedule, roster, and player stats.${conferenceName ? ` ${conferenceName}.` : ''}`);
 
 	const posOrder: Record<string, number> = { GK: 0, D: 1, M: 2, F: 3 };
 
@@ -108,6 +113,19 @@
 		T: 'text-gray-500 dark:text-gray-400 font-bold'
 	};
 </script>
+
+<svelte:head>
+	<title>{pageTitle}</title>
+	<meta name="description" content={pageDesc} />
+	<link rel="canonical" href={canonicalUrl} />
+	<meta property="og:title" content={pageTitle} />
+	<meta property="og:description" content={pageDesc} />
+	<meta property="og:type" content="website" />
+	<meta property="og:url" content={canonicalUrl} />
+	<meta name="twitter:card" content="summary" />
+	<meta name="twitter:title" content={pageTitle} />
+	<meta name="twitter:description" content={pageDesc} />
+</svelte:head>
 
 <div class="space-y-6">
 	<!-- Team header card — colored background when team_color is available -->

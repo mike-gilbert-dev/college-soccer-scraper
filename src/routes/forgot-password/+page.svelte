@@ -6,6 +6,11 @@
 	let { form }: { form: ActionData } = $props();
 </script>
 
+<svelte:head>
+	<title>Reset Password | CollegeSoccer.IO</title>
+	<meta name="robots" content="noindex, nofollow" />
+</svelte:head>
+
 <div class="flex justify-center py-12 px-4">
 	<div class="w-full max-w-sm bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-6 flex flex-col gap-5">
 		<div>

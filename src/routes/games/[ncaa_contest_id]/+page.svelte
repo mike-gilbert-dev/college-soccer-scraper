@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Table, TableHead, TableHeadCell, TableBody, TableBodyRow, TableBodyCell } from 'flowbite-svelte';
+	import { page } from '$app/state';
 	import TeamLogo from '$lib/components/TeamLogo.svelte';
 	import type { PageData } from './$types';
 	import type { PlayerStat } from './+page.server';
@@ -68,7 +69,31 @@
 		: game.status === 'in_progress' ? 'In Progress'
 		: 'Scheduled'
 	);
+	const canonicalUrl = $derived(`${page.url.origin}${page.url.pathname}`);
+	const pageTitle = $derived(
+		game.home_score != null && game.away_score != null
+			? `${awayTeam?.name ?? 'Away'} ${game.away_score}–${game.home_score} ${homeTeam?.name ?? 'Home'} Boxscore | CollegeSoccer.IO`
+			: `${awayTeam?.name ?? 'Away'} vs ${homeTeam?.name ?? 'Home'} — ${formatDate(game.contest_date)} | CollegeSoccer.IO`
+	);
+	const pageDesc = $derived(
+		game.home_score != null && game.away_score != null
+			? `${awayTeam?.name ?? 'Away'} vs ${homeTeam?.name ?? 'Home'} final score ${game.away_score}–${game.home_score} on ${formatDate(game.contest_date)}. Full player boxscore and stats.`
+			: `${awayTeam?.name ?? 'Away'} vs ${homeTeam?.name ?? 'Home'} on ${formatDate(game.contest_date)}. Player stats and boxscore.`
+	);
 </script>
+
+<svelte:head>
+	<title>{pageTitle}</title>
+	<meta name="description" content={pageDesc} />
+	<link rel="canonical" href={canonicalUrl} />
+	<meta property="og:title" content={pageTitle} />
+	<meta property="og:description" content={pageDesc} />
+	<meta property="og:type" content="article" />
+	<meta property="og:url" content={canonicalUrl} />
+	<meta name="twitter:card" content="summary" />
+	<meta name="twitter:title" content={pageTitle} />
+	<meta name="twitter:description" content={pageDesc} />
+</svelte:head>
 
 <div class="space-y-6 max-w-4xl">
 	<!-- Back link -->
