@@ -261,6 +261,7 @@
 						<TableHeadCell class="py-2">Opponent</TableHeadCell>
 						<TableHeadCell class="py-2 text-right">Score</TableHeadCell>
 						<TableHeadCell class="py-2 text-center">Result</TableHeadCell>
+						<TableHeadCell class="py-2"></TableHeadCell>
 					</TableHead>
 					<TableBody>
 						{#each data.schedule as game}
@@ -303,6 +304,14 @@
 										<span class={resultClasses[res]}>{res}</span>
 									{:else}
 										<span class="text-gray-400">—</span>
+									{/if}
+								</TableBodyCell>
+								<TableBodyCell class="py-1.5 text-center">
+									{#if game.status === 'final'}
+										<a href={gameHref(game.ncaa_contest_id)}
+											class="text-xs font-semibold text-gray-600 dark:text-gray-300 px-2 py-0.5 rounded border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+											Boxscore
+										</a>
 									{/if}
 								</TableBodyCell>
 							</TableBodyRow>

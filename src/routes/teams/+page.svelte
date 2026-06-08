@@ -1,14 +1,28 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { Table, TableHead, TableHeadCell, TableBody, TableBodyRow, TableBodyCell } from 'flowbite-svelte';
 	import TeamLogo from '$lib/components/TeamLogo.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
 
-	const sport      = $derived(data.sport);
-	const division   = $derived(data.division);
-	const seasonYear = $derived(data.seasonYear);
-	const teams      = $derived(data.teams);
+	const sport        = $derived(data.sport);
+	const division     = $derived(data.division);
+	const seasonYear   = $derived(data.seasonYear);
+	const teams        = $derived(data.teams);
+	const conferences  = $derived(data.conferences);
+
+	let selectedConf = $state('');
+
+	// Reset conference filter when the teams list changes (sport/division/season change)
+	$effect(() => {
+		teams; // reactive dependency
+		selectedConf = '';
+	});
+
+	const visibleTeams = $derived(
+		selectedConf ? teams.filter(t => t.conference?.name === selectedConf) : teams
+	);
 
 	const divisions = [
 		{ label: 'Division I',   value: 1 },
@@ -30,6 +44,12 @@
 
 	function teamHref(ncaaTeamId: string) {
 		return `/teams/${ncaaTeamId}?sport=${sport}&division=${division}&season=${seasonYear}`;
+	}
+
+	function sign(n: number) {
+		if (n > 0) return `+${n}`;
+		if (n < 0) return `${n}`;
+		return '0';
 	}
 </script>
 
@@ -127,41 +147,84 @@
 		</div>
 	</aside>
 
-	<!-- Teams panel -->
+	<!-- Standings panel -->
 	<section class="flex-1 min-w-0 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded overflow-hidden">
-		<div class="px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
-			<h1 class="text-sm font-semibold text-gray-700 dark:text-gray-200">
-				{sport === 'WSO' ? "Women's" : "Men's"} Soccer Teams — {seasonYear}
+		<!-- Panel header -->
+		<div class="flex items-center justify-between gap-3 px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
+			<h1 class="text-sm font-semibold text-gray-700 dark:text-gray-200 shrink-0">
+				{sport === 'WSO' ? "Women's" : "Men's"} Division {division} — {seasonYear}
 			</h1>
+			{#if conferences.length > 0}
+				<select
+					class="text-xs bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-600 rounded px-2 py-1 max-w-45 truncate"
+					value={selectedConf}
+					onchange={(e) => (selectedConf = (e.target as HTMLSelectElement).value)}
+				>
+					<option value="">All conferences</option>
+					{#each conferences as c}
+						<option value={c.name}>{c.name}</option>
+					{/each}
+				</select>
+			{/if}
 		</div>
 
 		{#if teams.length === 0}
 			<p class="px-4 py-8 text-xs text-gray-500 dark:text-gray-400 text-center">
 				No teams found. Run the backfill for this season, division, and sport.
 			</p>
+		{:else if visibleTeams.length === 0}
+			<p class="px-4 py-8 text-xs text-gray-500 dark:text-gray-400 text-center">
+				No teams found for this conference.
+			</p>
 		{:else}
-			<div class="divide-y divide-gray-100 dark:divide-gray-700">
-				{#each teams as row}
-					<a
-						href={teamHref(row.team.ncaa_team_id)}
-						class="flex items-center gap-3 px-4 py-2 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors group"
-					>
-						<div class="w-7 h-7 shrink-0 flex items-center justify-center">
-							<TeamLogo
-								lightUrl={row.team.logo_url_light}
-								darkUrl={row.team.logo_url_dark}
-								name={row.team.name}
-								size={28}
-							/>
-						</div>
-						<span class="flex-1 text-sm font-medium text-gray-800 dark:text-gray-200 group-hover:text-primary-600 dark:group-hover:text-primary-400">
-							{row.team.name}
-						</span>
-						<span class="text-xs text-gray-400 dark:text-gray-500 shrink-0">
-							{row.conference?.short_name ?? ''}
-						</span>
-					</a>
-				{/each}
+			<div class="overflow-x-auto">
+				<Table hoverable class="text-xs whitespace-nowrap">
+					<TableHead class="text-[11px] uppercase tracking-wide">
+						<TableHeadCell class="py-2 w-8 text-right">#</TableHeadCell>
+						<TableHeadCell class="py-2">Team</TableHeadCell>
+						{#if !selectedConf}
+							<TableHeadCell class="py-2">Conf</TableHeadCell>
+						{/if}
+						<TableHeadCell class="py-2 text-right">W</TableHeadCell>
+						<TableHeadCell class="py-2 text-right">L</TableHeadCell>
+						<TableHeadCell class="py-2 text-right">T</TableHeadCell>
+						<TableHeadCell class="py-2 text-right">GF</TableHeadCell>
+						<TableHeadCell class="py-2 text-right">GA</TableHeadCell>
+						<TableHeadCell class="py-2 text-right">GD</TableHeadCell>
+					</TableHead>
+					<TableBody>
+						{#each visibleTeams as row, i}
+							<TableBodyRow>
+								<TableBodyCell class="py-1.5 text-right text-gray-400 dark:text-gray-500 tabular-nums">{i + 1}</TableBodyCell>
+								<TableBodyCell class="py-1.5 font-medium">
+									<a href={teamHref(row.team.ncaa_team_id)} class="flex items-center gap-2 hover:text-primary-600 dark:hover:text-primary-400">
+										<span class="shrink-0 w-5 h-5 flex items-center justify-center">
+											<TeamLogo
+												lightUrl={row.team.logo_url_light}
+												darkUrl={row.team.logo_url_dark}
+												name={row.team.name}
+												size={20}
+											/>
+										</span>
+										<span>{row.team.name}</span>
+									</a>
+								</TableBodyCell>
+								{#if !selectedConf}
+									<TableBodyCell class="py-1.5 text-gray-400 dark:text-gray-500">{row.conference?.short_name ?? '—'}</TableBodyCell>
+								{/if}
+								<TableBodyCell class="py-1.5 text-right font-semibold tabular-nums">{row.wins}</TableBodyCell>
+								<TableBodyCell class="py-1.5 text-right tabular-nums">{row.losses}</TableBodyCell>
+								<TableBodyCell class="py-1.5 text-right tabular-nums">{row.ties}</TableBodyCell>
+								<TableBodyCell class="py-1.5 text-right tabular-nums">{row.goals_for}</TableBodyCell>
+								<TableBodyCell class="py-1.5 text-right tabular-nums">{row.goals_against}</TableBodyCell>
+								<TableBodyCell class="py-1.5 text-right tabular-nums
+									{row.goal_diff > 0 ? 'text-green-600 dark:text-green-400' : row.goal_diff < 0 ? 'text-red-500 dark:text-red-400' : 'text-gray-400'}">
+									{sign(row.goal_diff)}
+								</TableBodyCell>
+							</TableBodyRow>
+						{/each}
+					</TableBody>
+				</Table>
 			</div>
 		{/if}
 	</section>

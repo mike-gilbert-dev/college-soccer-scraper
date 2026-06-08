@@ -52,8 +52,9 @@
 		<div class="flex items-center justify-between">
 			<!-- Brand -->
 			<a href="/" onclick={closeMenu} class="flex items-center gap-1">
-				<span class="text-primary-500">⚽</span>
-				<span class="text-sm font-bold text-gray-900 dark:text-white">College Soccer</span>
+				<!-- <span class="text-primary-500">⚽</span> -->
+				 <img src="/images/csio_01.svg" alt="College Soccer IO Logo" class="w-8 h-8" />
+				<span class="text-sm font-mono text-gray-900 dark:text-white tracking-widest">COLLEGESOCCER<span class="text-primary-500">.</span>IO</span>
 			</a>
 
 			<!-- Desktop nav links + controls -->
