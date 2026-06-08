@@ -4,15 +4,27 @@ import { supabaseAdmin } from '$lib/server/supabase-admin';
 export const GET: RequestHandler = async ({ request }) => {
 	const origin = new URL(request.url).origin;
 
-	const [{ data: teams }, { data: games }] = await Promise.all([
-		supabaseAdmin.from('teams').select('ncaa_team_id').order('name'),
+	const [{ data: teamSeasons }, { data: games }] = await Promise.all([
+		supabaseAdmin
+			.from('team_seasons')
+			.select('team:teams!inner(ncaa_team_id)')
+			.eq('division', 1),
 		supabaseAdmin
 			.from('games')
 			.select('ncaa_contest_id, contest_date')
 			.eq('status', 'final')
+			.eq('division', 1)
 			.gte('contest_date', '2024-01-01')
 			.order('contest_date', { ascending: false }),
 	]);
+
+	// Deduplicate teams (same team may appear across multiple seasons)
+	const seenIds = new Set<string>();
+	const teams = (teamSeasons ?? [])
+		.map(ts => (ts.team as unknown as { ncaa_team_id: string } | null))
+		.filter((t): t is { ncaa_team_id: string } =>
+			t !== null && !seenIds.has(t.ncaa_team_id) && (seenIds.add(t.ncaa_team_id), true)
+		);
 
 	const staticUrls = [
 		{ path: '/', changefreq: 'hourly', priority: '1.0' },

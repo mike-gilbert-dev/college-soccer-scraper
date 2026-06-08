@@ -90,11 +90,6 @@
 		return teamSortAsc ? ' ↑' : ' ↓';
 	}
 
-	const divisions = [
-		{ label: 'Division I',   value: 1 },
-		{ label: 'Division II',  value: 2 },
-		{ label: 'Division III', value: 3 },
-	];
 
 	const seasons = [2025, 2024];
 	const divisionLabel = $derived(division === 1 ? 'DI' : division === 2 ? 'DII' : 'DIII');
@@ -146,18 +141,6 @@
 					<option value={y}>{y}</option>
 				{/each}
 			</select>
-			<!-- Division -->
-			<div class="flex gap-1 ml-auto">
-				{#each divisions as d}
-					<button
-						onclick={() => navigate({ division: d.value })}
-						class="px-2 py-1 text-xs rounded font-semibold transition-colors
-							{division === d.value
-								? 'bg-primary-500 text-white'
-								: 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}"
-					>D{d.value}</button>
-				{/each}
-			</div>
 		</div>
 
 		<!-- Desktop: vertical sidebar -->
@@ -189,24 +172,6 @@
 						<option value={y}>{y}</option>
 					{/each}
 				</select>
-			</div>
-
-			<!-- Division -->
-			<div>
-				<p class="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-					Division
-				</p>
-				{#each divisions as d}
-					<button
-						onclick={() => navigate({ division: d.value })}
-						class="w-full flex items-center px-3 py-1.5 text-xs border-l-2 transition-colors
-							{division === d.value
-								? 'border-primary-500 text-primary-600 dark:text-primary-400 font-semibold bg-primary-50 dark:bg-primary-900/20'
-								: 'border-transparent text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white'}"
-					>
-						{d.label}
-					</button>
-				{/each}
 			</div>
 		</div>
 	</aside>
@@ -309,22 +274,22 @@
 						<tbody>
 							{#each playerStats as p, i}
 								<tr class="border-b border-gray-100 dark:border-gray-700/60 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
-									<td class="px-3 py-1.5 text-gray-400 dark:text-gray-500 tabular-nums">{i + 1}</td>
+									<td class="px-3 py-1.5 text-center tabular-nums text-gray-600 dark:text-gray-400">{i + 1}</td>
 									<td class="px-3 py-1.5">
-										<a href={playerHref(p)} class="font-medium text-gray-900 dark:text-white hover:text-primary-600 dark:hover:text-primary-400 hover:underline">
+										<a href={playerHref(p)} class="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:underline">
 											{p.player_name}
 										</a>
 									</td>
-									<td class="px-2 py-1.5 text-center text-gray-500 dark:text-gray-400">{p.position ?? '—'}</td>
+									<td class="px-2 py-1.5 text-center tabular-nums text-gray-600 dark:text-gray-400">{p.position ?? '—'}</td>
 									<td class="px-3 py-1.5">
-										<a href={teamHref(p.team_ncaa_id)} class="text-gray-600 dark:text-gray-400 hover:text-primary-600 dark:hover:text-primary-400 hover:underline truncate block max-w-35">
+										<a href={teamHref(p.team_ncaa_id)} class="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:underline truncate block max-w-35">
 											{p.team_name}
 										</a>
 									</td>
 									<td class="px-2 py-1.5 text-center tabular-nums text-gray-600 dark:text-gray-400">{p.games_played}</td>
-									<td class="px-2 py-1.5 text-center tabular-nums font-semibold {p.goals > 0 ? 'text-gray-900 dark:text-white' : 'text-gray-400 dark:text-gray-600'}">{p.goals}</td>
-									<td class="px-2 py-1.5 text-center tabular-nums {p.assists > 0 ? 'text-gray-800 dark:text-gray-200' : 'text-gray-400 dark:text-gray-600'}">{p.assists}</td>
-									<td class="px-2 py-1.5 text-center tabular-nums {p.points > 0 ? 'text-gray-800 dark:text-gray-200' : 'text-gray-400 dark:text-gray-600'}">{p.points}</td>
+									<td class="px-2 py-1.5 text-center tabular-nums text-gray-600 dark:text-gray-400">{p.goals}</td>
+									<td class="px-2 py-1.5 text-center tabular-nums text-gray-600 dark:text-gray-400">{p.assists}</td>
+									<td class="px-2 py-1.5 text-center tabular-nums text-gray-600 dark:text-gray-400">{p.points}</td>
 									<td class="px-2 py-1.5 text-center tabular-nums text-gray-600 dark:text-gray-400">{p.shots}</td>
 									<td class="px-2 py-1.5 text-center tabular-nums text-gray-600 dark:text-gray-400">{p.shots_on_goal}</td>
 									<td class="px-2 py-1.5 text-center tabular-nums text-gray-600 dark:text-gray-400">{p.fouls}</td>
@@ -418,7 +383,7 @@
 						<tbody>
 							{#each sortedTeams as t, i}
 								<tr class="border-b border-gray-100 dark:border-gray-700/60 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
-									<td class="px-3 py-1.5 text-gray-400 dark:text-gray-500 tabular-nums">{i + 1}</td>
+									<td class="px-3 py-1.5 text-center tabular-nums text-gray-600 dark:text-gray-400">{i + 1}</td>
 									<td class="px-3 py-1.5">
 										<a href={teamHref(t.ncaa_team_id)} class="font-medium text-gray-900 dark:text-white hover:text-primary-600 dark:hover:text-primary-400 hover:underline">
 											{t.team_name}

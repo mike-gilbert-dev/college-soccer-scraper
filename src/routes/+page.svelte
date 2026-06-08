@@ -123,11 +123,6 @@
 		return 'Sched';
 	}
 
-	const divisions = [
-		{ label: 'Division I',   value: 1 },
-		{ label: 'Division II',  value: 2 },
-		{ label: 'Division III', value: 3 }
-	];
 
 	const seasons = [2025, 2024];
 
@@ -190,18 +185,6 @@
 					<option value={y}>{y}</option>
 				{/each}
 			</select>
-			<!-- Division -->
-			<div class="flex gap-1 ml-auto">
-				{#each divisions as d}
-					<button
-						onclick={() => navigate({ division: d.value })}
-						class="px-2 py-1 text-xs rounded font-semibold transition-colors
-							{division === d.value
-								? 'bg-primary-500 text-white'
-								: 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}"
-					>D{d.value}</button>
-				{/each}
-			</div>
 		</div>
 
 		<!-- Desktop: vertical sidebar -->
@@ -234,24 +217,6 @@
 					{/each}
 				</select>
 			</div>
-
-			<!-- Division -->
-			<div>
-				<p class="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-					Division
-				</p>
-				{#each divisions as d}
-					<button
-						onclick={() => navigate({ division: d.value })}
-						class="w-full flex items-center px-3 py-1.5 text-xs border-l-2 transition-colors
-							{division === d.value
-								? 'border-primary-500 text-primary-600 dark:text-primary-400 font-semibold bg-primary-50 dark:bg-primary-900/20'
-								: 'border-transparent text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white'}"
-					>
-						{d.label}
-					</button>
-				{/each}
-			</div>
 		</div>
 	</aside>
 
@@ -263,7 +228,7 @@
 				onclick={prevDate}
 				disabled={!hasPrev}
 				aria-label="Previous day with games"
-				class="shrink-0 px-3 py-1.5 rounded border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-primary-500 hover:text-primary-500 transition-colors text-lg leading-none disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:border-gray-200 disabled:hover:text-gray-500"
+				class="shrink-0 px-3 py-1.5 rounded bg-primary-500 text-white hover:bg-primary-600 transition-colors text-lg leading-none disabled:opacity-30 disabled:cursor-not-allowed"
 			>‹</button>
 
 			<span class="flex-1 text-xs font-semibold text-gray-700 dark:text-gray-300 text-center">{displayDate}</span>
@@ -272,7 +237,7 @@
 				onclick={nextDate}
 				disabled={!hasNext}
 				aria-label="Next day with games"
-				class="shrink-0 px-3 py-1.5 rounded border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-primary-500 hover:text-primary-500 transition-colors text-lg leading-none disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:border-gray-200 disabled:hover:text-gray-500"
+				class="shrink-0 px-3 py-1.5 rounded bg-primary-500 text-white hover:bg-primary-600 transition-colors text-lg leading-none disabled:opacity-30 disabled:cursor-not-allowed"
 			>›</button>
 
 			<input

@@ -25,11 +25,6 @@
 		selectedConf ? teams.filter(t => t.conference?.name === selectedConf) : teams
 	);
 
-	const divisions = [
-		{ label: 'Division I',   value: 1 },
-		{ label: 'Division II',  value: 2 },
-		{ label: 'Division III', value: 3 }
-	];
 
 	const seasons = [2025, 2024];
 
@@ -101,18 +96,6 @@
 					<option value={y}>{y}</option>
 				{/each}
 			</select>
-			<!-- Division -->
-			<div class="flex gap-1 ml-auto">
-				{#each divisions as d}
-					<button
-						onclick={() => navigate({ division: d.value })}
-						class="px-2 py-1 text-xs rounded font-semibold transition-colors
-							{division === d.value
-								? 'bg-primary-500 text-white'
-								: 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}"
-					>D{d.value}</button>
-				{/each}
-			</div>
 		</div>
 
 		<!-- Desktop: vertical sidebar -->
@@ -144,24 +127,6 @@
 						<option value={y}>{y}</option>
 					{/each}
 				</select>
-			</div>
-
-			<!-- Division -->
-			<div>
-				<p class="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-					Division
-				</p>
-				{#each divisions as d}
-					<button
-						onclick={() => navigate({ division: d.value })}
-						class="w-full flex items-center px-3 py-1.5 text-xs border-l-2 transition-colors
-							{division === d.value
-								? 'border-primary-500 text-primary-600 dark:text-primary-400 font-semibold bg-primary-50 dark:bg-primary-900/20'
-								: 'border-transparent text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white'}"
-					>
-						{d.label}
-					</button>
-				{/each}
 			</div>
 		</div>
 	</aside>
@@ -201,22 +166,22 @@
 					<TableHead class="text-[11px] uppercase tracking-wide">
 						<TableHeadCell class="py-2 w-8 text-right">#</TableHeadCell>
 						<TableHeadCell class="py-2">Team</TableHeadCell>
-						{#if !selectedConf}
-							<TableHeadCell class="py-2">Conf</TableHeadCell>
-						{/if}
 						<TableHeadCell class="py-2 text-right">W</TableHeadCell>
 						<TableHeadCell class="py-2 text-right">L</TableHeadCell>
 						<TableHeadCell class="py-2 text-right">T</TableHeadCell>
 						<TableHeadCell class="py-2 text-right">GF</TableHeadCell>
 						<TableHeadCell class="py-2 text-right">GA</TableHeadCell>
 						<TableHeadCell class="py-2 text-right">GD</TableHeadCell>
+						{#if !selectedConf}
+							<TableHeadCell class="py-2">Conf</TableHeadCell>
+						{/if}
 					</TableHead>
 					<TableBody>
 						{#each visibleTeams as row, i}
 							<TableBodyRow>
 								<TableBodyCell class="py-1.5 text-right text-gray-400 dark:text-gray-500 tabular-nums">{i + 1}</TableBodyCell>
 								<TableBodyCell class="py-1.5 font-medium">
-									<a href={teamHref(row.team.ncaa_team_id)} class="flex items-center gap-2 hover:text-primary-600 dark:hover:text-primary-400">
+									<a href={teamHref(row.team.ncaa_team_id)} class="flex items-center gap-2 hover:text-gray-900 dark:hover:text-white hover:underline">
 										<span class="shrink-0 w-5 h-5 flex items-center justify-center">
 											<TeamLogo
 												lightUrl={row.team.logo_url_light}
@@ -228,9 +193,6 @@
 										<span>{row.team.name}</span>
 									</a>
 								</TableBodyCell>
-								{#if !selectedConf}
-									<TableBodyCell class="py-1.5 text-gray-400 dark:text-gray-500">{row.conference?.short_name ?? '—'}</TableBodyCell>
-								{/if}
 								<TableBodyCell class="py-1.5 text-right font-semibold tabular-nums">{row.wins}</TableBodyCell>
 								<TableBodyCell class="py-1.5 text-right tabular-nums">{row.losses}</TableBodyCell>
 								<TableBodyCell class="py-1.5 text-right tabular-nums">{row.ties}</TableBodyCell>
@@ -240,6 +202,9 @@
 									{row.goal_diff > 0 ? 'text-green-600 dark:text-green-400' : row.goal_diff < 0 ? 'text-red-500 dark:text-red-400' : 'text-gray-400'}">
 									{sign(row.goal_diff)}
 								</TableBodyCell>
+								{#if !selectedConf}
+									<TableBodyCell class="py-1.5 text-gray-400 dark:text-gray-500">{row.conference?.short_name ?? '—'}</TableBodyCell>
+								{/if}
 							</TableBodyRow>
 						{/each}
 					</TableBody>

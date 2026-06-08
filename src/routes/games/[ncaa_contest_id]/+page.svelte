@@ -247,7 +247,7 @@
 										<TableBodyCell class="py-1.5 text-gray-500">{p.jersey_number ?? '—'}</TableBodyCell>
 										<TableBodyCell class="py-1.5 font-medium">
 											<a href={playerHref(p.ncaa_player_id)}
-												class="text-primary-600 dark:text-primary-400 hover:underline">
+												class="hover:underline">
 												{p.player_name}
 											</a>
 										</TableBodyCell>

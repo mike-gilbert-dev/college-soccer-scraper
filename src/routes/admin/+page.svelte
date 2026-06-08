@@ -1,9 +1,52 @@
 <script lang="ts">
-	import { Tabs, TabItem, Button, Input, Label, Select, Alert, Badge, Table,
+	import { Button, Input, Label, Select, Alert, Badge, Table,
 		TableHead, TableHeadCell, TableBody, TableBodyRow, TableBodyCell } from 'flowbite-svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
+
+	// ── Sidebar navigation ──────────────────────────────────────
+	type ViewId = 'backfill' | 'missing-stats' | 'api-test' | 'logos' | 'data-overview' | 'scrape-log';
+
+	let activeView = $state<ViewId>('backfill');
+	let collapsed: Record<string, boolean> = $state({});
+
+	function toggleSection(id: string) {
+		collapsed = { ...collapsed, [id]: !collapsed[id] };
+	}
+
+	const navSections: { id: string; label: string; tools: { id: ViewId; label: string }[] }[] = [
+		{
+			id: 'scraping',
+			label: 'Scraping',
+			tools: [
+				{ id: 'backfill', label: 'Historic Backfill' },
+				{ id: 'missing-stats', label: 'Missing Stats' },
+			]
+		},
+		{
+			id: 'api',
+			label: 'API Tools',
+			tools: [
+				{ id: 'api-test', label: 'API Test' },
+			]
+		},
+		{
+			id: 'teams',
+			label: 'Teams',
+			tools: [
+				{ id: 'logos', label: 'Logos' },
+			]
+		},
+		{
+			id: 'data',
+			label: 'Data',
+			tools: [
+				{ id: 'data-overview', label: 'Overview' },
+				{ id: 'scrape-log', label: 'Scrape Log' },
+			]
+		}
+	];
 
 	// ── Backfill state ──────────────────────────────────────────
 	let startDate   = $state('2025-08-01');
@@ -253,371 +296,458 @@
 <div class="max-w-5xl mx-auto px-3 py-4">
 	<h1 class="text-base font-bold text-gray-900 dark:text-white mb-4">Admin</h1>
 
-	<Tabs style="underline" contentClass="pt-4">
+	<div class="flex gap-4 items-start">
 
-		<!-- ── Tab 1: Scraper ────────────────────────────────── -->
-		<TabItem open title="Scraper">
-			<div class="grid gap-4 max-w-xl">
-				<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Historic Backfill</h2>
-				<p class="text-xs text-gray-500 dark:text-gray-400">
-					Fetches <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">GetContests_web</code>
-					for each date in range, upserting teams and games. Optionally fetches
-					<code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">NCAA_GetGamecenterBoxscoreSoccerById_web</code>
-					for each final game to upsert player stats. Runs {limit} dates per call with a 2-second delay between dates.
-				</p>
-
-				<div class="grid grid-cols-2 gap-3">
-					<div>
-						<Label for="startDate" class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-							Start date
-						</Label>
-						<Input id="startDate" type="date" size="sm" bind:value={startDate} />
-					</div>
-					<div>
-						<Label for="endDate" class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-							End date
-						</Label>
-						<Input id="endDate" type="date" size="sm" bind:value={endDate} />
-					</div>
-					<div>
-						<Label for="seasonYear" class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-							Season year
-						</Label>
-						<Select id="seasonYear" size="sm" bind:value={seasonYear}
-							items={[{ value: 2025, name: '2025' }, { value: 2024, name: '2024' }]}
-						/>
-					</div>
-					<div>
-						<Label for="division" class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-							Division
-						</Label>
-						<Select id="division" size="sm" bind:value={division}
-							items={[
-								{ value: 1, name: 'Division I' },
-								{ value: 2, name: 'Division II' },
-								{ value: 3, name: 'Division III' }
-							]}
-						/>
-					</div>
-					<div>
-						<Label for="sportCode" class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-							Gender
-						</Label>
-						<Select id="sportCode" size="sm" bind:value={sportCode}
-							items={[
-								{ value: 'MSO', name: "Men's" },
-								{ value: 'WSO', name: "Women's" }
-							]}
-						/>
-					</div>
-					<div>
-						<Label for="limit" class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-							Dates per run
-						</Label>
-						<Input id="limit" type="number" size="sm" min={1} max={90} bind:value={limit} />
-					</div>
-					<div class="col-span-2 flex items-center gap-2 pt-1">
-						<input id="captureTeamColors" type="checkbox" bind:checked={captureTeamColors}
-							class="w-3.5 h-3.5 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
-						<label for="captureTeamColors" class="text-xs text-gray-700 dark:text-gray-300 cursor-pointer select-none">
-							Capture team colors
-							<span class="text-gray-400">(1 box score call per final game)</span>
-						</label>
-					</div>
-					<div class="col-span-2 flex items-center gap-2">
-						<input id="includePlayerStats" type="checkbox" bind:checked={includePlayerStats}
-							class="w-3.5 h-3.5 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
-						<label for="includePlayerStats" class="text-xs text-gray-700 dark:text-gray-300 cursor-pointer select-none">
-							Include player stats
-							<span class="text-gray-400">(slower — use limit ≤ 10)</span>
-						</label>
-					</div>
-				</div>
-
-				<Button
-					color="primary"
-					size="sm"
-					class="w-fit"
-					disabled={running}
-					onclick={() => runBackfill()}
-				>
-					{running ? 'Running…' : 'Run backfill'}
-				</Button>
-
-				{#if runError}
-					<Alert color="red" class="text-xs">{runError}</Alert>
-				{/if}
-
-				{#if result}
-					<div class="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-3 text-xs space-y-1">
-						<p class="font-semibold text-gray-700 dark:text-gray-300 mb-2">Result</p>
-						<p>Dates processed: <span class="font-semibold">{result.processed}</span></p>
-						<p>Games upserted: <span class="font-semibold">{result.gamesUpserted}</span></p>
-						<p>Teams upserted: <span class="font-semibold">{result.teamsUpserted}</span></p>
-						{#if result.playersUpserted > 0}
-							<p>Players upserted: <span class="font-semibold">{result.playersUpserted}</span></p>
-							<p>Player stats upserted: <span class="font-semibold">{result.playerStatsUpserted}</span></p>
-						{/if}
-						{#if result.errors.length > 0}
-							<p class="text-red-500">Errors: {result.errors.length}</p>
-							{#each result.errors as e}
-								<p class="text-red-400 pl-2">• {e.date}: {e.message}</p>
-							{/each}
-						{/if}
-					</div>
-
-					{#if result.nextDate}
-						<div class="flex items-center gap-3">
-							<p class="text-xs text-gray-500 dark:text-gray-400">
-								More dates remaining from <strong>{result.nextDate}</strong>
-							</p>
-							<Button
-								color="alternative"
-								size="xs"
-								disabled={running}
-								onclick={() => runBackfill(result!.nextDate!)}
+		<!-- ── Sidebar nav ──────────────────────────────────────── -->
+		<nav class="w-48 shrink-0 self-start bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded overflow-hidden">
+			{#each navSections as section}
+				<div class="border-b border-gray-100 dark:border-gray-700/60 last:border-b-0">
+					<button
+						onclick={() => toggleSection(section.id)}
+						class="w-full flex items-center justify-between px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+					>
+						<span>{section.label}</span>
+						<span class="text-gray-400 dark:text-gray-500">{collapsed[section.id] ? '›' : '▾'}</span>
+					</button>
+					{#if !collapsed[section.id]}
+						{#each section.tools as tool}
+							<button
+								onclick={() => (activeView = tool.id)}
+								class="w-full text-left pl-4 pr-3 py-1.5 text-xs border-l-2 transition-colors
+									{activeView === tool.id
+										? 'border-primary-500 text-primary-600 dark:text-primary-400 bg-primary-50 dark:bg-primary-900/20 font-medium'
+										: 'border-transparent text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-gray-200'}"
 							>
-								Continue
-							</Button>
-						</div>
-					{:else}
-						<Alert color="green" class="text-xs">Backfill complete for this range.</Alert>
-					{/if}
-				{/if}
-			</div>
-		</TabItem>
-
-		<!-- ── Tab 2: Data Overview ───────────────────────────── -->
-		<TabItem title="Data">
-			<div class="space-y-4">
-				<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Database Overview</h2>
-
-				<div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-					{#each [
-						{ label: 'Games',        value: stats.games,      color: 'text-gray-900 dark:text-white' },
-						{ label: 'Teams',        value: stats.teams,      color: 'text-gray-900 dark:text-white' },
-						{ label: 'Final',        value: stats.finalGames, color: 'text-green-600 dark:text-green-400' },
-						{ label: 'Live now',     value: stats.liveGames,  color: 'text-primary-600 dark:text-primary-400' }
-					] as card}
-						<div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-3">
-							<p class="text-[10px] uppercase tracking-wider font-semibold text-gray-500 dark:text-gray-400">{card.label}</p>
-							<p class="text-2xl font-bold mt-1 {card.color}">{card.value}</p>
-						</div>
-					{/each}
-				</div>
-
-				<p class="text-xs text-gray-400 dark:text-gray-500">
-					Scheduled (not yet final): {stats.games - stats.finalGames - stats.liveGames}
-				</p>
-			</div>
-		</TabItem>
-
-		<!-- ── Tab 3: Scrape Log ─────────────────────────────── -->
-		<TabItem title="Scrape Log">
-			<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Recent Fetches</h2>
-
-			{#if recentLog.length === 0}
-				<p class="text-xs text-gray-500 dark:text-gray-400">No log entries yet. Run the backfill to populate.</p>
-			{:else}
-				<Table hoverable={true} striped={true} class="text-xs">
-					<TableHead>
-						<TableHeadCell class="py-2 text-[11px]">Date</TableHeadCell>
-						<TableHeadCell class="py-2 text-[11px]">Endpoint</TableHeadCell>
-						<TableHeadCell class="py-2 text-[11px]">Status</TableHeadCell>
-						<TableHeadCell class="py-2 text-[11px]">Games</TableHeadCell>
-						<TableHeadCell class="py-2 text-[11px]">Fetched at</TableHeadCell>
-						<TableHeadCell class="py-2 text-[11px]">Error</TableHeadCell>
-					</TableHead>
-					<TableBody>
-						{#each recentLog as row}
-							<TableBodyRow>
-								<TableBodyCell class="py-1.5 font-mono">{row.contest_date ?? '—'}</TableBodyCell>
-								<TableBodyCell class="py-1.5 font-mono text-[10px]">{row.endpoint}</TableBodyCell>
-								<TableBodyCell class="py-1.5">
-									<Badge color={statusColor(row.status)} class="text-[10px] px-1.5 py-0.5">
-										{row.status}
-									</Badge>
-								</TableBodyCell>
-								<TableBodyCell class="py-1.5">{row.games_upserted ?? '—'}</TableBodyCell>
-								<TableBodyCell class="py-1.5 text-gray-500">
-									{new Date(row.fetched_at).toLocaleString()}
-								</TableBodyCell>
-								<TableBodyCell class="py-1.5 text-red-500 max-w-xs truncate">
-									{row.error_message ?? ''}
-								</TableBodyCell>
-							</TableBodyRow>
+								{tool.label}
+							</button>
 						{/each}
-					</TableBody>
-				</Table>
-			{/if}
-		</TabItem>
-
-		<!-- ── Tab 4: API Test ───────────────────────────────── -->
-		<TabItem title="API Test">
-			<div class="grid gap-4 max-w-xl">
-				<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Raw NCAA API Response</h2>
-				<p class="text-xs text-gray-500 dark:text-gray-400">
-					Fetch a single date and inspect the raw JSON to verify field names match what the
-					scraper expects. Use this when games aren't being parsed correctly.
-				</p>
-
-				<div class="grid grid-cols-3 gap-3">
-					<div>
-						<Label for="testDate" class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-							Date
-						</Label>
-						<Input id="testDate" type="date" size="sm" bind:value={testDate} />
-					</div>
-					<div>
-						<Label for="testSeasonYear" class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-							Season
-						</Label>
-						<Select id="testSeasonYear" size="sm" bind:value={testSeasonYear}
-							items={[{ value: 2025, name: '2025' }, { value: 2024, name: '2024' }]}
-						/>
-					</div>
-					<div>
-						<Label for="testDivision" class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-							Division
-						</Label>
-						<Select id="testDivision" size="sm" bind:value={testDivision}
-							items={[
-								{ value: 1, name: 'D-I' },
-								{ value: 2, name: 'D-II' },
-								{ value: 3, name: 'D-III' }
-							]}
-						/>
-					</div>
+					{/if}
 				</div>
+			{/each}
+		</nav>
 
-				<Button color="alternative" size="sm" class="w-fit" disabled={testRunning} onclick={runTest}>
-					{testRunning ? 'Fetching…' : 'Fetch raw response'}
-				</Button>
+		<!-- ── Content pane ─────────────────────────────────────── -->
+		<div class="flex-1 min-w-0 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-4">
 
-				{#if testError}
-					<Alert color="red" class="text-xs">{testError}</Alert>
-				{/if}
+			{#if activeView === 'backfill'}
+				<!-- ── Historic Backfill ──────────────────────────── -->
+				<div class="grid gap-4 max-w-xl">
+					<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Historic Backfill</h2>
+					<p class="text-xs text-gray-500 dark:text-gray-400">
+						Fetches <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">GetContests_web</code>
+						for each date in range, upserting teams and games. Optionally fetches
+						<code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">NCAA_GetGamecenterBoxscoreSoccerById_web</code>
+						for each final game to upsert player stats. Runs {limit} dates per call with a 2-second delay between dates.
+					</p>
 
-				{#if testRaw !== null}
-					<div>
-						<p class="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">
-							Raw response — check the top-level keys and find where contests live:
-						</p>
-						<pre class="text-[10px] bg-gray-900 text-green-400 p-3 rounded overflow-auto max-h-96 whitespace-pre-wrap">{JSON.stringify(testRaw, null, 2)}</pre>
+					<div class="grid grid-cols-2 gap-3">
+						<div>
+							<Label for="startDate" class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+								Start date
+							</Label>
+							<Input id="startDate" type="date" size="sm" bind:value={startDate} />
+						</div>
+						<div>
+							<Label for="endDate" class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+								End date
+							</Label>
+							<Input id="endDate" type="date" size="sm" bind:value={endDate} />
+						</div>
+						<div>
+							<Label for="seasonYear" class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+								Season year
+							</Label>
+							<Select id="seasonYear" size="sm" bind:value={seasonYear}
+								items={[{ value: 2025, name: '2025' }, { value: 2024, name: '2024' }]}
+							/>
+						</div>
+						<div>
+							<Label for="division" class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+								Division
+							</Label>
+							<Select id="division" size="sm" bind:value={division}
+								items={[
+									{ value: 1, name: 'Division I' },
+									{ value: 2, name: 'Division II' },
+									{ value: 3, name: 'Division III' }
+								]}
+							/>
+						</div>
+						<div>
+							<Label for="sportCode" class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+								Gender
+							</Label>
+							<Select id="sportCode" size="sm" bind:value={sportCode}
+								items={[
+									{ value: 'MSO', name: "Men's" },
+									{ value: 'WSO', name: "Women's" }
+								]}
+							/>
+						</div>
+						<div>
+							<Label for="limit" class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+								Dates per run
+							</Label>
+							<Input id="limit" type="number" size="sm" min={1} max={90} bind:value={limit} />
+						</div>
+						<div class="col-span-2 flex items-center gap-2 pt-1">
+							<input id="captureTeamColors" type="checkbox" bind:checked={captureTeamColors}
+								class="w-3.5 h-3.5 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+							<label for="captureTeamColors" class="text-xs text-gray-700 dark:text-gray-300 cursor-pointer select-none">
+								Capture team colors
+								<span class="text-gray-400">(1 box score call per final game)</span>
+							</label>
+						</div>
+						<div class="col-span-2 flex items-center gap-2">
+							<input id="includePlayerStats" type="checkbox" bind:checked={includePlayerStats}
+								class="w-3.5 h-3.5 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+							<label for="includePlayerStats" class="text-xs text-gray-700 dark:text-gray-300 cursor-pointer select-none">
+								Include player stats
+								<span class="text-gray-400">(slower — use limit ≤ 10)</span>
+							</label>
+						</div>
 					</div>
-				{/if}
 
-				<hr class="border-gray-200 dark:border-gray-700 my-4" />
-
-				<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Box Score Test</h2>
-				<p class="text-xs text-gray-500 dark:text-gray-400">
-					Fetch a single game's box score by <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">contestId</code>
-					to inspect player stats. Data lives at <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">data.boxscore.teamBoxscore[i].playerStats</code>.
-				</p>
-
-				<div class="flex gap-3 items-end">
-					<div>
-						<Label for="bsContestId" class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-							Contest ID
-						</Label>
-						<Input id="bsContestId" type="text" size="sm" bind:value={bsContestId} class="font-mono w-36" />
-					</div>
-					<Button color="alternative" size="sm" disabled={bsRunning} onclick={runBoxScoreTest}>
-						{bsRunning ? 'Fetching…' : 'Fetch box score'}
+					<Button
+						color="primary"
+						size="sm"
+						class="w-fit"
+						disabled={running}
+						onclick={() => runBackfill()}
+					>
+						{running ? 'Running…' : 'Run backfill'}
 					</Button>
+
+					{#if runError}
+						<Alert color="red" class="text-xs">{runError}</Alert>
+					{/if}
+
+					{#if result}
+						<div class="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-3 text-xs space-y-1">
+							<p class="font-semibold text-gray-700 dark:text-gray-300 mb-2">Result</p>
+							<p>Dates processed: <span class="font-semibold">{result.processed}</span></p>
+							<p>Games upserted: <span class="font-semibold">{result.gamesUpserted}</span></p>
+							<p>Teams upserted: <span class="font-semibold">{result.teamsUpserted}</span></p>
+							{#if result.playersUpserted > 0}
+								<p>Players upserted: <span class="font-semibold">{result.playersUpserted}</span></p>
+								<p>Player stats upserted: <span class="font-semibold">{result.playerStatsUpserted}</span></p>
+							{/if}
+							{#if result.errors.length > 0}
+								<p class="text-red-500">Errors: {result.errors.length}</p>
+								{#each result.errors as e}
+									<p class="text-red-400 pl-2">• {e.date}: {e.message}</p>
+								{/each}
+							{/if}
+						</div>
+
+						{#if result.nextDate}
+							<div class="flex items-center gap-3">
+								<p class="text-xs text-gray-500 dark:text-gray-400">
+									More dates remaining from <strong>{result.nextDate}</strong>
+								</p>
+								<Button
+									color="alternative"
+									size="xs"
+									disabled={running}
+									onclick={() => runBackfill(result!.nextDate!)}
+								>
+									Continue
+								</Button>
+							</div>
+						{:else}
+							<Alert color="green" class="text-xs">Backfill complete for this range.</Alert>
+						{/if}
+					{/if}
 				</div>
 
-				{#if bsError}
-					<Alert color="red" class="text-xs">{bsError}</Alert>
-				{/if}
+			{:else if activeView === 'missing-stats'}
+				<!-- ── Missing Stats ──────────────────────────────── -->
+				<div class="space-y-4 max-w-xl">
+					<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Dates Missing Player Stats</h2>
+					<p class="text-xs text-gray-500 dark:text-gray-400">
+						Lists all dates that have at least one final game with no player stats scraped yet.
+						Click "Scrape" to run the box score backfill for that single day.
+					</p>
 
-				{#if bsRaw !== null}
-					<pre class="text-[10px] bg-gray-900 text-green-400 p-3 rounded overflow-auto max-h-96 whitespace-pre-wrap">{JSON.stringify(bsRaw, null, 2)}</pre>
-				{/if}
-			</div>
-		</TabItem>
+					<div class="grid grid-cols-3 gap-3">
+						<div>
+							<Label class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+								Gender
+							</Label>
+							<Select size="sm" bind:value={missSport}
+								items={[{ value: 'MSO', name: "Men's" }, { value: 'WSO', name: "Women's" }]}
+							/>
+						</div>
+						<div>
+							<Label class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+								Division
+							</Label>
+							<Select size="sm" bind:value={missDivision}
+								items={[
+									{ value: 1, name: 'Division I' },
+									{ value: 2, name: 'Division II' },
+									{ value: 3, name: 'Division III' }
+								]}
+							/>
+						</div>
+						<div>
+							<Label class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+								Season
+							</Label>
+							<Select size="sm" bind:value={missSeason}
+								items={[{ value: 2025, name: '2025' }, { value: 2024, name: '2024' }]}
+							/>
+						</div>
+					</div>
 
-		<!-- ── Tab 5: Missing Stats ─────────────────────────────── -->
-		<TabItem title="Missing Stats">
-			<div class="space-y-4 max-w-xl">
-				<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Dates Missing Player Stats</h2>
-				<p class="text-xs text-gray-500 dark:text-gray-400">
-					Lists all dates that have at least one final game with no player stats scraped yet.
-					Click "Scrape" to run the box score backfill for that single day.
-				</p>
+					<Button color="alternative" size="sm" class="w-fit" disabled={missLoading} onclick={fetchMissingDates}>
+						{missLoading ? 'Checking…' : 'Check missing dates'}
+					</Button>
 
-				<!-- Filters -->
-				<div class="grid grid-cols-3 gap-3">
-					<div>
-						<Label class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-							Gender
-						</Label>
-						<Select size="sm" bind:value={missSport}
-							items={[{ value: 'MSO', name: "Men's" }, { value: 'WSO', name: "Women's" }]}
-						/>
-					</div>
-					<div>
-						<Label class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-							Division
-						</Label>
-						<Select size="sm" bind:value={missDivision}
-							items={[
-								{ value: 1, name: 'Division I' },
-								{ value: 2, name: 'Division II' },
-								{ value: 3, name: 'Division III' }
-							]}
-						/>
-					</div>
-					<div>
-						<Label class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-							Season
-						</Label>
-						<Select size="sm" bind:value={missSeason}
-							items={[{ value: 2025, name: '2025' }, { value: 2024, name: '2024' }]}
-						/>
-					</div>
+					{#if missError}
+						<Alert color="red" class="text-xs">{missError}</Alert>
+					{/if}
+
+					{#if missChecked}
+						{#if missDates.length === 0}
+							<Alert color="green" class="text-xs">All final games have player stats — nothing missing!</Alert>
+						{:else}
+							<div class="rounded border border-gray-200 dark:border-gray-700 overflow-hidden">
+								<table class="w-full text-xs">
+									<thead class="bg-gray-50 dark:bg-gray-900 text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
+										<tr>
+											<th class="text-left px-3 py-2 font-semibold">Date</th>
+											<th class="text-right px-3 py-2 font-semibold">Games missing</th>
+											<th class="px-3 py-2"></th>
+										</tr>
+									</thead>
+									<tbody>
+										{#each missDates as row}
+											<tr class="border-t border-gray-100 dark:border-gray-700">
+												<td class="px-3 py-2 font-mono text-gray-800 dark:text-gray-200">{row.contest_date}</td>
+												<td class="px-3 py-2 text-right text-gray-500 dark:text-gray-400">{row.game_count}</td>
+												<td class="px-3 py-2 text-right">
+													{#if scrapeResult[row.contest_date]}
+														<span class="text-[11px] {scrapeResult[row.contest_date].startsWith('✓') ? 'text-green-600 dark:text-green-400' : 'text-red-500'}">
+															{scrapeResult[row.contest_date]}
+														</span>
+													{:else}
+														<Button
+															size="xs"
+															color="primary"
+															disabled={scrapingDate[row.contest_date]}
+															onclick={() => scrapeDate(row.contest_date)}
+														>
+															{scrapingDate[row.contest_date] ? 'Scraping…' : 'Scrape'}
+														</Button>
+													{/if}
+												</td>
+											</tr>
+										{/each}
+									</tbody>
+								</table>
+							</div>
+							<p class="text-xs text-gray-400 dark:text-gray-500">
+								{missDates.length} date{missDates.length === 1 ? '' : 's'} with missing stats
+							</p>
+						{/if}
+					{/if}
 				</div>
 
-				<Button color="alternative" size="sm" class="w-fit" disabled={missLoading} onclick={fetchMissingDates}>
-					{missLoading ? 'Checking…' : 'Check missing dates'}
-				</Button>
+			{:else if activeView === 'api-test'}
+				<!-- ── API Test ───────────────────────────────────── -->
+				<div class="grid gap-4 max-w-xl">
+					<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Raw NCAA API Response</h2>
+					<p class="text-xs text-gray-500 dark:text-gray-400">
+						Fetch a single date and inspect the raw JSON to verify field names match what the
+						scraper expects. Use this when games aren't being parsed correctly.
+					</p>
 
-				{#if missError}
-					<Alert color="red" class="text-xs">{missError}</Alert>
-				{/if}
+					<div class="grid grid-cols-3 gap-3">
+						<div>
+							<Label for="testDate" class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+								Date
+							</Label>
+							<Input id="testDate" type="date" size="sm" bind:value={testDate} />
+						</div>
+						<div>
+							<Label for="testSeasonYear" class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+								Season
+							</Label>
+							<Select id="testSeasonYear" size="sm" bind:value={testSeasonYear}
+								items={[{ value: 2025, name: '2025' }, { value: 2024, name: '2024' }]}
+							/>
+						</div>
+						<div>
+							<Label for="testDivision" class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+								Division
+							</Label>
+							<Select id="testDivision" size="sm" bind:value={testDivision}
+								items={[
+									{ value: 1, name: 'D-I' },
+									{ value: 2, name: 'D-II' },
+									{ value: 3, name: 'D-III' }
+								]}
+							/>
+						</div>
+					</div>
 
-				{#if missChecked}
-					{#if missDates.length === 0}
-						<Alert color="green" class="text-xs">All final games have player stats — nothing missing!</Alert>
-					{:else}
-						<div class="rounded border border-gray-200 dark:border-gray-700 overflow-hidden">
+					<Button color="alternative" size="sm" class="w-fit" disabled={testRunning} onclick={runTest}>
+						{testRunning ? 'Fetching…' : 'Fetch raw response'}
+					</Button>
+
+					{#if testError}
+						<Alert color="red" class="text-xs">{testError}</Alert>
+					{/if}
+
+					{#if testRaw !== null}
+						<div>
+							<p class="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">
+								Raw response — check the top-level keys and find where contests live:
+							</p>
+							<pre class="text-[10px] bg-gray-900 text-green-400 p-3 rounded overflow-auto max-h-96 whitespace-pre-wrap">{JSON.stringify(testRaw, null, 2)}</pre>
+						</div>
+					{/if}
+
+					<hr class="border-gray-200 dark:border-gray-700 my-2" />
+
+					<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Box Score Test</h2>
+					<p class="text-xs text-gray-500 dark:text-gray-400">
+						Fetch a single game's box score by <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">contestId</code>
+						to inspect player stats. Data lives at <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">data.boxscore.teamBoxscore[i].playerStats</code>.
+					</p>
+
+					<div class="flex gap-3 items-end">
+						<div>
+							<Label for="bsContestId" class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+								Contest ID
+							</Label>
+							<Input id="bsContestId" type="text" size="sm" bind:value={bsContestId} class="font-mono w-36" />
+						</div>
+						<Button color="alternative" size="sm" disabled={bsRunning} onclick={runBoxScoreTest}>
+							{bsRunning ? 'Fetching…' : 'Fetch box score'}
+						</Button>
+					</div>
+
+					{#if bsError}
+						<Alert color="red" class="text-xs">{bsError}</Alert>
+					{/if}
+
+					{#if bsRaw !== null}
+						<pre class="text-[10px] bg-gray-900 text-green-400 p-3 rounded overflow-auto max-h-96 whitespace-pre-wrap">{JSON.stringify(bsRaw, null, 2)}</pre>
+					{/if}
+				</div>
+
+			{:else if activeView === 'logos'}
+				<!-- ── Logos ──────────────────────────────────────── -->
+				<div class="space-y-3">
+					<div class="flex items-start justify-between gap-4">
+						<div>
+							<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Team Logos</h2>
+							<p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+								Scrapes SVG logos from NCAA. Requires a public <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">team-logos</code> bucket in Supabase Storage.
+								The slug is the identifier used in NCAA logo URLs — edit it if the auto-derived value is wrong, then click Scrape.
+							</p>
+						</div>
+						<Button
+							color="alternative"
+							size="xs"
+							class="shrink-0"
+							disabled={scrapingAll}
+							onclick={scrapeAllVisible}
+						>
+							{scrapingAll ? 'Scraping…' : `Scrape all visible (${filteredLogoTeams.length})`}
+						</Button>
+					</div>
+
+					<Input
+						type="search"
+						size="sm"
+						placeholder="Filter teams…"
+						bind:value={logoSearch}
+						class="max-w-xs"
+					/>
+
+					<p class="text-xs text-gray-400 dark:text-gray-500">
+						{allTeams.filter(t => t.logo_url_dark).length} / {allTeams.length} teams have logos
+					</p>
+
+					<div class="rounded border border-gray-200 dark:border-gray-700 overflow-hidden">
+						<div class="overflow-y-auto max-h-150">
 							<table class="w-full text-xs">
-								<thead class="bg-gray-50 dark:bg-gray-900 text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
+								<thead class="sticky top-0 bg-gray-50 dark:bg-gray-900 text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 z-10">
 									<tr>
-										<th class="text-left px-3 py-2 font-semibold">Date</th>
-										<th class="text-right px-3 py-2 font-semibold">Games missing</th>
+										<th class="text-left px-3 py-2 font-semibold">Team</th>
+										<th class="px-3 py-2 font-semibold text-center">Dark</th>
+										<th class="px-3 py-2 font-semibold text-center">Light</th>
+										<th class="text-left px-3 py-2 font-semibold">NCAA Slug</th>
 										<th class="px-3 py-2"></th>
+										<th class="px-3 py-2 text-left font-semibold">Status</th>
 									</tr>
 								</thead>
 								<tbody>
-									{#each missDates as row}
-										<tr class="border-t border-gray-100 dark:border-gray-700">
-											<td class="px-3 py-2 font-mono text-gray-800 dark:text-gray-200">{row.contest_date}</td>
-											<td class="px-3 py-2 text-right text-gray-500 dark:text-gray-400">{row.game_count}</td>
-											<td class="px-3 py-2 text-right">
-												{#if scrapeResult[row.contest_date]}
-													<span class="text-[11px] {scrapeResult[row.contest_date].startsWith('✓') ? 'text-green-600 dark:text-green-400' : 'text-red-500'}">
-														{scrapeResult[row.contest_date]}
+									{#each filteredLogoTeams as team (team.ncaa_team_id)}
+										{@const res = logoResult[team.ncaa_team_id]}
+										<tr class="border-t border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/40">
+											<td class="px-3 py-1.5 font-medium text-gray-800 dark:text-gray-200 whitespace-nowrap">
+												{team.name}
+											</td>
+											<td class="px-3 py-1.5 text-center">
+												{#if logoCacheDark[team.ncaa_team_id]}
+													<span class="inline-flex items-center justify-center w-8 h-8 rounded bg-gray-800">
+														<img
+															src={logoCacheDark[team.ncaa_team_id]}
+															alt="{team.name} dark logo"
+															class="w-6 h-6 object-contain"
+														/>
 													</span>
 												{:else}
-													<Button
-														size="xs"
-														color="primary"
-														disabled={scrapingDate[row.contest_date]}
-														onclick={() => scrapeDate(row.contest_date)}
-													>
-														{scrapingDate[row.contest_date] ? 'Scraping…' : 'Scrape'}
-													</Button>
+													<span class="inline-flex items-center justify-center w-8 h-8 rounded bg-gray-200 dark:bg-gray-700 text-gray-400 text-[10px]">—</span>
+												{/if}
+											</td>
+											<td class="px-3 py-1.5 text-center">
+												{#if logoCacheLight[team.ncaa_team_id]}
+													<span class="inline-flex items-center justify-center w-8 h-8 rounded bg-white border border-gray-200">
+														<img
+															src={logoCacheLight[team.ncaa_team_id]}
+															alt="{team.name} light logo"
+															class="w-6 h-6 object-contain"
+														/>
+													</span>
+												{:else}
+													<span class="inline-flex items-center justify-center w-8 h-8 rounded bg-gray-100 dark:bg-gray-700 text-gray-400 text-[10px]">—</span>
+												{/if}
+											</td>
+											<td class="px-3 py-1.5">
+												<input
+													type="text"
+													bind:value={slugs[team.ncaa_team_id]}
+													placeholder="e.g. north-carolina-st"
+													class="w-48 text-xs font-mono bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded px-2 py-1 focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500"
+												/>
+											</td>
+											<td class="px-3 py-1.5 whitespace-nowrap">
+												<Button
+													size="xs"
+													color="primary"
+													disabled={logoScraping[team.ncaa_team_id] || scrapingAll}
+													onclick={() => scrapeLogo(team)}
+												>
+													{logoScraping[team.ncaa_team_id] ? '…' : 'Scrape'}
+												</Button>
+											</td>
+											<td class="px-3 py-1.5 whitespace-nowrap">
+												{#if res}
+													{#if res.success}
+														<span class="text-green-600 dark:text-green-400 text-[11px]">
+															✓
+															{#if !res.darkFound} dark missing, used light{:else if !res.lightFound} light missing, used dark{/if}
+														</span>
+													{:else}
+														<span class="text-red-500 text-[11px]" title={res.message}>✗ {res.message?.slice(0, 40)}</span>
+													{/if}
+												{:else if logoCacheDark[team.ncaa_team_id]}
+													<span class="text-gray-400 dark:text-gray-500 text-[11px]">saved</span>
 												{/if}
 											</td>
 										</tr>
@@ -625,148 +755,76 @@
 								</tbody>
 							</table>
 						</div>
-						<p class="text-xs text-gray-400 dark:text-gray-500">
-							{missDates.length} date{missDates.length === 1 ? '' : 's'} with missing stats
-						</p>
-					{/if}
-				{/if}
-			</div>
-		</TabItem>
-
-		<!-- ── Tab 6: Logos ─────────────────────────────────────── -->
-		<TabItem title="Logos">
-			<div class="space-y-3">
-				<div class="flex items-start justify-between gap-4">
-					<div>
-						<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Team Logos</h2>
-						<p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-							Scrapes SVG logos from NCAA. Requires a public <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">team-logos</code> bucket in Supabase Storage.
-							The slug is the identifier used in NCAA logo URLs — edit it if the auto-derived value is wrong, then click Scrape.
-						</p>
 					</div>
-					<Button
-						color="alternative"
-						size="xs"
-						class="shrink-0"
-						disabled={scrapingAll}
-						onclick={scrapeAllVisible}
-					>
-						{scrapingAll ? 'Scraping…' : `Scrape all visible (${filteredLogoTeams.length})`}
-					</Button>
 				</div>
 
-				<!-- Search -->
-				<Input
-					type="search"
-					size="sm"
-					placeholder="Filter teams…"
-					bind:value={logoSearch}
-					class="max-w-xs"
-				/>
+			{:else if activeView === 'data-overview'}
+				<!-- ── Data Overview ──────────────────────────────── -->
+				<div class="space-y-4">
+					<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Database Overview</h2>
 
-				<!-- Coverage summary -->
-				<p class="text-xs text-gray-400 dark:text-gray-500">
-					{allTeams.filter(t => t.logo_url_dark).length} / {allTeams.length} teams have logos
-				</p>
+					<div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+						{#each [
+							{ label: 'Games',    value: stats.games,      color: 'text-gray-900 dark:text-white' },
+							{ label: 'Teams',    value: stats.teams,      color: 'text-gray-900 dark:text-white' },
+							{ label: 'Final',    value: stats.finalGames, color: 'text-green-600 dark:text-green-400' },
+							{ label: 'Live now', value: stats.liveGames,  color: 'text-primary-600 dark:text-primary-400' }
+						] as card}
+							<div class="bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded p-3">
+								<p class="text-[10px] uppercase tracking-wider font-semibold text-gray-500 dark:text-gray-400">{card.label}</p>
+								<p class="text-2xl font-bold mt-1 {card.color}">{card.value}</p>
+							</div>
+						{/each}
+					</div>
 
-				<!-- Team list -->
-				<div class="rounded border border-gray-200 dark:border-gray-700 overflow-hidden">
-					<div class="overflow-y-auto max-h-150">
-						<table class="w-full text-xs">
-							<thead class="sticky top-0 bg-gray-50 dark:bg-gray-900 text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 z-10">
-								<tr>
-									<th class="text-left px-3 py-2 font-semibold">Team</th>
-									<th class="px-3 py-2 font-semibold text-center">Dark</th>
-									<th class="px-3 py-2 font-semibold text-center">Light</th>
-									<th class="text-left px-3 py-2 font-semibold">NCAA Slug</th>
-									<th class="px-3 py-2"></th>
-									<th class="px-3 py-2 text-left font-semibold">Status</th>
-								</tr>
-							</thead>
-							<tbody>
-								{#each filteredLogoTeams as team (team.ncaa_team_id)}
-									{@const res = logoResult[team.ncaa_team_id]}
-									<tr class="border-t border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/40">
-										<!-- Team name -->
-										<td class="px-3 py-1.5 font-medium text-gray-800 dark:text-gray-200 whitespace-nowrap">
-											{team.name}
-										</td>
+					<p class="text-xs text-gray-400 dark:text-gray-500">
+						Scheduled (not yet final): {stats.games - stats.finalGames - stats.liveGames}
+					</p>
+				</div>
 
-										<!-- Dark logo preview -->
-										<td class="px-3 py-1.5 text-center">
-											{#if logoCacheDark[team.ncaa_team_id]}
-												<span class="inline-flex items-center justify-center w-8 h-8 rounded bg-gray-800">
-													<img
-														src={logoCacheDark[team.ncaa_team_id]}
-														alt="{team.name} dark logo"
-														class="w-6 h-6 object-contain"
-													/>
-												</span>
-											{:else}
-												<span class="inline-flex items-center justify-center w-8 h-8 rounded bg-gray-200 dark:bg-gray-700 text-gray-400 text-[10px]">—</span>
-											{/if}
-										</td>
+			{:else if activeView === 'scrape-log'}
+				<!-- ── Scrape Log ─────────────────────────────────── -->
+				<div>
+					<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Recent Fetches</h2>
 
-										<!-- Light logo preview -->
-										<td class="px-3 py-1.5 text-center">
-											{#if logoCacheLight[team.ncaa_team_id]}
-												<span class="inline-flex items-center justify-center w-8 h-8 rounded bg-white border border-gray-200">
-													<img
-														src={logoCacheLight[team.ncaa_team_id]}
-														alt="{team.name} light logo"
-														class="w-6 h-6 object-contain"
-													/>
-												</span>
-											{:else}
-												<span class="inline-flex items-center justify-center w-8 h-8 rounded bg-gray-100 dark:bg-gray-700 text-gray-400 text-[10px]">—</span>
-											{/if}
-										</td>
-
-										<!-- Slug input -->
-										<td class="px-3 py-1.5">
-											<input
-												type="text"
-												bind:value={slugs[team.ncaa_team_id]}
-												placeholder="e.g. north-carolina-st"
-												class="w-48 text-xs font-mono bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded px-2 py-1 focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500"
-											/>
-										</td>
-
-										<!-- Scrape button -->
-										<td class="px-3 py-1.5 whitespace-nowrap">
-											<Button
-												size="xs"
-												color="primary"
-												disabled={logoScraping[team.ncaa_team_id] || scrapingAll}
-												onclick={() => scrapeLogo(team)}
-											>
-												{logoScraping[team.ncaa_team_id] ? '…' : 'Scrape'}
-											</Button>
-										</td>
-
-										<!-- Status -->
-										<td class="px-3 py-1.5 whitespace-nowrap">
-											{#if res}
-												{#if res.success}
-													<span class="text-green-600 dark:text-green-400 text-[11px]">
-														✓
-														{#if !res.darkFound} dark missing, used light{:else if !res.lightFound} light missing, used dark{/if}
-													</span>
-												{:else}
-													<span class="text-red-500 text-[11px]" title={res.message}>✗ {res.message?.slice(0, 40)}</span>
-												{/if}
-											{:else if logoCacheDark[team.ncaa_team_id]}
-												<span class="text-gray-400 dark:text-gray-500 text-[11px]">saved</span>
-											{/if}
-										</td>
-									</tr>
+					{#if recentLog.length === 0}
+						<p class="text-xs text-gray-500 dark:text-gray-400">No log entries yet. Run the backfill to populate.</p>
+					{:else}
+						<Table hoverable={true} striped={true} class="text-xs">
+							<TableHead>
+								<TableHeadCell class="py-2 text-[11px]">Date</TableHeadCell>
+								<TableHeadCell class="py-2 text-[11px]">Endpoint</TableHeadCell>
+								<TableHeadCell class="py-2 text-[11px]">Status</TableHeadCell>
+								<TableHeadCell class="py-2 text-[11px]">Games</TableHeadCell>
+								<TableHeadCell class="py-2 text-[11px]">Fetched at</TableHeadCell>
+								<TableHeadCell class="py-2 text-[11px]">Error</TableHeadCell>
+							</TableHead>
+							<TableBody>
+								{#each recentLog as row}
+									<TableBodyRow>
+										<TableBodyCell class="py-1.5 font-mono">{row.contest_date ?? '—'}</TableBodyCell>
+										<TableBodyCell class="py-1.5 font-mono text-[10px]">{row.endpoint}</TableBodyCell>
+										<TableBodyCell class="py-1.5">
+											<Badge color={statusColor(row.status)} class="text-[10px] px-1.5 py-0.5">
+												{row.status}
+											</Badge>
+										</TableBodyCell>
+										<TableBodyCell class="py-1.5">{row.games_upserted ?? '—'}</TableBodyCell>
+										<TableBodyCell class="py-1.5 text-gray-500">
+											{new Date(row.fetched_at).toLocaleString()}
+										</TableBodyCell>
+										<TableBodyCell class="py-1.5 text-red-500 max-w-xs truncate">
+											{row.error_message ?? ''}
+										</TableBodyCell>
+									</TableBodyRow>
 								{/each}
-							</tbody>
-						</table>
-					</div>
+							</TableBody>
+						</Table>
+					{/if}
 				</div>
-			</div>
-		</TabItem>
 
-	</Tabs>
+			{/if}
+
+		</div>
+	</div>
 </div>
