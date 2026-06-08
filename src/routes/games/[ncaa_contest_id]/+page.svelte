@@ -12,7 +12,7 @@
 	const awayTeam   = $derived(data.awayTeam);
 	const sport      = $derived(data.sport);
 	const division   = $derived(data.division);
-	const seasonYear = $derived(data.seasonYear);
+	const seasonLabel = $derived(data.seasonLabel);
 	const fromTeam   = $derived(data.fromTeam);
 
 	// Start on the tab for the team the user came from; default to away
@@ -41,11 +41,11 @@
 	}
 
 	function playerHref(ncaaPlayerId: string) {
-		return `/players/${ncaaPlayerId}?sport=${sport}&division=${division}&season=${seasonYear}`;
+		return `/players/${ncaaPlayerId}?sport=${sport}&division=${division}&season=${seasonLabel}`;
 	}
 
 	function teamHref(ncaaTeamId: string) {
-		return `/teams/${ncaaTeamId}?sport=${sport}&division=${division}&season=${seasonYear}`;
+		return `/teams/${ncaaTeamId}?sport=${sport}&division=${division}&season=${seasonLabel}`;
 	}
 
 	function dash(v: number | null | undefined) {
@@ -54,8 +54,8 @@
 
 	const backHref = $derived(
 		fromTeam
-			? `/teams/${fromTeam}?sport=${sport}&division=${division}&season=${seasonYear}`
-			: `/teams?sport=${sport}&division=${division}&season=${seasonYear}`
+			? `/teams/${fromTeam}?sport=${sport}&division=${division}&season=${seasonLabel}`
+			: `/teams?sport=${sport}&division=${division}&season=${seasonLabel}`
 	);
 
 	const backLabel = $derived(

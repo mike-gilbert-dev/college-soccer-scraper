@@ -28,7 +28,7 @@ export type PlayerStat = {
 export const load: PageServerLoad = async ({ params, url }) => {
 	const sport      = url.searchParams.get('sport')    ?? 'MSO';
 	const division   = parseInt(url.searchParams.get('division') ?? '1', 10);
-	const seasonYear = parseInt(url.searchParams.get('season')   ?? '2025', 10);
+	const seasonLabel = url.searchParams.get('season') ?? '';
 	const fromTeam   = url.searchParams.get('from') ?? null;
 
 	const { data: game } = await supabaseAdmin
@@ -135,6 +135,6 @@ export const load: PageServerLoad = async ({ params, url }) => {
 		fromTeam,
 		sport,
 		division,
-		seasonYear,
+		seasonLabel,
 	};
 };
