@@ -5,8 +5,13 @@
 	import { createSupabaseBrowserClient } from '$lib/supabase';
 	import { invalidate } from '$app/navigation';
 	import { onMount } from 'svelte';
+	import { dev } from '$app/environment';
+	import { injectAnalytics } from '@vercel/analytics/sveltekit';
 
 	let { data, children } = $props();
+
+	// Vercel Analytics
+	injectAnalytics({ mode: dev ? 'development' : 'production' });
 
 	const supabase = createSupabaseBrowserClient();
 
