@@ -216,9 +216,9 @@
 	</aside>
 
 	<!-- Scores panel -->
-	<section class="flex-1 min-w-0 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded overflow-hidden">
+	<section class="flex-1 min-w-0 bg-gray-50 dark:bg-gray-900/60 rounded overflow-hidden">
 		<!-- Date picker header -->
-		<div class="flex items-center gap-2 px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
+		<div class="flex items-center gap-2 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded bg-gray-50 dark:bg-gray-900">
 			<button
 				onclick={prevDate}
 				disabled={!hasPrev}
@@ -259,7 +259,7 @@
 				</p>
 			</div>
 		{:else}
-			<ul>
+			<ul class="grid grid-cols-1 lg:grid-cols-2 gap-2 mt-2">
 				{#each games as game}
 					{@const home = game.home_team_season}
 					{@const away = game.away_team_season}
@@ -267,11 +267,11 @@
 					{@const isLive  = game.status === 'live'}
 					{@const homeWon = isFinal && game.home_score != null && game.away_score != null && game.home_score > game.away_score}
 					{@const awayWon = isFinal && game.home_score != null && game.away_score != null && game.away_score > game.home_score}
-					<li class="border-b border-gray-100 dark:border-gray-700/60 last:border-0 transition-colors">
+					<li class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded overflow-hidden">
 						<div role="link" tabindex="0"
 							onclick={() => goto(gameHref(game.ncaa_contest_id))}
 							onkeydown={(e) => e.key === 'Enter' && goto(gameHref(game.ncaa_contest_id))}
-							class="px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700/40 cursor-pointer">
+							class="px-3 py-2 h-full flex flex-col justify-between hover:bg-gray-50 dark:hover:bg-gray-700/40 cursor-pointer">
 
 							<!-- Header row: round/broadcaster left, status/time right -->
 							<div class="flex items-center justify-between gap-2 mb-1.5">

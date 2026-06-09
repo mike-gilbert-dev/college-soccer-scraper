@@ -63,6 +63,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 	const results = {
 		processed: 0,
+		contestApiCalls: 0,
+		boxScoreApiCalls: 0,
 		gamesUpserted: 0,
 		teamsUpserted: 0,
 		playersUpserted: 0,
@@ -256,6 +258,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 		try {
 			const contests = await fetchContests({ contestDate: ncaaDate, seasonYear, division, sportCode });
+			results.contestApiCalls++;
 
 			for (const contest of contests) {
 				const homeData = contest.teams.find(t => t.isHome);
@@ -305,6 +308,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 				if (needsBoxScore && gameRow && normalizeStatus(contest.statusCodeDisplay) === 'final') {
 					try {
 						const boxScore = await fetchBoxScore(String(contest.contestId));
+						results.boxScoreApiCalls++;
 						await captureTeamColorsFromBoxScore(boxScore);
 						if (includePlayerStats) {
 							const { playersUpserted, statsUpserted } = await upsertPlayerGameStats(

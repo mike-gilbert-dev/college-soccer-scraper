@@ -7,7 +7,7 @@
 	let { data }: { data: PageData } = $props();
 
 	// ── Sidebar navigation ──────────────────────────────────────
-	type ViewId = 'backfill' | 'missing-stats' | 'api-test' | 'logos' | 'data-overview' | 'scrape-log' | 'manage-seasons';
+	type ViewId = 'backfill' | 'missing-stats' | 'missing-games' | 'api-test' | 'logos' | 'data-overview' | 'scrape-log' | 'manage-seasons';
 
 	let activeView = $state<ViewId>('backfill');
 	let collapsed: Record<string, boolean> = $state({});
@@ -22,7 +22,8 @@
 			label: 'Scraping',
 			tools: [
 				{ id: 'backfill', label: 'Historic Backfill' },
-				{ id: 'missing-stats', label: 'Missing Stats' },
+				{ id: 'missing-stats', label: 'Missing Dates' },
+				{ id: 'missing-games', label: 'Missing Games' },
 			]
 		},
 		{
@@ -68,6 +69,8 @@
 	let captureTeamColors  = $state(true);
 	let result: {
 		processed: number;
+		contestApiCalls: number;
+		boxScoreApiCalls: number;
 		gamesUpserted: number;
 		teamsUpserted: number;
 		playersUpserted: number;
@@ -211,6 +214,58 @@
 			scrapeResult = { ...scrapeResult, [date]: `✗ ${e instanceof Error ? e.message : String(e)}` };
 		} finally {
 			scrapingDate = { ...scrapingDate, [date]: false };
+		}
+	}
+
+	// ── Missing game stats state ────────────────────────────────
+	type MissingGame = { ncaa_contest_id: string; contest_date: string; home_team: string; away_team: string };
+	let missGameSport    = $state('MSO');
+	let missGameDivision = $state(1);
+	let missGameSeason   = $state((data.seasons as SeasonRow[])[0]?.label ?? '');
+	let missGames: MissingGame[] = $state([]);
+	let missGamesChecked  = $state(false);
+	let missGamesLoading  = $state(false);
+	let missGamesError    = $state('');
+	let scrapingGame: Record<string, boolean> = $state({});
+	let gameResult:   Record<string, string>  = $state({});
+
+	async function fetchMissingGames() {
+		missGamesLoading = true; missGamesError = ''; missGames = []; missGamesChecked = false;
+		try {
+			const params = new URLSearchParams({
+				sport:    missGameSport,
+				division: String(missGameDivision),
+				season:   missGameSeason
+			});
+			const res = await fetch(`/api/scrape/missing-games?${params}`);
+			if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+			missGames = await res.json();
+			missGamesChecked = true;
+		} catch (e) {
+			missGamesError = e instanceof Error ? e.message : String(e);
+		} finally {
+			missGamesLoading = false;
+		}
+	}
+
+	async function scrapeGame(ncaaContestId: string) {
+		scrapingGame = { ...scrapingGame, [ncaaContestId]: true };
+		delete gameResult[ncaaContestId];
+		gameResult = { ...gameResult };
+		try {
+			const res = await fetch('/api/scrape/game', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ ncaaContestId })
+			});
+			if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+			const r = await res.json();
+			gameResult = { ...gameResult, [ncaaContestId]: `✓ ${r.statsUpserted} stats` };
+			missGames = missGames.filter(g => g.ncaa_contest_id !== ncaaContestId);
+		} catch (e) {
+			gameResult = { ...gameResult, [ncaaContestId]: `✗ ${e instanceof Error ? e.message : String(e)}` };
+		} finally {
+			scrapingGame = { ...scrapingGame, [ncaaContestId]: false };
 		}
 	}
 
@@ -496,6 +551,7 @@
 					{#if result}
 						<div class="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-3 text-xs space-y-1">
 							<p class="font-semibold text-gray-700 dark:text-gray-300 mb-2">Result</p>
+							<p>NCAA API calls: <span class="font-semibold">{result.contestApiCalls + result.boxScoreApiCalls}</span> <span class="text-gray-400">({result.contestApiCalls} contest{result.contestApiCalls !== 1 ? 's' : ''} + {result.boxScoreApiCalls} box score{result.boxScoreApiCalls !== 1 ? 's' : ''})</span></p>
 							<p>Dates processed: <span class="font-semibold">{result.processed}</span></p>
 							<p>Games upserted: <span class="font-semibold">{result.gamesUpserted}</span></p>
 							<p>Teams upserted: <span class="font-semibold">{result.teamsUpserted}</span></p>
@@ -620,6 +676,101 @@
 							</div>
 							<p class="text-xs text-gray-400 dark:text-gray-500">
 								{missDates.length} date{missDates.length === 1 ? '' : 's'} with missing stats
+							</p>
+						{/if}
+					{/if}
+				</div>
+
+			{:else if activeView === 'missing-games'}
+				<!-- ── Missing Games ──────────────────────────────── -->
+				<div class="space-y-4 max-w-2xl">
+					<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Games Missing Player Stats</h2>
+					<p class="text-xs text-gray-500 dark:text-gray-400">
+						Lists individual final games with no player stats. Use this to scrape a specific game without re-running an entire date.
+					</p>
+
+					<div class="grid grid-cols-3 gap-3">
+						<div>
+							<Label class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+								Gender
+							</Label>
+							<Select size="sm" bind:value={missGameSport}
+								items={[{ value: 'MSO', name: "Men's" }, { value: 'WSO', name: "Women's" }]}
+							/>
+						</div>
+						<div>
+							<Label class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+								Division
+							</Label>
+							<Select size="sm" bind:value={missGameDivision}
+								items={[
+									{ value: 1, name: 'Division I' },
+									{ value: 2, name: 'Division II' },
+									{ value: 3, name: 'Division III' }
+								]}
+							/>
+						</div>
+						<div>
+							<Label class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+								Season
+							</Label>
+							<Select size="sm" bind:value={missGameSeason}
+								items={allSeasons.map(s => ({ value: s.label, name: s.label }))}
+							/>
+						</div>
+					</div>
+
+					<Button color="alternative" size="sm" class="w-fit" disabled={missGamesLoading} onclick={fetchMissingGames}>
+						{missGamesLoading ? 'Checking…' : 'Check missing games'}
+					</Button>
+
+					{#if missGamesError}
+						<Alert color="red" class="text-xs">{missGamesError}</Alert>
+					{/if}
+
+					{#if missGamesChecked}
+						{#if missGames.length === 0}
+							<Alert color="green" class="text-xs">All final games have player stats — nothing missing!</Alert>
+						{:else}
+							<div class="rounded border border-gray-200 dark:border-gray-700 overflow-hidden">
+								<table class="w-full text-xs">
+									<thead class="bg-gray-50 dark:bg-gray-900 text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
+										<tr>
+											<th class="text-left px-3 py-2 font-semibold">Date</th>
+											<th class="text-left px-3 py-2 font-semibold">Away</th>
+											<th class="text-left px-3 py-2 font-semibold">Home</th>
+											<th class="px-3 py-2"></th>
+										</tr>
+									</thead>
+									<tbody>
+										{#each missGames as game}
+											<tr class="border-t border-gray-100 dark:border-gray-700">
+												<td class="px-3 py-2 font-mono text-gray-500 dark:text-gray-400">{game.contest_date}</td>
+												<td class="px-3 py-2 text-gray-800 dark:text-gray-200">{game.away_team}</td>
+												<td class="px-3 py-2 text-gray-800 dark:text-gray-200">{game.home_team}</td>
+												<td class="px-3 py-2 text-right">
+													{#if gameResult[game.ncaa_contest_id]}
+														<span class="text-[11px] {gameResult[game.ncaa_contest_id].startsWith('✓') ? 'text-green-600 dark:text-green-400' : 'text-red-500'}">
+															{gameResult[game.ncaa_contest_id]}
+														</span>
+													{:else}
+														<Button
+															size="xs"
+															color="primary"
+															disabled={scrapingGame[game.ncaa_contest_id]}
+															onclick={() => scrapeGame(game.ncaa_contest_id)}
+														>
+															{scrapingGame[game.ncaa_contest_id] ? 'Scraping…' : 'Scrape'}
+														</Button>
+													{/if}
+												</td>
+											</tr>
+										{/each}
+									</tbody>
+								</table>
+							</div>
+							<p class="text-xs text-gray-400 dark:text-gray-500">
+								{missGames.length} game{missGames.length === 1 ? '' : 's'} with missing stats
 							</p>
 						{/if}
 					{/if}

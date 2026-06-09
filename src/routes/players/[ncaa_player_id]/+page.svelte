@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Table, TableHead, TableHeadCell, TableBody, TableBodyRow, TableBodyCell } from 'flowbite-svelte';
 	import { page } from '$app/state';
+	import TeamLogo from '$lib/components/TeamLogo.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -13,7 +14,7 @@
 	const mostRecentTeam = $derived(data.mostRecentTeam);
 	const sport          = $derived(data.sport);
 	const division       = $derived(data.division);
-	const seasonYear     = $derived(data.seasonYear);
+	const seasonLabel    = $derived(data.seasonLabel);
 
 	// Find position from most recent player_season
 	const position = $derived(
@@ -59,6 +60,20 @@
 		return v == null ? '—' : String(v);
 	}
 
+	// Season filter for game log
+	const sortedPlayerSeasons = $derived(
+		[...playerSeasons].sort((a, b) =>
+			(b.team_season.season?.year ?? 0) - (a.team_season.season?.year ?? 0)
+		)
+	);
+	let selectedPsId = $state<number | null>(null);
+	const effectivePsId = $derived(selectedPsId ?? sortedPlayerSeasons[0]?.id ?? null);
+	const filteredGameStats = $derived(
+		playerSeasons.length > 1 && effectivePsId !== null
+			? gameStats.filter(gs => gs.player_season_id === effectivePsId)
+			: gameStats
+	);
+
 	const isGk = $derived(position === 'GK');
 	const canonicalUrl = $derived(`${page.url.origin}${page.url.pathname}`);
 	const pageTitle = $derived(
@@ -88,11 +103,11 @@
 	<!-- Breadcrumb + header -->
 	<div>
 		<nav class="text-xs text-gray-500 dark:text-gray-400 mb-2 flex items-center gap-1">
-			<a href="/teams?sport={sport}&division={division}&season={seasonYear}"
+			<a href="/teams?sport={sport}&division={division}&season={seasonLabel}"
 				class="hover:text-primary-500">Teams</a>
 			{#if mostRecentTeam}
 				<span>/</span>
-				<a href="/teams/{mostRecentTeam.ncaa_team_id}?sport={sport}&division={division}&season={seasonYear}"
+				<a href="/teams/{mostRecentTeam.ncaa_team_id}?sport={sport}&division={division}&season={seasonLabel}"
 					class="hover:text-primary-500">{mostRecentTeam.name}</a>
 			{/if}
 			<span>/</span>
@@ -136,11 +151,12 @@
 						{#each careerStats as stat}
 							{@const ps = getPsSeason(stat.player_season_id)}
 							<TableBodyRow>
-								<TableBodyCell class="py-1.5 font-medium">{ps?.team_season.season?.year ?? '—'}</TableBodyCell>
+								<TableBodyCell class="py-1.5 font-medium">{ps?.team_season.season?.label ?? ps?.team_season.season?.year ?? '—'}</TableBodyCell>
 								<TableBodyCell class="py-1.5">
 									{#if ps}
-										<a href="/teams/{ps.team_season.team.ncaa_team_id}?sport={sport}&division={division}&season={ps.team_season.season?.year}"
-											class="text-primary-600 dark:text-primary-400 hover:underline">
+										<a href="/teams/{ps.team_season.team.ncaa_team_id}?sport={sport}&division={division}&season={ps.team_season.season?.label ?? ps.team_season.season?.year}"
+											class="flex items-center gap-1.5 hover:underline text-gray-800 dark:text-gray-200">
+											<TeamLogo lightUrl={ps.team_season.team.logo_url_light} darkUrl={ps.team_season.team.logo_url_dark} name={ps.team_season.team.name} size={16} />
 											{ps.team_season.team.name}
 										</a>
 									{:else}—{/if}
@@ -167,15 +183,33 @@
 
 	<!-- Game log -->
 	<div>
-		<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Game Log</h2>
+		<div class="flex items-center gap-3 mb-2">
+			<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Game Log</h2>
+			{#if playerSeasons.length > 1}
+				<div class="flex gap-1">
+					{#each sortedPlayerSeasons as ps}
+						<button
+							onclick={() => selectedPsId = ps.id}
+							class="px-2 py-0.5 text-xs rounded font-semibold transition-colors
+								{effectivePsId === ps.id
+									? 'bg-primary-500 text-white'
+									: 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}"
+						>
+							{ps.team_season.season?.label ?? ps.team_season.season?.year ?? '?'}
+						</button>
+					{/each}
+				</div>
+			{/if}
+		</div>
 
-		{#if gameStats.length === 0}
+		{#if filteredGameStats.length === 0}
 			<p class="text-xs text-gray-500 dark:text-gray-400">No game log data recorded yet.</p>
 		{:else}
 			<div class="overflow-x-auto rounded border border-gray-200 dark:border-gray-700">
 				<Table hoverable striped class="text-xs whitespace-nowrap">
 					<TableHead class="text-[11px] uppercase tracking-wide">
 						<TableHeadCell class="py-2">Date</TableHeadCell>
+
 						<TableHeadCell class="py-2">Opponent</TableHeadCell>
 						<TableHeadCell class="py-2 text-right">Score</TableHeadCell>
 						<TableHeadCell class="py-2 text-center">GS</TableHeadCell>
@@ -191,15 +225,16 @@
 						{/if}
 					</TableHead>
 					<TableBody>
-						{#each gameStats as gs}
+						{#each filteredGameStats as gs}
 							{@const playerTeamId = psTeamMap[gs.player_season_id] ?? ''}
 							{@const opponent = getOpponent(gs.game, playerTeamId)}
 							<TableBodyRow>
 								<TableBodyCell class="py-1.5 text-gray-500">{formatDate(gs.game.contest_date)}</TableBodyCell>
 								<TableBodyCell class="py-1.5">
 									{#if opponent}
-										<a href="/teams/{opponent.ncaa_team_id}?sport={sport}&division={division}&season={seasonYear}"
-											class="text-primary-600 dark:text-primary-400 hover:underline">
+										<a href="/teams/{opponent.ncaa_team_id}?sport={sport}&division={division}&season={seasonLabel}"
+											class="flex items-center gap-1.5 hover:underline text-gray-800 dark:text-gray-200">
+											<TeamLogo lightUrl={opponent.logo_url_light} darkUrl={opponent.logo_url_dark} name={opponent.name} size={16} />
 											{opponent.name}
 										</a>
 									{:else}—{/if}

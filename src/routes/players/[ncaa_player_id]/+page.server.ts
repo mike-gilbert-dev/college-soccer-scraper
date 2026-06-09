@@ -5,7 +5,7 @@ import { supabaseAdmin } from '$lib/server/supabase-admin';
 export const load: PageServerLoad = async ({ params, url }) => {
 	const sport      = url.searchParams.get('sport')    ?? 'MSO';
 	const division   = parseInt(url.searchParams.get('division') ?? '1', 10);
-	const seasonYear = parseInt(url.searchParams.get('season')   ?? '2025', 10);
+	const seasonLabel = url.searchParams.get('season') ?? '';
 
 	// Player master record
 	const { data: player } = await supabaseAdmin
@@ -28,8 +28,8 @@ export const load: PageServerLoad = async ({ params, url }) => {
 				id,
 				sport_code,
 				division,
-				season:seasons ( id, year ),
-				team:teams ( ncaa_team_id, name, short_name )
+				season:seasons ( id, year, label ),
+				team:teams ( ncaa_team_id, name, short_name, logo_url_light, logo_url_dark )
 			)
 		`)
 		.eq('player_id', player.id);
@@ -72,10 +72,10 @@ export const load: PageServerLoad = async ({ params, url }) => {
 						status,
 						sport_code,
 						home_team_season:team_seasons!home_team_season_id (
-							team:teams ( ncaa_team_id, name )
+							team:teams ( ncaa_team_id, name, logo_url_light, logo_url_dark )
 						),
 						away_team_season:team_seasons!away_team_season_id (
-							team:teams ( ncaa_team_id, name )
+							team:teams ( ncaa_team_id, name, logo_url_light, logo_url_dark )
 						)
 					)
 				`)
@@ -121,8 +121,8 @@ export const load: PageServerLoad = async ({ params, url }) => {
 				id: number;
 				sport_code: string;
 				division: number;
-				season: { id: number; year: number };
-				team: { ncaa_team_id: string; name: string; short_name: string };
+				season: { id: number; year: number; label: string | null };
+				team: { ncaa_team_id: string; name: string; short_name: string; logo_url_light: string | null; logo_url_dark: string | null };
 			};
 		}[],
 		careerStats: (sortedCareer ?? []) as unknown as {
@@ -165,14 +165,14 @@ export const load: PageServerLoad = async ({ params, url }) => {
 				away_score: number | null;
 				status: string;
 				sport_code: string;
-				home_team_season: { team: { ncaa_team_id: string; name: string } } | null;
-				away_team_season: { team: { ncaa_team_id: string; name: string } } | null;
+				home_team_season: { team: { ncaa_team_id: string; name: string; logo_url_light: string | null; logo_url_dark: string | null } } | null;
+				away_team_season: { team: { ncaa_team_id: string; name: string; logo_url_light: string | null; logo_url_dark: string | null } } | null;
 			};
 		}[],
 		psTeamMap,
 		mostRecentTeam,
 		sport,
 		division,
-		seasonYear
+		seasonLabel
 	};
 };
