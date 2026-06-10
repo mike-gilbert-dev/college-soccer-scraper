@@ -61,6 +61,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	// Derive the year for the NCAA API from the season's start date.
 	const seasonYear = parseInt(season.start_date.slice(0, 4));
 
+	const startTime = Date.now();
+
 	const results = {
 		processed: 0,
 		contestApiCalls: 0,
@@ -70,7 +72,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		playersUpserted: 0,
 		playerStatsUpserted: 0,
 		errors: [] as { date: string; message: string }[],
-		nextDate: null as string | null
+		nextDate: null as string | null,
+		elapsedMs: 0,
+		requestsPerSecond: 0
 	};
 
 	// Upsert a team + its conference into team_seasons; return team_season id.
@@ -122,7 +126,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 					conference_id: conf?.id ?? null,
 					sport_code: sportCode
 				},
-				{ onConflict: 'team_id,season_id' }
+				{ onConflict: 'team_id,season_id,sport_code' }
 			)
 			.select('id')
 			.single();
@@ -360,6 +364,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		results.processed++;
 		await sleep(DELAY_MS);
 	}
+
+	results.elapsedMs = Date.now() - startTime;
+	const totalRequests = results.contestApiCalls + results.boxScoreApiCalls;
+	const elapsedSeconds = results.elapsedMs / 1000;
+	results.requestsPerSecond = elapsedSeconds > 0 ? Math.round((totalRequests / elapsedSeconds) * 100) / 100 : 0;
 
 	return json(results);
 };

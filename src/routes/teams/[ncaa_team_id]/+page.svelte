@@ -219,7 +219,7 @@
 			</p>
 		{:else if sortedPlayers.length === 0}
 			<p class="text-sm text-gray-500 dark:text-gray-400">
-				No player stats available for this season yet. Run the backfill with "Include player stats" to populate.
+				No player stats available for this season. Check back later.
 			</p>
 		{:else}
 			<div class="overflow-x-auto rounded border border-gray-200 dark:border-gray-700">
@@ -329,7 +329,7 @@
 								<TableBodyCell class="py-1.5 text-center">
 									{#if game.status === 'final'}
 										<a href={gameHref(game.ncaa_contest_id)}
-											class="text-xs font-semibold text-gray-600 dark:text-gray-300 px-2 py-0.5 rounded border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+											class="text-xs font-light! tracking-wide text-gray-600 dark:text-gray-300 px-2 py-0.5 rounded border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
 											Boxscore
 										</a>
 									{/if}

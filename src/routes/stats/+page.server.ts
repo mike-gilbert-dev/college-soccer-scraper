@@ -9,6 +9,7 @@ export type PlayerStat = {
 	team_season_id: number;
 	team_name: string;
 	team_ncaa_id: string;
+	conference: string;
 	games_played: number;
 	minutes_played: number;
 	goals: number;
@@ -29,6 +30,8 @@ export type TeamStat = {
 	ncaa_team_id: string;
 	team_name: string;
 	conference: string;
+	logo_url_light: string | null;
+	logo_url_dark: string | null;
 	gp: number;
 	wins: number;
 	losses: number;
@@ -66,7 +69,7 @@ export const load: PageServerLoad = async ({ url }) => {
 	const seasonLabel = season?.label ?? seasonParam ?? '';
 
 	if (!season) {
-		return { playerStats: [] as PlayerStat[], teamStats: [] as TeamStat[], sport, division, seasonLabel, sortBy, sortDir };
+		return { playerStats: [] as PlayerStat[], teamStats: [] as TeamStat[], conferences: [] as string[], sport, division, seasonLabel, sortBy, sortDir };
 	}
 
 	// All team_seasons for the selected sport/division/season
@@ -74,7 +77,7 @@ export const load: PageServerLoad = async ({ url }) => {
 		.from('team_seasons')
 		.select(`
 			id,
-			team:teams ( ncaa_team_id, name, short_name ),
+			team:teams ( ncaa_team_id, name, short_name, logo_url_light, logo_url_dark ),
 			conference:conferences ( short_name )
 		`)
 		.eq('season_id', season.id)
@@ -84,21 +87,23 @@ export const load: PageServerLoad = async ({ url }) => {
 	const teamSeasonIds = (teamSeasons ?? []).map(ts => ts.id);
 
 	// Build a lookup: team_season_id → { ncaa_team_id, name, conference }
-	const teamMap: Record<number, { ncaa_team_id: string; name: string; conference: string }> = {};
+	const teamMap: Record<number, { ncaa_team_id: string; name: string; conference: string; logo_url_light: string | null; logo_url_dark: string | null }> = {};
 	for (const ts of teamSeasons ?? []) {
-		const team = ts.team as unknown as { ncaa_team_id: string; name: string } | null;
+		const team = ts.team as unknown as { ncaa_team_id: string; name: string; logo_url_light: string | null; logo_url_dark: string | null } | null;
 		const conf = ts.conference as unknown as { short_name: string } | null;
 		if (team) {
 			teamMap[ts.id] = {
 				ncaa_team_id: team.ncaa_team_id,
 				name: team.name,
-				conference: conf?.short_name ?? ''
+				conference: conf?.short_name ?? '',
+				logo_url_light: team.logo_url_light ?? null,
+				logo_url_dark: team.logo_url_dark ?? null,
 			};
 		}
 	}
 
 	if (teamSeasonIds.length === 0) {
-		return { playerStats: [] as PlayerStat[], teamStats: [] as TeamStat[], sport, division, seasonLabel, sortBy, sortDir };
+		return { playerStats: [] as PlayerStat[], teamStats: [] as TeamStat[], conferences: [] as string[], sport, division, seasonLabel, sortBy, sortDir };
 	}
 
 	// Player season stats — sort server-side so any stat column returns the correct top players.
@@ -119,6 +124,7 @@ export const load: PageServerLoad = async ({ url }) => {
 		team_season_id: Number(p.team_season_id),
 		team_name:      teamMap[Number(p.team_season_id)]?.name ?? '',
 		team_ncaa_id:   teamMap[Number(p.team_season_id)]?.ncaa_team_id ?? '',
+		conference:     teamMap[Number(p.team_season_id)]?.conference ?? '',
 		games_played:   Number(p.games_played   ?? 0),
 		minutes_played: Number(p.minutes_played ?? 0),
 		goals:          Number(p.goals          ?? 0),
@@ -191,9 +197,11 @@ export const load: PageServerLoad = async ({ url }) => {
 		.filter(id => teamMap[id] && recs[id].gp > 0)
 		.map(id => ({
 			team_season_id: id,
-			ncaa_team_id:   teamMap[id].ncaa_team_id,
-			team_name:      teamMap[id].name,
-			conference:     teamMap[id].conference,
+			ncaa_team_id:    teamMap[id].ncaa_team_id,
+			team_name:       teamMap[id].name,
+			conference:      teamMap[id].conference,
+			logo_url_light:  teamMap[id].logo_url_light,
+			logo_url_dark:   teamMap[id].logo_url_dark,
 			gp:             recs[id].gp,
 			wins:           recs[id].wins,
 			losses:         recs[id].losses,
@@ -209,5 +217,9 @@ export const load: PageServerLoad = async ({ url }) => {
 		}))
 		.sort((a, b) => b.wins - a.wins || b.gf - a.gf || a.ga - b.ga);
 
-	return { playerStats, teamStats, sport, division, seasonLabel, sortBy, sortDir };
+	const conferences = [...new Set(
+		Object.values(teamMap).map(t => t.conference).filter(Boolean)
+	)].sort();
+
+	return { playerStats, teamStats, conferences, sport, division, seasonLabel, sortBy, sortDir };
 };

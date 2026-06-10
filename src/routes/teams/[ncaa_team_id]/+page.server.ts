@@ -66,6 +66,8 @@ export const load: PageServerLoad = async ({ params, url }) => {
 		.select('id, conference:conferences(name)')
 		.eq('team_id', team.id)
 		.eq('season_id', season.id)
+		.eq('sport_code', sport)
+		.eq('division', division)
 		.single();
 
 	if (!ts) return empty;
@@ -96,6 +98,7 @@ export const load: PageServerLoad = async ({ params, url }) => {
 				)
 			`)
 			.or(`home_team_season_id.eq.${ts.id},away_team_season_id.eq.${ts.id}`)
+			.eq('sport_code', sport)
 			.order('contest_date', { ascending: true })
 	]);
 

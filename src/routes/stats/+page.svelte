@@ -2,6 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { Dropdown, DropdownItem } from 'flowbite-svelte';
+	import TeamLogo from '$lib/components/TeamLogo.svelte';
 	import type { PageData } from './$types';
 	import type { PlayerStat, TeamStat } from './+page.server';
 
@@ -13,6 +14,12 @@
 	const division    = $derived(data.division);
 	const seasonLabel = $derived(data.seasonLabel);
 	const seasons     = $derived(data.seasons);
+	const conferences = $derived(data.conferences as string[]);
+
+	let selectedConf = $state('');
+
+	// Reset conference filter when sport/season changes
+	$effect(() => { data.sport; data.seasonLabel; selectedConf = ''; });
 
 	// Tab: read from URL, default to 'players'
 	const tab = $derived(page.url.searchParams.get('tab') ?? 'players');
@@ -26,15 +33,20 @@
 	let teamSortKey = $state<TeamKey>('wins');
 	let teamSortAsc = $state(false);
 
+	const filteredPlayers = $derived(
+		selectedConf ? playerStats.filter(p => p.conference === selectedConf) : playerStats
+	);
+
 	const sortedTeams = $derived(
-		[...teamStats].sort((a, b) => {
-			const av = a[teamSortKey] ?? -Infinity;
-			const bv = b[teamSortKey] ?? -Infinity;
-			const cmp = typeof av === 'string'
-				? (av as string).localeCompare(bv as string)
-				: (Number(bv) - Number(av));
-			return teamSortAsc ? -cmp : cmp;
-		})
+		[...(selectedConf ? teamStats.filter(t => t.conference === selectedConf) : teamStats)]
+			.sort((a, b) => {
+				const av = a[teamSortKey] ?? -Infinity;
+				const bv = b[teamSortKey] ?? -Infinity;
+				const cmp = typeof av === 'string'
+					? (av as string).localeCompare(bv as string)
+					: (Number(bv) - Number(av));
+				return teamSortAsc ? -cmp : cmp;
+			})
 	);
 
 	// ── Sort handlers ────────────────────────────────────────────────────────
@@ -199,15 +211,29 @@
 				</button>
 			{/each}
 
-			<!-- Player count badge -->
-			<span class="ml-auto self-center pr-3 text-[10px] text-gray-400 dark:text-gray-500">
-				{tab === 'players' ? `${playerStats.length} players` : `${sortedTeams.length} teams`}
-			</span>
+			<!-- Conference filter + count -->
+			<div class="ml-auto flex items-center gap-2 pr-3">
+				{#if conferences.length > 0}
+					<select
+						class="text-xs bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-600 rounded px-1.5 py-1"
+						value={selectedConf}
+						onchange={(e) => (selectedConf = (e.target as HTMLSelectElement).value)}
+					>
+						<option value="">All conferences</option>
+						{#each conferences as c}
+							<option value={c}>{c}</option>
+						{/each}
+					</select>
+				{/if}
+				<span class="text-[10px] text-gray-400 dark:text-gray-500">
+					{tab === 'players' ? `${filteredPlayers.length} players` : `${sortedTeams.length} teams`}
+				</span>
+			</div>
 		</div>
 
 		<!-- ── PLAYERS TAB ─────────────────────────────────────────────────── -->
 		{#if tab === 'players'}
-			{#if playerStats.length === 0}
+			{#if filteredPlayers.length === 0}
 				<p class="py-12 text-center text-sm text-gray-400">No player stats available for this selection.</p>
 			{:else}
 				<div class="overflow-x-auto">
@@ -279,7 +305,7 @@
 							</tr>
 						</thead>
 						<tbody>
-							{#each playerStats as p, i}
+							{#each filteredPlayers as p, i}
 								<tr class="border-b border-gray-100 dark:border-gray-700/60 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
 									<td class="px-3 py-1.5 text-center tabular-nums text-gray-600 dark:text-gray-400">{i + 1}</td>
 									<td class="px-3 py-1.5">
@@ -392,13 +418,16 @@
 								<tr class="border-b border-gray-100 dark:border-gray-700/60 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
 									<td class="px-3 py-1.5 text-center tabular-nums text-gray-600 dark:text-gray-400">{i + 1}</td>
 									<td class="px-3 py-1.5">
-										<a href={teamHref(t.ncaa_team_id)} class="font-medium text-gray-900 dark:text-white hover:text-primary-600 dark:hover:text-primary-400 hover:underline">
+										<a href={teamHref(t.ncaa_team_id)} class="flex items-center gap-1.5 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:underline">
+											<span class="shrink-0 w-4 h-4 flex items-center justify-center">
+												<TeamLogo lightUrl={t.logo_url_light} darkUrl={t.logo_url_dark} name={t.team_name} size={16} />
+											</span>
 											{t.team_name}
 										</a>
 									</td>
 									<td class="px-3 py-1.5 text-gray-500 dark:text-gray-400">{t.conference || '—'}</td>
 									<td class="px-2 py-1.5 text-center tabular-nums text-gray-600 dark:text-gray-400">{t.gp}</td>
-									<td class="px-2 py-1.5 text-center tabular-nums font-semibold text-gray-900 dark:text-white">{t.wins}</td>
+									<td class="px-2 py-1.5 text-center tabular-nums text-gray-600 dark:text-gray-400">{t.wins}</td>
 									<td class="px-2 py-1.5 text-center tabular-nums text-gray-600 dark:text-gray-400">{t.losses}</td>
 									<td class="px-2 py-1.5 text-center tabular-nums text-gray-600 dark:text-gray-400">{t.draws}</td>
 									<td class="px-2 py-1.5 text-center tabular-nums text-gray-600 dark:text-gray-400">{t.gf}</td>

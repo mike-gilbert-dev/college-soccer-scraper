@@ -77,6 +77,8 @@
 		playerStatsUpserted: number;
 		errors: { date: string; message: string }[];
 		nextDate: string | null;
+		elapsedMs: number;
+		requestsPerSecond: number;
 	} | null = $state(null);
 	let runError    = $state('');
 
@@ -551,7 +553,7 @@
 					{#if result}
 						<div class="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-3 text-xs space-y-1">
 							<p class="font-semibold text-gray-700 dark:text-gray-300 mb-2">Result</p>
-							<p>NCAA API calls: <span class="font-semibold">{result.contestApiCalls + result.boxScoreApiCalls}</span> <span class="text-gray-400">({result.contestApiCalls} contest{result.contestApiCalls !== 1 ? 's' : ''} + {result.boxScoreApiCalls} box score{result.boxScoreApiCalls !== 1 ? 's' : ''})</span></p>
+							<p>NCAA API calls: <span class="font-semibold">{result.contestApiCalls + result.boxScoreApiCalls}</span> <span class="text-gray-400">({result.contestApiCalls} contest{result.contestApiCalls !== 1 ? 's' : ''} + {result.boxScoreApiCalls} box score{result.boxScoreApiCalls !== 1 ? 's' : ''}) — <span class="font-semibold text-gray-600 dark:text-gray-300">{result.requestsPerSecond} req/s</span></span></p>
 							<p>Dates processed: <span class="font-semibold">{result.processed}</span></p>
 							<p>Games upserted: <span class="font-semibold">{result.gamesUpserted}</span></p>
 							<p>Teams upserted: <span class="font-semibold">{result.teamsUpserted}</span></p>
