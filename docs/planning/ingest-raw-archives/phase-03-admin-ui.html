@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 3: Admin UI — Ingest Raw Archives</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1.25rem; line-height: 1.65; color: #111; }
+    h1 { font-size: 1.6rem; border-bottom: 3px solid #e8463a; padding-bottom: .5rem; margin-bottom: .5rem; }
+    h2 { font-size: 1.1rem; color: #333; margin-top: 2rem; border-bottom: 1px solid #e5e5e5; padding-bottom: .25rem; }
+    h3 { font-size: 1rem; color: #444; }
+    .meta { display: flex; flex-wrap: wrap; gap: 1.5rem; background: #f7f7f7; padding: .75rem 1rem; border-radius: 6px; font-size: .875rem; margin-bottom: 1.75rem; color: #444; }
+    .meta strong { color: #111; }
+    .checklist { list-style: none; padding: 0; margin: 0; }
+    .checklist li { padding: .4rem 0 .4rem .25rem; border-bottom: 1px solid #f0f0f0; display: flex; gap: .75rem; align-items: flex-start; font-size: .95rem; }
+    .checklist li::before { content: "☐"; font-size: 1.1rem; color: #aaa; flex-shrink: 0; margin-top: .05rem; }
+    .dep { background: #eff6ff; border-left: 3px solid #60a5fa; padding: .5rem .85rem; margin-bottom: 1.25rem; border-radius: 0 5px 5px 0; font-size: .875rem; color: #1e40af; }
+    .note { background: #f0fdf4; border-left: 3px solid #4ade80; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    code { background: #f3f4f6; padding: .15rem .4rem; border-radius: 3px; font-size: .875em; font-family: ui-monospace, monospace; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem 1.25rem; border-radius: 7px; overflow-x: auto; font-size: .875rem; }
+    pre code { background: none; padding: 0; font-size: inherit; }
+    a { color: #e8463a; }
+  </style>
+</head>
+<body>
+
+<div style="background:#f0fdf4;border:1.5px solid #4ade80;border-radius:7px;padding:.65rem 1.1rem;margin-bottom:1.5rem;font-size:.9rem;color:#166534;font-weight:500;">
+  ✅ Phase complete — all criteria satisfied.
+</div>
+<h1>Phase 3: Admin UI</h1>
+
+<div class="meta">
+  <span><strong>Project:</strong> Ingest Raw Archives</span>
+  <span><strong>Phase:</strong> 3 of 3</span>
+  <span><strong>Depends on:</strong> Phase 2 complete</span>
+</div>
+
+<div class="dep">
+  ⚠️ <strong>Prerequisite:</strong> Phase 2 (API Endpoints) must be complete. Both <code>POST /api/ingest/date</code> and <code>GET /api/ingest/status</code> must be working before building the UI against them.
+</div>
+
+<h2>Overview</h2>
+<p>Adds an "Ingest Archives" tool to the existing <code>/admin</code> panel as a new <code>ViewId</code>, placed immediately below "Archive Raw Box Scores" in the sidebar. The tool follows the same pattern as the archive scrapers: the user selects sport/division/season and a date range, checks the current status, then runs a date-by-date ingest loop that shows per-date progress in real time.</p>
+
+<h2>What Will Be Built</h2>
+<p>All changes are confined to <code>src/routes/admin/+page.svelte</code>.</p>
+
+<h3>1. Sidebar entry</h3>
+<p>Add <code>{ id: 'ingest-archives', label: 'Ingest Archives' }</code> to the <code>'scraping'</code> section of <code>navSections</code>, immediately after the existing <code>{ id: 'archive-boxscores', label: 'Archive Raw Box Scores' }</code> entry.</p>
+
+<h3>2. ViewId union type</h3>
+<p>Add <code>'ingest-archives'</code> to the <code>ViewId</code> union type.</p>
+
+<h3>3. State variables</h3>
+<p>Use the prefix <code>ig</code> for all ingest state variables to avoid collisions with existing <code>bs*</code> and other prefixed blocks. Add alongside the existing archive state blocks:</p>
+<pre><code>// ── Ingest Archives state ─────────────────────────────────
+let igSport    = $state('MSO');
+let igDivision = $state(1);
+let igSeason   = $state((data.seasons as SeasonRow[])[0]?.label ?? '');
+let igStart    = $state('');
+let igEnd      = $state('');
+
+type IgDateStatus = 'pending' | 'processing' | 'done' | 'error';
+type IgDateRow = {
+  date: string;
+  status: IgDateStatus;
+  contestsFound?: number;
+  gamesUpserted?: number;
+  playerStatsUpserted?: number;
+  boxScoresCleared?: number;
+  errors?: { contestId: string; message: string }[];
+};
+let igDates:              IgDateRow[] = $state([]);
+let igChecked             = $state(false);
+let igChecking            = $state(false);
+let igCheckError          = $state('');
+let igArchivedGameFiles   = $state(0);
+let igArchivedBoxScores   = $state(0);
+let igDbGamesCount        = $state(0);
+let igRunning             = $state(false);
+</code></pre>
+
+<p>Add a <code>$effect</code> to auto-populate start/end dates from the selected season (same pattern as the other archive tools, using a <code>_prevIgSeason</code> tracker):</p>
+<pre><code>let _prevIgSeason = igSeason;
+$effect(() => {
+  const s = (data.seasons as SeasonRow[]).find(s => s.label === igSeason);
+  if (s && igSeason !== _prevIgSeason) {
+    igStart = s.start_date;
+    igEnd   = s.end_date;
+    _prevIgSeason = igSeason;
+  } else if (s && !igStart && !igEnd) {
+    igStart = s.start_date;
+    igEnd   = s.end_date;
+    _prevIgSeason = igSeason;
+  }
+});
+</code></pre>
+
+<h3>4. <code>checkIgStatus()</code></h3>
+<p>Calls <code>GET /api/ingest/status</code>, stores the three counts, and builds the <code>igDates</code> list — one row per calendar day in the selected date range, all initially <code>'pending'</code>.</p>
+<pre><code>async function checkIgStatus() {
+  igChecking = true; igCheckError = ''; igDates = []; igChecked = false;
+  try {
+    const params = new URLSearchParams({
+      sportCode:   igSport,
+      division:    String(igDivision),
+      seasonLabel: igSeason
+    });
+    const res = await fetch(`/api/ingest/status?${params}`);
+    if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+    const { archivedGameFiles, archivedBoxScores, dbGamesCount, startDate, endDate } = await res.json();
+
+    igArchivedGameFiles = archivedGameFiles;
+    igArchivedBoxScores = archivedBoxScores;
+    igDbGamesCount      = dbGamesCount;
+
+    const start = igStart || startDate;
+    const end   = igEnd   || endDate;
+    const rows: IgDateRow[] = [];
+    const cur = new Date(start + 'T00:00:00Z');
+    const fin = new Date(end   + 'T00:00:00Z');
+    while (cur <= fin) {
+      rows.push({ date: cur.toISOString().slice(0, 10), status: 'pending' });
+      cur.setUTCDate(cur.getUTCDate() + 1);
+    }
+    igDates  = rows;
+    igChecked = true;
+  } catch (e) {
+    igCheckError = e instanceof Error ? e.message : String(e);
+  } finally {
+    igChecking = false;
+  }
+}
+</code></pre>
+
+<h3>5. <code>runIgIngest()</code></h3>
+<p>Loops date-by-date through <code>igDates</code>, calling <code>POST /api/ingest/date</code> for each. Updates each row's status in real time. No inter-date delay — the server makes no external API calls so responses resolve quickly.</p>
+<pre><code>async function runIgIngest() {
+  igRunning = true;
+  for (const row of igDates) {
+    igDates = igDates.map(d =>
+      d.date === row.date ? { ...d, status: 'processing' } : d
+    );
+    try {
+      const res = await fetch('/api/ingest/date', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sportCode:   igSport,
+          division:    igDivision,
+          seasonLabel: igSeason,
+          contestDate: row.date
+        })
+      });
+      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+      const { contestsFound, gamesUpserted, playerStatsUpserted, boxScoresCleared, errors } =
+        await res.json();
+      igDates = igDates.map(d =>
+        d.date === row.date
+          ? {
+              ...d,
+              status: errors.length > 0 ? 'error' : 'done',
+              contestsFound,
+              gamesUpserted,
+              playerStatsUpserted,
+              boxScoresCleared,
+              errors
+            }
+          : d
+      );
+    } catch (e) {
+      igDates = igDates.map(d =>
+        d.date === row.date
+          ? {
+              ...d,
+              status: 'error',
+              errors: [{ contestId: '', message: e instanceof Error ? e.message : String(e) }]
+            }
+          : d
+      );
+    }
+  }
+  igRunning = false;
+}
+</code></pre>
+
+<h3>6. View markup — <code>{:else if activeView === 'ingest-archives'}</code></h3>
+<p>Add after the <code>archive-boxscores</code> view block. Follow the same layout structure as the existing archive tools.</p>
+
+<p><strong>Heading:</strong> <code>h2</code> with text "Ingest Archives".</p>
+
+<p><strong>Description paragraph:</strong> Brief explanation — "Reads archived game and box score JSON files from Storage and writes games, teams, and player stats to the database. The stored files are treated as the source of truth."</p>
+
+<p><strong>Form section</strong> — same 4 selectors (sport, division, season, from the existing season list) and 2 date inputs as the other archive tools, bound to the <code>ig*</code> state variables. No delay input is needed — no rate limiting is required.</p>
+
+<p><strong>Action buttons:</strong></p>
+<ul>
+  <li>"Check status" — calls <code>checkIgStatus()</code>, disabled while <code>igChecking</code></li>
+  <li>"Ingest all (N dates)" — only shown after <code>igChecked</code>, disabled while <code>igRunning</code>, label shows <code>igDates.length</code></li>
+</ul>
+
+<p><strong>Summary line</strong> (shown after check):</p>
+<p><code>{igArchivedGameFiles} game files · {igArchivedBoxScores} box scores · {igDbGamesCount} games in DB</code></p>
+
+<p><strong>Date progress table</strong> — scrollable, max-height ~400px, columns: Date · Status · Contests · Games · Stats · Errors. Status indicators:</p>
+<ul>
+  <li><strong>pending</strong> — <code>—</code> in gray</li>
+  <li><strong>processing</strong> — <code>…</code> in blue (pulsing)</li>
+  <li><strong>done</strong> — <code>✓</code> in green. Show <code>gamesUpserted / contestsFound</code> in Games column, <code>playerStatsUpserted</code> in Stats column. If <code>contestsFound === 0</code>, show gray "no game file" text instead of a green checkmark — this is an off-day, not a failure.</li>
+  <li><strong>error</strong> — <code>✗</code> in red, error count shown, full messages in <code>title</code> attribute on the errors cell</li>
+</ul>
+
+<p>If <code>boxScoresCleared &gt; 0</code> for a done row, append a small gray note to the Stats cell: e.g. <code>playerStatsUpserted stats · boxScoresCleared cleared</code>.</p>
+
+<h2>Implementation Notes</h2>
+<ul>
+  <li>All new state, types, and functions go inside the existing <code>&lt;script lang="ts"&gt;</code> block.</li>
+  <li>The <code>SeasonRow</code> type is already defined in the script block — reuse it for the <code>$effect</code>.</li>
+  <li>Before adding state, grep the script block for any existing variable named <code>igRunning</code>, <code>igChecked</code>, etc. to confirm there are no collisions. The <code>ig*</code> prefix was chosen specifically to avoid existing <code>bs*</code> and archive-related names.</li>
+  <li>The "Ingest all" button should not be disabled based on <code>igDbGamesCount</code> — re-running always upserts, so the count is informational only.</li>
+  <li>Dates with <code>contestsFound === 0</code> are off-days with no game file. Show them as done with a gray "no game file" note in the Contests column, not as errors.</li>
+  <li>Response times for this tool will be faster than the box score archiver — no NCAA API calls are made, so each date processes in well under a second for typical game counts. The progress table will update rapidly.</li>
+</ul>
+
+<h3>Key files to read before starting</h3>
+<ul>
+  <li><code>src/routes/admin/+page.svelte</code> — read the full <code>{:else if activeView === 'archive-boxscores'}</code> block as the template to replicate; read the script block top to bottom before adding any variables to understand what names are already taken</li>
+  <li><code>src/routes/admin/+page.server.ts</code> — confirm <code>seasons</code> is already loaded (it is)</li>
+</ul>
+
+<h2>Completion Criteria</h2>
+<p>Every item below must be satisfied before this phase is considered done.</p>
+<ul class="checklist">
+  <li class="done">"Ingest Archives" appears in the sidebar under Scraping, immediately below "Archive Raw Box Scores"</li>
+  <li class="done">Selecting a season auto-fills the start and end date fields</li>
+  <li class="done">"Check status" populates the summary line with all three counts: archived game files, archived box scores, and games in DB</li>
+  <li class="done">The date progress table renders after check with all rows in the pending (—) state</li>
+  <li class="done">"Ingest all (N dates)" button is visible after check and disabled only while running</li>
+  <li class="done">Running the ingest updates each date row in real time: — → … → ✓ (with games/stats counts) or ✗</li>
+  <li class="done">Dates with no game file show as done with a "no game file" note rather than an error</li>
+  <li class="done">After a full run, the "games in DB" count updates on the next Check Status to reflect ingested records</li>
+  <li class="done">Re-running immediately processes all dates again (upserts are idempotent — same counts, no errors)</li>
+  <li class="done"><code>npm run check</code> passes with no TypeScript errors</li>
+</ul>
+
+<h2>How to Validate</h2>
+<ol>
+  <li>Start dev server: <code>npm run dev</code>, navigate to <code>http://localhost:5173/admin</code>.</li>
+  <li>Click "Ingest Archives" in the sidebar — the form should appear with dates auto-filled from the selected season.</li>
+  <li>Narrow the date range to 2–3 days that are known to have archived game files (e.g. 2025-12-13 to 2025-12-15).</li>
+  <li>Click "Check status" — confirm the summary line shows the three counts and the date table renders with all rows as pending (—).</li>
+  <li>Click "Ingest all" — watch rows transition from — → … → ✓ with contest and stats counts. Off-days show "no game file" in gray.</li>
+  <li>Open Supabase Studio → Table Editor → <code>games</code> — confirm rows exist for the contest IDs from those dates with correct <code>status</code> values (not all 'final' — check a scheduled game if one exists).</li>
+  <li>Open <code>player_game_stats</code> in Studio — confirm rows exist linked to the game IDs from those dates (if box scores were archived).</li>
+  <li>Click "Check status" again — the "games in DB" count should now be higher than before the ingest run.</li>
+  <li>Click "Ingest all" a second time — all rows complete again with the same counts and no errors (idempotent).</li>
+</ol>
+
+</body>
+</html>

@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 1: Storage Helpers — Archive Raw Box Scores</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1.25rem; line-height: 1.65; color: #111; }
+    h1 { font-size: 1.6rem; border-bottom: 3px solid #e8463a; padding-bottom: .5rem; margin-bottom: .5rem; }
+    h2 { font-size: 1.1rem; color: #333; margin-top: 2rem; border-bottom: 1px solid #e5e5e5; padding-bottom: .25rem; }
+    h3 { font-size: 1rem; color: #444; }
+    .meta { display: flex; flex-wrap: wrap; gap: 1.5rem; background: #f7f7f7; padding: .75rem 1rem; border-radius: 6px; font-size: .875rem; margin-bottom: 1.75rem; color: #444; }
+    .meta strong { color: #111; }
+    .checklist { list-style: none; padding: 0; margin: 0; }
+    .checklist li { padding: .4rem 0 .4rem .25rem; border-bottom: 1px solid #f0f0f0; display: flex; gap: .75rem; align-items: flex-start; font-size: .95rem; }
+    .checklist li::before { content: "☐"; font-size: 1.1rem; color: #aaa; flex-shrink: 0; margin-top: .05rem; }
+    .dep { background: #eff6ff; border-left: 3px solid #60a5fa; padding: .5rem .85rem; margin-bottom: 1.25rem; border-radius: 0 5px 5px 0; font-size: .875rem; color: #1e40af; }
+    .note { background: #f0fdf4; border-left: 3px solid #4ade80; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    code { background: #f3f4f6; padding: .15rem .4rem; border-radius: 3px; font-size: .875em; font-family: ui-monospace, monospace; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem 1.25rem; border-radius: 7px; overflow-x: auto; font-size: .875rem; }
+    pre code { background: none; padding: 0; font-size: inherit; }
+    a { color: #e8463a; }
+  </style>
+</head>
+<body>
+
+<div style="background:#f0fdf4;border:1.5px solid #4ade80;border-radius:7px;padding:.65rem 1.1rem;margin-bottom:1.5rem;font-size:.9rem;color:#166534;font-weight:500;">
+  ✅ Phase complete — all criteria satisfied.
+</div>
+<h1>Phase 1: Storage Helpers</h1>
+
+<div class="meta">
+  <span><strong>Project:</strong> Archive Raw Box Scores</span>
+  <span><strong>Phase:</strong> 1 of 3</span>
+  <span><strong>Depends on:</strong> None (first phase)</span>
+</div>
+
+<div class="dep">
+  ⚠️ <strong>Prerequisite:</strong> The <code>ncaa-raw-games</code> Supabase Storage bucket must already exist and game JSON files must be present at paths like <code>MSO/1/2025/12-15.json</code>. This was created by the archive-raw-json project.
+</div>
+
+<h2>Overview</h2>
+<p>Extends <code>src/lib/server/ncaa-archive.ts</code> with three new exported functions for box score storage operations. These are pure server-side helpers with no UI — the API endpoints in Phase 2 and the admin UI in Phase 3 both depend on them. All box score files live in the same <code>ncaa-raw-games</code> bucket under a <code>boxscores/</code> subfolder within the season prefix.</p>
+
+<h2>What Will Be Built</h2>
+<p>Add three functions to <code>src/lib/server/ncaa-archive.ts</code> (append to the existing file — do not modify the existing game helpers):</p>
+
+<h3>1. <code>boxScorePath(sportCode, division, seasonYear, contestId)</code></h3>
+<p>Pure path builder. Returns the Storage path for a box score file.</p>
+<pre><code>export function boxScorePath(
+  sportCode: string,
+  division: number,
+  seasonYear: number,
+  contestId: string | number
+): string {
+  return `${sportCode}/${division}/${seasonYear}/boxscores/${contestId}.json`;
+}
+</code></pre>
+
+<h3>2. <code>saveBoxScoreJson(sportCode, division, seasonYear, contestId, data)</code></h3>
+<p>Uploads a box score response to Storage, overwriting any existing file.</p>
+<pre><code>export async function saveBoxScoreJson(
+  sportCode: string,
+  division: number,
+  seasonYear: number,
+  contestId: string | number,
+  data: unknown
+): Promise&lt;{ path: string }&gt; {
+  const path = boxScorePath(sportCode, division, seasonYear, contestId);
+  const body = JSON.stringify(data, null, 2);
+  const { error } = await supabaseAdmin.storage
+    .from(BUCKET)
+    .upload(path, body, { contentType: 'application/json', upsert: true });
+  if (error) throw new Error(`Storage upload failed for ${path}: ${error.message}`);
+  return { path };
+}
+</code></pre>
+
+<h3>3. <code>listArchivedBoxScoreIds(sportCode, division, seasonYear)</code></h3>
+<p>Lists all archived box score files for a season and returns their contest IDs as strings. Uses a high limit (2000) to cover a full season without pagination — a D-I men's season has ~1,000–1,500 games.</p>
+<pre><code>export async function listArchivedBoxScoreIds(
+  sportCode: string,
+  division: number,
+  seasonYear: number
+): Promise&lt;string[]&gt; {
+  const prefix = `${sportCode}/${division}/${seasonYear}/boxscores`;
+  const { data, error } = await supabaseAdmin.storage
+    .from(BUCKET)
+    .list(prefix, { limit: 2000 });
+  if (error) throw new Error(`Storage list failed for ${prefix}: ${error.message}`);
+  return (data ?? [])
+    .filter(f =&gt; f.name.endsWith('.json'))
+    .map(f =&gt; f.name.replace('.json', ''))
+    .sort();
+}
+</code></pre>
+
+<h3>4. <code>readGameContestIds(sportCode, division, seasonYear, contestDate)</code></h3>
+<p>Downloads a game JSON file from Storage (already archived by the game scraper), parses it, and returns the list of contest IDs found. Returns an empty array if the file does not exist (no games on that date).</p>
+<pre><code>export async function readGameContestIds(
+  sportCode: string,
+  division: number,
+  seasonYear: number,
+  contestDate: string // YYYY-MM-DD
+): Promise&lt;string[]&gt; {
+  const path = archivePath(sportCode, division, seasonYear, contestDate);
+  const { data, error } = await supabaseAdmin.storage.from(BUCKET).download(path);
+  if (error) {
+    // File not found is not an error — some dates have no game file
+    if (error.message.includes('Not Found') || error.message.includes('404')) return [];
+    throw new Error(`Storage download failed for ${path}: ${error.message}`);
+  }
+  const text = await (data as Blob).text();
+  const json = JSON.parse(text) as { data?: { contests?: { contestId: number | string }[] } };
+  return (json?.data?.contests ?? []).map(c =&gt; String(c.contestId));
+}
+</code></pre>
+
+<div class="note">
+  <strong>Note on Supabase Storage <code>download</code>:</strong> The method returns a <code>Blob</code>. Call <code>(data as Blob).text()</code> to get the string, then <code>JSON.parse()</code>. This is different from the <code>upload</code> path which accepts a string body directly.
+</div>
+
+<h2>Implementation Notes</h2>
+<ul>
+  <li>All four helpers go in <code>src/lib/server/ncaa-archive.ts</code>, appended after the existing three exports. Do not modify the existing <code>archivePath</code>, <code>saveContestJson</code>, or <code>listArchivedDates</code> functions.</li>
+  <li>The <code>BUCKET</code> constant (<code>'ncaa-raw-games'</code>) is already defined in the file — reuse it.</li>
+  <li>The <code>archivePath</code> function is already exported from the file — call it directly in <code>readGameContestIds</code> to derive the game file path.</li>
+  <li>Box score files are stored at <code>{sportCode}/{division}/{seasonYear}/boxscores/{contestId}.json</code>, so they live in a subfolder of the season prefix rather than alongside the date files. The <code>listArchivedDates</code> function already filters by <code>.endsWith('.json')</code> so it will not accidentally pick up box score files (they are in a deeper prefix).</li>
+  <li><code>contestId</code> is typed as <code>string | number</code> because the raw JSON returns it as a number (<code>6500844</code>) but it is always converted to a string for path and URL use.</li>
+</ul>
+
+<h3>Key files to read before starting</h3>
+<ul>
+  <li><code>src/lib/server/ncaa-archive.ts</code> — read the full file before adding anything; the new functions must follow the same patterns and reuse the existing <code>BUCKET</code> constant and <code>archivePath</code> helper</li>
+  <li><code>src/lib/server/supabase-admin.ts</code> — confirms the <code>supabaseAdmin</code> import path</li>
+</ul>
+
+<h2>Completion Criteria</h2>
+<ul class="checklist">
+  <li class="done"><code>boxScorePath('MSO', 1, 2025, 6500844)</code> returns <code>'MSO/1/2025/boxscores/6500844.json'</code></li>
+  <li class="done"><code>saveBoxScoreJson</code> uploads a file to the correct path in the <code>ncaa-raw-games</code> bucket and calling it twice for the same contestId does not error (upsert: true)</li>
+  <li class="done"><code>listArchivedBoxScoreIds</code> returns an array of contest ID strings (not full paths, not filenames with <code>.json</code>)</li>
+  <li class="done"><code>readGameContestIds</code> returns a non-empty array of contest ID strings when a real game file exists for that date</li>
+  <li class="done"><code>readGameContestIds</code> returns an empty array (no throw) when no game file exists for the given date</li>
+  <li class="done"><code>npm run check</code> passes with no TypeScript errors</li>
+</ul>
+
+<h2>How to Validate</h2>
+<ol>
+  <li>Write a quick script at <code>scripts/smoke-test-boxscore-helpers.mjs</code> that imports the helpers via direct implementation (replicating the logic with the Supabase JS client, as in previous smoke tests) and calls each function against a real date that has an archived game file in Storage.</li>
+  <li>Confirm <code>readGameContestIds('MSO', 1, 2025, '2025-12-15')</code> returns an array including <code>'6500844'</code>.</li>
+  <li>Confirm <code>saveBoxScoreJson('MSO', 1, 2025, '6500844', { test: true })</code> creates <code>MSO/1/2025/boxscores/6500844.json</code> in Supabase Studio.</li>
+  <li>Confirm calling it again overwrites silently (no error).</li>
+  <li>Confirm <code>listArchivedBoxScoreIds('MSO', 1, 2025)</code> returns <code>['6500844']</code>.</li>
+  <li>Clean up the test file from Storage, then run <code>npm run check</code>.</li>
+</ol>
+
+</body>
+</html>

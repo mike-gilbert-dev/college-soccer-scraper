@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 3: Admin Panel UI — Archive Raw JSON</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1.25rem; line-height: 1.65; color: #111; }
+    h1 { font-size: 1.6rem; border-bottom: 3px solid #e8463a; padding-bottom: .5rem; margin-bottom: .5rem; }
+    h2 { font-size: 1.1rem; color: #333; margin-top: 2rem; border-bottom: 1px solid #e5e5e5; padding-bottom: .25rem; }
+    h3 { font-size: 1rem; color: #444; }
+    .meta { display: flex; flex-wrap: wrap; gap: 1.5rem; background: #f7f7f7; padding: .75rem 1rem; border-radius: 6px; font-size: .875rem; margin-bottom: 1.75rem; color: #444; }
+    .meta strong { color: #111; }
+    .checklist { list-style: none; padding: 0; margin: 0; }
+    .checklist li { padding: .4rem 0 .4rem .25rem; border-bottom: 1px solid #f0f0f0; display: flex; gap: .75rem; align-items: flex-start; font-size: .95rem; }
+    .checklist li::before { content: "☐"; font-size: 1.1rem; color: #aaa; flex-shrink: 0; margin-top: .05rem; }
+    .dep { background: #eff6ff; border-left: 3px solid #60a5fa; padding: .5rem .85rem; margin-bottom: 1.25rem; border-radius: 0 5px 5px 0; font-size: .875rem; color: #1e40af; }
+    .note { background: #f0fdf4; border-left: 3px solid #4ade80; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    code { background: #f3f4f6; padding: .15rem .4rem; border-radius: 3px; font-size: .875em; font-family: ui-monospace, monospace; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem 1.25rem; border-radius: 7px; overflow-x: auto; font-size: .875rem; }
+    pre code { background: none; padding: 0; font-size: inherit; }
+    a { color: #e8463a; }
+  </style>
+</head>
+<body>
+
+<div style="background:#f0fdf4;border:1.5px solid #4ade80;border-radius:7px;padding:.65rem 1.1rem;margin-bottom:1.5rem;font-size:.9rem;color:#166534;font-weight:500;">
+  ✅ Phase complete — all criteria satisfied.
+</div>
+<h1>Phase 3: Admin Panel UI</h1>
+
+<div class="meta">
+  <span><strong>Project:</strong> Archive Raw JSON</span>
+  <span><strong>Phase:</strong> 3 of 3</span>
+  <span><strong>Depends on:</strong> Phase 2 complete</span>
+</div>
+
+<div class="dep">
+  ⚠️ <strong>Prerequisite:</strong> Phase 2 (Archive API Endpoints) must be complete. Both <code>POST /api/archive/date</code> and <code>GET /api/archive/status</code> must be working before building the UI against them.
+</div>
+
+<h2>Overview</h2>
+<p>Adds an "Archive" tool to the existing <code>/admin</code> panel. It lives as a new <code>ViewId</code> inside <code>src/routes/admin/+page.svelte</code> — the same file and pattern as Historic Backfill, Missing Dates, and the other admin tools. The tool has two phases of interaction: a status check (which dates are already archived) and an archive run (client-side loop calling the single-date endpoint once per date with a configurable delay).</p>
+
+<h2>What Will Be Built</h2>
+<p>All changes are confined to <code>src/routes/admin/+page.svelte</code> unless noted.</p>
+
+<h3>1. Sidebar entry</h3>
+<p>Add <code>{ id: 'archive', label: 'Archive Raw' }</code> to the <code>'scraping'</code> section of the <code>navSections</code> array, alongside "Historic Backfill", "Missing Dates", and "Missing Games".</p>
+
+<h3>2. State variables</h3>
+<p>Add to the script block alongside the existing tool states:</p>
+<pre><code>// ── Archive Raw state ────────────────────────────────────
+let archiveSport    = $state('MSO');
+let archiveDivision = $state(1);
+let archiveSeason   = $state((data.seasons as SeasonRow[])[0]?.label ?? '');
+let archiveStart    = $state('');
+let archiveEnd      = $state('');
+let archiveDelay    = $state(500);        // ms between requests
+
+// Status check results
+type DateStatus = 'archived' | 'missing' | 'pending' | 'scraping' | 'done' | 'error';
+type ArchiveDateRow = { date: string; status: DateStatus; gamesCount?: number; error?: string };
+let archiveDates: ArchiveDateRow[] = $state([]);
+let archiveChecked  = $state(false);
+let archiveChecking = $state(false);
+let archiveCheckError = $state('');
+
+// Run state
+let archiveRunning  = $state(false);
+let archiveRunError = $state('');
+</code></pre>
+
+<p>Populate <code>archiveStart</code> and <code>archiveEnd</code> reactively from the selected season:</p>
+<pre><code>$effect(() => {
+  const s = (data.seasons as SeasonRow[]).find(s => s.label === archiveSeason);
+  if (s) { archiveStart = s.start_date; archiveEnd = s.end_date; }
+});
+</code></pre>
+
+<h3>3. Status check function — <code>checkArchiveStatus()</code></h3>
+<p>Calls <code>GET /api/archive/status</code> and builds the <code>archiveDates</code> list by iterating every calendar day in the season's <code>startDate</code>→<code>endDate</code> range (not just the game dates — the archive stores every date regardless of whether games occurred).</p>
+<pre><code>async function checkArchiveStatus() {
+  archiveChecking = true; archiveCheckError = ''; archiveDates = []; archiveChecked = false;
+  try {
+    const params = new URLSearchParams({
+      sportCode: archiveSport,
+      division: String(archiveDivision),
+      seasonLabel: archiveSeason
+    });
+    const res = await fetch(`/api/archive/status?${params}`);
+    if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+    const { archivedDates, startDate, endDate } = await res.json();
+
+    // Build full date range from season bounds (overrideable by archiveStart/archiveEnd)
+    const start = archiveStart || startDate;
+    const end   = archiveEnd   || endDate;
+    const archivedSet = new Set<string>(archivedDates);
+    const rows: ArchiveDateRow[] = [];
+    const cur = new Date(start + 'T00:00:00Z');
+    const fin = new Date(end   + 'T00:00:00Z');
+    while (cur <= fin) {
+      const iso = cur.toISOString().slice(0, 10);
+      rows.push({ date: iso, status: archivedSet.has(iso) ? 'archived' : 'missing' });
+      cur.setUTCDate(cur.getUTCDate() + 1);
+    }
+    archiveDates  = rows;
+    archiveChecked = true;
+  } catch (e) {
+    archiveCheckError = e instanceof Error ? e.message : String(e);
+  } finally {
+    archiveChecking = false;
+  }
+}
+</code></pre>
+
+<h3>4. Archive run function — <code>runArchive()</code></h3>
+<p>Loops through the dates in <code>archiveDates</code>, calling <code>POST /api/archive/date</code> for each, with a <code>archiveDelay</code> ms pause between calls. Updates each row's status in real time so the UI reflects progress as it happens.</p>
+<pre><code>async function runArchive() {
+  archiveRunning = true; archiveRunError = '';
+  const datesToScrape = archiveDates.filter(d => d.status === 'missing' || d.status === 'error');
+  for (const row of datesToScrape) {
+    // Mark as in-flight
+    archiveDates = archiveDates.map(d => d.date === row.date ? { ...d, status: 'scraping' } : d);
+    try {
+      const res = await fetch('/api/archive/date', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sportCode:   archiveSport,
+          division:    archiveDivision,
+          seasonLabel: archiveSeason,
+          contestDate: row.date
+        })
+      });
+      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+      const { gamesCount } = await res.json();
+      archiveDates = archiveDates.map(d =>
+        d.date === row.date ? { ...d, status: 'done', gamesCount } : d
+      );
+    } catch (e) {
+      archiveDates = archiveDates.map(d =>
+        d.date === row.date ? { ...d, status: 'error', error: e instanceof Error ? e.message : String(e) } : d
+      );
+    }
+    if (archiveDelay > 0) await new Promise(r => setTimeout(r, archiveDelay));
+  }
+  archiveRunning = false;
+}
+</code></pre>
+
+<h3>5. View markup — <code>{:else if activeView === 'archive'}</code></h3>
+<p>Add after the <code>missing-games</code> block. Layout follows the same dense pattern as the other admin tools.</p>
+
+<p><strong>Form section</strong> (4 selects + 2 date inputs + delay input, arranged in a grid):</p>
+<ul>
+  <li>Gender: <code>Select</code> → MSO / WSO, bound to <code>archiveSport</code></li>
+  <li>Division: <code>Select</code> → D-I / D-II / D-III, bound to <code>archiveDivision</code></li>
+  <li>Season: <code>Select</code> from <code>allSeasons</code>, bound to <code>archiveSeason</code></li>
+  <li>Start date: <code>Input type="date"</code>, bound to <code>archiveStart</code> (pre-filled by <code>$effect</code>)</li>
+  <li>End date: <code>Input type="date"</code>, bound to <code>archiveEnd</code></li>
+  <li>Delay: <code>Input type="number"</code> (min=0, max=5000), bound to <code>archiveDelay</code>, label shows derived req/s: <code>{archiveDelay > 0 ? (1000 / archiveDelay).toFixed(1) : '∞'} req/s</code></li>
+</ul>
+
+<p><strong>Action buttons</strong>:</p>
+<ul>
+  <li>"Check status" — calls <code>checkArchiveStatus()</code>, disabled while <code>archiveChecking</code></li>
+  <li>"Archive missing" — calls <code>runArchive()</code>, only shown after <code>archiveChecked</code>, disabled while <code>archiveRunning</code>, label shows count of missing dates</li>
+</ul>
+
+<p><strong>Date status list</strong> (shown after check, updates live during archive run):</p>
+<p>A summary line above the list: <code>N archived · M missing · P errors</code></p>
+<p>A scrollable table (max-height ~400px) with columns: Date · Status · Games. Status uses colored indicators:</p>
+<ul>
+  <li><strong>archived</strong> — <code>✓</code> in green</li>
+  <li><strong>missing</strong> — <code>○</code> in gray</li>
+  <li><strong>scraping</strong> — <code>…</code> in blue (pulsing or spinner text)</li>
+  <li><strong>done</strong> — <code>✓</code> in green, games count shown</li>
+  <li><strong>error</strong> — <code>✗</code> in red, truncated error message in title attribute</li>
+</ul>
+
+<div class="note">
+  <strong>Performance note:</strong> A full season is ~140 dates. Rendering 140 rows in a scrollable <code>&lt;table&gt;</code> is fine. No virtualization needed.
+</div>
+
+<h2>Implementation Notes</h2>
+<ul>
+  <li>All new state and functions go inside the existing <code>&lt;script lang="ts"&gt;</code> block. Do not create new component files — keep it inline with the other admin tools.</li>
+  <li>The <code>SeasonRow</code> type is already defined in the script block; use it.</li>
+  <li>The <code>$effect</code> for auto-populating dates from the selected season must not overwrite user edits once the user has manually changed the dates. The simplest approach: only auto-populate when the season changes by tracking the previous season label.</li>
+  <li>The <code>runArchive()</code> loop only processes rows with status <code>'missing'</code> or <code>'error'</code>. Already-archived rows are skipped. This means re-running after an error only retries the failures.</li>
+  <li>Do not add a "stop" button in this phase — if the user needs to stop, they can close the tab. The loop will terminate naturally when all dates are processed.</li>
+  <li>The delay input allows 0 (no delay). This is intentional for local dev use — the NCAA API has no enforced rate limit for this volume of requests.</li>
+</ul>
+
+<h3>Key files to read before starting</h3>
+<ul>
+  <li><code>src/routes/admin/+page.svelte</code> — read the entire file to understand existing patterns before adding anything; the new code must fit the existing structure</li>
+  <li><code>src/routes/admin/+page.server.ts</code> — check if <code>seasons</code> data is already loaded; if not, add it to the server load</li>
+</ul>
+
+<h2>Completion Criteria</h2>
+<ul class="checklist">
+  <li class="done">"Archive Raw" appears in the sidebar under Scraping and is clickable</li>
+  <li class="done">Selecting a season auto-fills the start and end date fields</li>
+  <li class="done">"Check status" correctly shows each date as archived (green ✓) or missing (gray ○) for the selected sport/division/season</li>
+  <li class="done">The summary line shows the correct counts of archived vs. missing dates</li>
+  <li class="done">"Archive all" button label shows the total date count and is disabled only while archiving is in progress</li>
+  <li class="done">Running "Archive all" updates each row in real time: ○ → … → ✓ (with games count) or ✗ (with error)</li>
+  <li class="done">After the run completes, all rows show ✓ or ✗; no rows are stuck at … </li>
+  <li class="done">Re-running "Archive all" processes all dates in the range, overwriting any existing files</li>
+  <li class="done"><code>npm run check</code> passes with no TypeScript errors</li>
+</ul>
+
+<h2>How to Validate</h2>
+<ol>
+  <li>Start dev server: <code>npm run dev</code>, navigate to <code>http://localhost:5173/admin</code>.</li>
+  <li>Click "Archive Raw" in the sidebar — the form should appear.</li>
+  <li>Select season "2025", gender Men's, Division I. Confirm start/end dates auto-fill to the season bounds.</li>
+  <li>Narrow the date range to a 3-day window (e.g. 2025-10-10 to 2025-10-12) for a quick test.</li>
+  <li>Click "Check status" — confirm 3 rows appear. All should be missing (○) on a fresh bucket.</li>
+  <li>Click "Archive missing (3)" — watch each row transition through … → ✓ with a games count.</li>
+  <li>After completion, open Supabase Studio → Storage → <code>ncaa-raw-games</code> → confirm 3 files exist at <code>MSO/1/2025/10-10.json</code>, <code>10-11.json</code>, <code>10-12.json</code>.</li>
+  <li>Click "Check status" again — all 3 rows should now show ✓ (archived).</li>
+  <li>Change delay to 0 ms and re-run on the same 3 dates — all should overwrite silently and show ✓ done.</li>
+</ol>
+
+</body>
+</html>

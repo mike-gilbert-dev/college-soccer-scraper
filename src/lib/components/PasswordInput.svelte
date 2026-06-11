@@ -14,7 +14,7 @@
 		id?: string;
 		name: string;
 		required?: boolean;
-		autocomplete?: string;
+		autocomplete?: import('svelte/elements').HTMLInputAttributes['autocomplete'];
 		size?: 'sm' | 'md' | 'lg';
 		class?: string;
 		minlength?: number;

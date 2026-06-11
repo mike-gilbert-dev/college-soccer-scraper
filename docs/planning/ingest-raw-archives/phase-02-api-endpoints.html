@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 2: API Endpoints — Ingest Raw Archives</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1.25rem; line-height: 1.65; color: #111; }
+    h1 { font-size: 1.6rem; border-bottom: 3px solid #e8463a; padding-bottom: .5rem; margin-bottom: .5rem; }
+    h2 { font-size: 1.1rem; color: #333; margin-top: 2rem; border-bottom: 1px solid #e5e5e5; padding-bottom: .25rem; }
+    h3 { font-size: 1rem; color: #444; }
+    .meta { display: flex; flex-wrap: wrap; gap: 1.5rem; background: #f7f7f7; padding: .75rem 1rem; border-radius: 6px; font-size: .875rem; margin-bottom: 1.75rem; color: #444; }
+    .meta strong { color: #111; }
+    .checklist { list-style: none; padding: 0; margin: 0; }
+    .checklist li { padding: .4rem 0 .4rem .25rem; border-bottom: 1px solid #f0f0f0; display: flex; gap: .75rem; align-items: flex-start; font-size: .95rem; }
+    .checklist li::before { content: "☐"; font-size: 1.1rem; color: #aaa; flex-shrink: 0; margin-top: .05rem; }
+    .dep { background: #eff6ff; border-left: 3px solid #60a5fa; padding: .5rem .85rem; margin-bottom: 1.25rem; border-radius: 0 5px 5px 0; font-size: .875rem; color: #1e40af; }
+    .note { background: #f0fdf4; border-left: 3px solid #4ade80; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    code { background: #f3f4f6; padding: .15rem .4rem; border-radius: 3px; font-size: .875em; font-family: ui-monospace, monospace; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem 1.25rem; border-radius: 7px; overflow-x: auto; font-size: .875rem; }
+    pre code { background: none; padding: 0; font-size: inherit; }
+    a { color: #e8463a; }
+  </style>
+</head>
+<body>
+
+<div style="background:#f0fdf4;border:1.5px solid #4ade80;border-radius:7px;padding:.65rem 1.1rem;margin-bottom:1.5rem;font-size:.9rem;color:#166534;font-weight:500;">
+  ✅ Phase complete — all criteria satisfied.
+</div>
+<h1>Phase 2: API Endpoints</h1>
+
+<div class="meta">
+  <span><strong>Project:</strong> Ingest Raw Archives</span>
+  <span><strong>Phase:</strong> 2 of 3</span>
+  <span><strong>Depends on:</strong> Phase 1 complete</span>
+</div>
+
+<div class="dep">
+  ⚠️ <strong>Prerequisite:</strong> Phase 1 (Storage Read Helpers) must be complete. <code>readGameContests</code>, <code>readStoredBoxScore</code>, and <code>StoredBoxScoreResult</code> must be exported from <code>ncaa-archive.ts</code> before building these endpoints.
+</div>
+
+<h2>Overview</h2>
+<p>Creates two SvelteKit server routes under <code>src/routes/api/ingest/</code>. The POST endpoint processes one date: it reads the archived game JSON and box score files from Storage, then upserts all corresponding records into the database (teams, team_seasons, games, players, player_seasons, player_game_stats). The GET endpoint returns counts of archived files and existing DB records for the status check UI. No live NCAA API calls are made by either endpoint.</p>
+
+<h2>What Will Be Built</h2>
+
+<h3>1. <code>src/routes/api/ingest/date/+server.ts</code> — POST</h3>
+<p>Processes all contests for one date. Reads from Storage, writes to the database. Treats the archived JSON as the single source of truth.</p>
+
+<p><strong>Request body (JSON):</strong></p>
+<pre><code>{
+  sportCode:   string,   // 'MSO' | 'WSO'
+  division:    number,   // 1 | 2 | 3
+  seasonLabel: string,   // e.g. '2025-2026'
+  contestDate: string    // YYYY-MM-DD
+}
+</code></pre>
+
+<p><strong>Success response (200):</strong></p>
+<pre><code>{
+  contestDate:         string,
+  contestsFound:       number,   // contests in the game file (0 if no file)
+  gamesUpserted:       number,
+  teamsUpserted:       number,
+  playerStatsUpserted: number,
+  boxScoresCleared:    number,   // games where player_game_stats were deleted (empty box score)
+  errors:              { contestId: string; message: string }[]
+}
+</code></pre>
+
+<p><strong>Server logic (pseudocode):</strong></p>
+<pre><code>export const POST: RequestHandler = async ({ request, locals }) => {
+  const { user } = await locals.safeGetSession();
+  if (!user) error(401, 'Unauthorized');
+
+  const { sportCode, division, seasonLabel, contestDate } = await request.json();
+
+  // 1. Season lookup
+  const { data: season } = await supabaseAdmin
+    .from('seasons').select('id, year').eq('label', seasonLabel).single();
+  if (!season) return json({ error: `Season not found: ${seasonLabel}` }, { status: 400 });
+
+  // 2. Read contests from Storage
+  const contests = await readGameContests(sportCode, division, season.year, contestDate);
+  if (contests.length === 0) {
+    return json({ contestDate, contestsFound: 0, gamesUpserted: 0, teamsUpserted: 0,
+                  playerStatsUpserted: 0, boxScoresCleared: 0, errors: [] });
+  }
+
+  const results = {
+    contestDate, contestsFound: contests.length,
+    gamesUpserted: 0, teamsUpserted: 0,
+    playerStatsUpserted: 0, boxScoresCleared: 0,
+    errors: [] as { contestId: string; message: string }[]
+  };
+
+  // Inline helpers (see Implementation Notes)
+  // upsertTeamSeason(teamData, seasonId) → number | null
+  // captureTeamColorsFromBoxScore(boxScore) → void
+  // upsertPlayerGameStats(boxScore, gameDbId, homeTeamSeasonId, awayTeamSeasonId)
+  //   → { playersUpserted, statsUpserted }
+
+  for (const contest of contests) {
+    const homeData = contest.teams.find(t => t.isHome);
+    const awayData = contest.teams.find(t => !t.isHome);
+    if (!homeData || !awayData) continue;
+
+    try {
+      // 3. Upsert teams + team_seasons
+      const [homeTeamSeasonId, awayTeamSeasonId] = await Promise.all([
+        upsertTeamSeason(homeData, season.id),
+        upsertTeamSeason(awayData, season.id)
+      ]);
+      if (!homeTeamSeasonId || !awayTeamSeasonId) continue;
+      results.teamsUpserted += 2;
+
+      // 4. Upsert game record
+      const startTime = contest.startTimeEpoch
+        ? new Date(contest.startTimeEpoch * 1000).toISOString()
+        : null;
+      const { data: gameRow } = await supabaseAdmin
+        .from('games')
+        .upsert({
+          ncaa_contest_id: String(contest.contestId),
+          season_id:            season.id,
+          contest_date:         contestDate,
+          start_time:           startTime,
+          home_team_season_id:  homeTeamSeasonId,
+          away_team_season_id:  awayTeamSeasonId,
+          home_score:           homeData.score,
+          away_score:           awayData.score,
+          status:               normalizeStatus(contest.statusCodeDisplay),
+          neutral_site:         false,
+          sport_code:           sportCode,
+          division,
+          broadcaster_name:     contest.broadcasterName ?? null,
+          round_description:    contest.roundDescription ?? null,
+          last_fetched_at:      new Date().toISOString()
+        }, { onConflict: 'ncaa_contest_id' })
+        .select('id')
+        .single();
+
+      if (gameRow) results.gamesUpserted++;
+      if (!gameRow) continue;
+
+      // 5. Box score: read from Storage and sync player_game_stats
+      const bsResult = await readStoredBoxScore(
+        sportCode, division, season.year, String(contest.contestId)
+      );
+
+      if (!bsResult.fileFound) {
+        // No box score file archived yet — skip player stats, leave DB unchanged
+      } else if (!bsResult.boxScore) {
+        // File exists but NCAA returned no data (e.g. scheduled game) —
+        // delete any stale player_game_stats to keep DB in sync with files
+        await supabaseAdmin
+          .from('player_game_stats')
+          .delete()
+          .eq('game_id', gameRow.id);
+        results.boxScoresCleared++;
+      } else {
+        // Full box score available — update team colors and write player stats
+        await captureTeamColorsFromBoxScore(bsResult.boxScore);
+        const { statsUpserted } = await upsertPlayerGameStats(
+          bsResult.boxScore, gameRow.id, homeTeamSeasonId, awayTeamSeasonId
+        );
+        results.playerStatsUpserted += statsUpserted;
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      results.errors.push({ contestId: String(contest.contestId), message: msg });
+    }
+  }
+
+  return json(results);
+};
+</code></pre>
+
+<div class="note">
+  <strong>No delays:</strong> Unlike the backfill, this endpoint makes no live NCAA API calls — it only reads from Supabase Storage and writes to the database. Do not add any <code>sleep()</code> calls. The client loops dates as fast as each POST resolves.
+</div>
+
+<div class="note">
+  <strong>All game statuses:</strong> The backfill only fetches box scores for games with status <code>final</code>. This endpoint processes box scores for every contest regardless of status, because the archives already store box scores for scheduled and live games. A scheduled game's box score file will typically have <code>data.boxscore === null</code>, which triggers the <code>boxScoresCleared</code> path.
+</div>
+
+<h3>2. <code>src/routes/api/ingest/status/+server.ts</code> — GET</h3>
+<p>Returns three counts the UI displays after "Check status": how many game files are archived, how many box score files are archived, and how many games are already in the database for this sport/division/season. Also returns the season's date bounds.</p>
+
+<p><strong>Query parameters:</strong></p>
+<pre><code>?sportCode=MSO&amp;division=1&amp;seasonLabel=2025-2026
+</code></pre>
+
+<p><strong>Success response (200):</strong></p>
+<pre><code>{
+  archivedGameFiles: number,
+  archivedBoxScores: number,
+  dbGamesCount:      number,
+  seasonYear:        number,
+  startDate:         string,   // YYYY-MM-DD
+  endDate:           string    // YYYY-MM-DD
+}
+</code></pre>
+
+<p><strong>Server logic (pseudocode):</strong></p>
+<pre><code>export const GET: RequestHandler = async ({ url, locals }) => {
+  const { user } = await locals.safeGetSession();
+  if (!user) error(401, 'Unauthorized');
+
+  const sportCode   = url.searchParams.get('sportCode')   ?? 'MSO';
+  const division    = Number(url.searchParams.get('division') ?? 1);
+  const seasonLabel = url.searchParams.get('seasonLabel') ?? '';
+  if (!seasonLabel) error(400, 'seasonLabel is required');
+
+  const { data: season } = await supabaseAdmin
+    .from('seasons')
+    .select('id, year, start_date, end_date')
+    .eq('label', seasonLabel)
+    .single();
+  if (!season) error(400, `Season "${seasonLabel}" not found`);
+
+  const [archivedDates, archivedBoxScoreIds, { count: dbGamesCount }] = await Promise.all([
+    listArchivedDates(sportCode, division, season.year),
+    listArchivedBoxScoreIds(sportCode, division, season.year),
+    supabaseAdmin
+      .from('games')
+      .select('*', { count: 'exact', head: true })
+      .eq('season_id', season.id)
+      .eq('sport_code', sportCode)
+      .eq('division', division)
+  ]);
+
+  return json({
+    archivedGameFiles: archivedDates.length,
+    archivedBoxScores: archivedBoxScoreIds.length,
+    dbGamesCount:      dbGamesCount ?? 0,
+    seasonYear:        season.year,
+    startDate:         season.start_date,
+    endDate:           season.end_date
+  });
+};
+</code></pre>
+
+<h2>Implementation Notes</h2>
+
+<h3>Inline helper functions</h3>
+<p>The POST endpoint needs three helper functions: <code>upsertTeamSeason</code>, <code>captureTeamColorsFromBoxScore</code>, and <code>upsertPlayerGameStats</code>. <strong>Copy these directly from <code>src/routes/api/scrape/backfill/+server.ts</code> and define them inline inside the POST handler</strong> (same pattern as the backfill). Do not extract them to a shared module — that is out of scope for this phase. The functions are identical in behavior; the only change is that <code>upsertPlayerGameStats</code> receives an <code>NcaaBoxScore</code> that was read from Storage rather than fetched live.</p>
+
+<h3>Imports</h3>
+<ul>
+  <li>From <code>$lib/server/ncaa-archive</code>: <code>readGameContests</code>, <code>readStoredBoxScore</code>, <code>listArchivedDates</code>, <code>listArchivedBoxScoreIds</code></li>
+  <li>From <code>$lib/server/ncaa-api</code>: <code>normalizeStatus</code>, <code>syntheticPlayerId</code>, <code>type NcaaContestTeam</code>, <code>type NcaaBoxScore</code></li>
+  <li>From <code>$lib/server/supabase-admin</code>: <code>supabaseAdmin</code></li>
+  <li>From <code>@sveltejs/kit</code>: <code>json</code>, <code>error</code></li>
+</ul>
+
+<h3>player_game_stats deletion</h3>
+<p>When a box score file exists but <code>data.boxscore</code> is null, delete all <code>player_game_stats</code> rows for that game: <code>supabaseAdmin.from('player_game_stats').delete().eq('game_id', gameRow.id)</code>. Do <strong>not</strong> delete <code>players</code> or <code>player_seasons</code> rows — those may have been created by other games and the ingest has no way of knowing.</p>
+
+<h3>Error isolation</h3>
+<p>Wrap the entire per-contest block in a try/catch so a single failed contest does not abort processing of the rest of the date. Push the error to <code>results.errors</code> and continue the loop. The date-level response always returns 200 — errors are surfaced in the <code>errors</code> array, not as HTTP error codes.</p>
+
+<h3>Key files to read before starting</h3>
+<ul>
+  <li><code>src/routes/api/scrape/backfill/+server.ts</code> — copy the three inline helper functions verbatim; understand the full upsert pattern before adapting it</li>
+  <li><code>src/routes/api/archive/boxscore/date/+server.ts</code> — pattern for the POST endpoint shape (auth, season lookup, Storage helpers, error handling)</li>
+  <li><code>src/routes/api/archive/boxscore/status/+server.ts</code> — pattern for the GET endpoint shape</li>
+  <li><code>src/lib/server/ncaa-archive.ts</code> — confirm Phase 1 helpers are present before building</li>
+</ul>
+
+<h2>Completion Criteria</h2>
+<p>Every item below must be satisfied before proceeding to Phase 3.</p>
+<ul class="checklist">
+  <li class="done"><code>POST /api/ingest/date</code> returns 200 with <code>{ contestsFound, gamesUpserted, teamsUpserted, playerStatsUpserted, boxScoresCleared, errors }</code> for a date with archived game and box score files</li>
+  <li class="done">After a successful POST, the games appear in the database with the correct <code>status</code> matching what is in the archived game JSON (not hard-coded to 'final')</li>
+  <li class="done">Posting a date with an archived game file but no box score files results in <code>playerStatsUpserted: 0</code> and no error — games are upserted, player stats are skipped</li>
+  <li class="done">Posting a date with no archived game file returns 200 with <code>contestsFound: 0</code> and all counts zero</li>
+  <li class="done">Posting the same date twice produces the same counts both times (upserts are idempotent)</li>
+  <li class="done"><code>GET /api/ingest/status</code> returns 200 with <code>archivedGameFiles</code>, <code>archivedBoxScores</code>, <code>dbGamesCount</code>, <code>startDate</code>, <code>endDate</code></li>
+  <li class="done">After a POST, <code>dbGamesCount</code> from the GET endpoint reflects the newly upserted games</li>
+  <li class="done"><code>npm run check</code> passes with no TypeScript errors</li>
+</ul>
+
+<h2>How to Validate</h2>
+<ol>
+  <li>Start the dev server: <code>npm run dev</code>. Navigate to <code>/admin</code> and log in (endpoints require auth).</li>
+  <li>Create a smoke test script that replicates the endpoint logic directly (same approach as <code>scripts/smoke-test-boxscore-endpoints.mjs</code>), using a date known to have both a game file and box score files (e.g. <code>2025-12-15</code>).</li>
+  <li>Run the smoke test — expect <code>contestsFound &gt; 0</code>, <code>gamesUpserted &gt; 0</code>, <code>teamsUpserted &gt; 0</code>, <code>errors: []</code>.</li>
+  <li>Open Supabase Studio → Table Editor → <code>games</code> — confirm rows exist for the contest IDs from that date with the correct <code>status</code> value.</li>
+  <li>If box scores are archived for that date, confirm <code>player_game_stats</code> rows exist for the inserted game IDs.</li>
+  <li>Run the smoke test again — expect identical counts (idempotent).</li>
+  <li>Test with an off-season date (e.g. <code>2025-01-01</code>) — expect <code>{ contestsFound: 0 }</code> with no errors.</li>
+  <li>GET <code>/api/ingest/status?sportCode=MSO&amp;division=1&amp;seasonLabel=2025-2026</code> and confirm <code>dbGamesCount</code> matches what you see in Supabase Studio.</li>
+</ol>
+
+</body>
+</html>

@@ -7,7 +7,7 @@
 	let { data }: { data: PageData } = $props();
 
 	// ── Sidebar navigation ──────────────────────────────────────
-	type ViewId = 'backfill' | 'missing-stats' | 'missing-games' | 'api-test' | 'logos' | 'data-overview' | 'scrape-log' | 'manage-seasons';
+	type ViewId = 'backfill' | 'missing-stats' | 'missing-games' | 'archive' | 'archive-boxscores' | 'ingest-archives' | 'api-test' | 'logos' | 'data-overview' | 'scrape-log' | 'manage-seasons';
 
 	let activeView = $state<ViewId>('backfill');
 	let collapsed: Record<string, boolean> = $state({});
@@ -24,6 +24,9 @@
 				{ id: 'backfill', label: 'Historic Backfill' },
 				{ id: 'missing-stats', label: 'Missing Dates' },
 				{ id: 'missing-games', label: 'Missing Games' },
+				{ id: 'archive', label: 'Archive Raw Games' },
+				{ id: 'archive-boxscores', label: 'Archive Raw Box Scores' },
+				{ id: 'ingest-archives', label: 'Ingest Archives' },
 			]
 		},
 		{
@@ -345,6 +348,299 @@
 			await new Promise(r => setTimeout(r, 600));
 		}
 		scrapingAll = false;
+	}
+
+	// ── Archive Raw state ────────────────────────────────────────
+	let archiveSport    = $state('MSO');
+	let archiveDivision = $state(1);
+	let archiveSeason   = $state((data.seasons as SeasonRow[])[0]?.label ?? '');
+	let archiveStart    = $state('');
+	let archiveEnd      = $state('');
+	let archiveDelay    = $state(500);
+
+	type DateStatus = 'archived' | 'missing' | 'scraping' | 'done' | 'error';
+	type ArchiveDateRow = { date: string; status: DateStatus; gamesCount?: number; error?: string };
+	let archiveDates: ArchiveDateRow[]  = $state([]);
+	let archiveChecked    = $state(false);
+	let archiveChecking   = $state(false);
+	let archiveCheckError = $state('');
+	let archiveRunning    = $state(false);
+
+	let _prevArchiveSeason = archiveSeason;
+	$effect(() => {
+		const s = (data.seasons as SeasonRow[]).find(s => s.label === archiveSeason);
+		if (s && archiveSeason !== _prevArchiveSeason) {
+			archiveStart = s.start_date;
+			archiveEnd   = s.end_date;
+			_prevArchiveSeason = archiveSeason;
+		} else if (s && !archiveStart && !archiveEnd) {
+			archiveStart = s.start_date;
+			archiveEnd   = s.end_date;
+		}
+	});
+
+	async function checkArchiveStatus() {
+		archiveChecking = true; archiveCheckError = ''; archiveDates = []; archiveChecked = false;
+		try {
+			const params = new URLSearchParams({
+				sportCode:   archiveSport,
+				division:    String(archiveDivision),
+				seasonLabel: archiveSeason
+			});
+			const res = await fetch(`/api/archive/status?${params}`);
+			if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+			const { archivedDates, startDate, endDate } = await res.json();
+			const start = archiveStart || startDate;
+			const end   = archiveEnd   || endDate;
+			const archivedSet = new Set<string>(archivedDates);
+			const rows: ArchiveDateRow[] = [];
+			const cur = new Date(start + 'T00:00:00Z');
+			const fin = new Date(end   + 'T00:00:00Z');
+			while (cur <= fin) {
+				const iso = cur.toISOString().slice(0, 10);
+				rows.push({ date: iso, status: archivedSet.has(iso) ? 'archived' : 'missing' });
+				cur.setUTCDate(cur.getUTCDate() + 1);
+			}
+			archiveDates   = rows;
+			archiveChecked = true;
+		} catch (e) {
+			archiveCheckError = e instanceof Error ? e.message : String(e);
+		} finally {
+			archiveChecking = false;
+		}
+	}
+
+	async function runArchive() {
+		archiveRunning = true;
+		const toScrape = archiveDates;
+		for (const row of toScrape) {
+			archiveDates = archiveDates.map(d => d.date === row.date ? { ...d, status: 'scraping' as DateStatus } : d);
+			try {
+				const res = await fetch('/api/archive/date', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({
+						sportCode:   archiveSport,
+						division:    archiveDivision,
+						seasonLabel: archiveSeason,
+						contestDate: row.date
+					})
+				});
+				if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+				const { gamesCount } = await res.json();
+				archiveDates = archiveDates.map(d =>
+					d.date === row.date ? { ...d, status: 'done' as DateStatus, gamesCount } : d
+				);
+			} catch (e) {
+				archiveDates = archiveDates.map(d =>
+					d.date === row.date
+						? { ...d, status: 'error' as DateStatus, error: e instanceof Error ? e.message : String(e) }
+						: d
+				);
+			}
+			if (archiveDelay > 0) await new Promise(r => setTimeout(r, archiveDelay));
+		}
+		archiveRunning = false;
+	}
+
+	// ── Archive Box Scores state ─────────────────────────────────
+	let bsSport      = $state('MSO');
+	let bsDivision   = $state(1);
+	let bsSeason     = $state((data.seasons as SeasonRow[])[0]?.label ?? '');
+	let bsStart      = $state('');
+	let bsEnd        = $state('');
+	let bsDelay      = $state(1000);
+
+	type BsDateStatus = 'pending' | 'scraping' | 'done' | 'error';
+	type BsDateRow = { date: string; status: BsDateStatus; contestsFound?: number; saved?: number; errors?: { contestId: string; message: string }[] };
+	let bsDates:        BsDateRow[] = $state([]);
+	let bsChecked       = $state(false);
+	let bsChecking      = $state(false);
+	let bsCheckError    = $state('');
+	let bsArchivedCount = $state(0);
+	let bsArchiveRunning = $state(false);
+
+	let _prevBsSeason = bsSeason;
+	$effect(() => {
+		const s = (data.seasons as SeasonRow[]).find(s => s.label === bsSeason);
+		if (s && bsSeason !== _prevBsSeason) {
+			bsStart = s.start_date;
+			bsEnd   = s.end_date;
+			_prevBsSeason = bsSeason;
+		} else if (s && !bsStart && !bsEnd) {
+			bsStart = s.start_date;
+			bsEnd   = s.end_date;
+			_prevBsSeason = bsSeason;
+		}
+	});
+
+	async function checkBsStatus() {
+		bsChecking = true; bsCheckError = ''; bsDates = []; bsChecked = false;
+		try {
+			const params = new URLSearchParams({
+				sportCode:   bsSport,
+				division:    String(bsDivision),
+				seasonLabel: bsSeason
+			});
+			const res = await fetch(`/api/archive/boxscore/status?${params}`);
+			if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+			const { archivedCount, startDate, endDate } = await res.json();
+			bsArchivedCount = archivedCount;
+			const start = bsStart || startDate;
+			const end   = bsEnd   || endDate;
+			const rows: BsDateRow[] = [];
+			const cur = new Date(start + 'T00:00:00Z');
+			const fin = new Date(end   + 'T00:00:00Z');
+			while (cur <= fin) {
+				rows.push({ date: cur.toISOString().slice(0, 10), status: 'pending' });
+				cur.setUTCDate(cur.getUTCDate() + 1);
+			}
+			bsDates  = rows;
+			bsChecked = true;
+		} catch (e) {
+			bsCheckError = e instanceof Error ? e.message : String(e);
+		} finally {
+			bsChecking = false;
+		}
+	}
+
+	async function runBsArchive() {
+		bsArchiveRunning = true;
+		for (const row of bsDates) {
+			bsDates = bsDates.map(d => d.date === row.date ? { ...d, status: 'scraping' as BsDateStatus } : d);
+			try {
+				const res = await fetch('/api/archive/boxscore/date', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({
+						sportCode:   bsSport,
+						division:    bsDivision,
+						seasonLabel: bsSeason,
+						contestDate: row.date,
+						delayMs:     bsDelay
+					})
+				});
+				if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+				const { contestsFound, saved, errors } = await res.json();
+				bsDates = bsDates.map(d =>
+					d.date === row.date
+						? { ...d, status: errors.length > 0 ? 'error' : 'done' as BsDateStatus, contestsFound, saved, errors }
+						: d
+				);
+			} catch (e) {
+				bsDates = bsDates.map(d =>
+					d.date === row.date
+						? { ...d, status: 'error' as BsDateStatus, errors: [{ contestId: '', message: e instanceof Error ? e.message : String(e) }] }
+						: d
+				);
+			}
+		}
+		bsArchiveRunning = false;
+	}
+
+	// ── Ingest Archives state ────────────────────────────────────────────────────
+	let igSport    = $state('MSO');
+	let igDivision = $state(1);
+	let igSeason   = $state((data.seasons as SeasonRow[])[0]?.label ?? '');
+	let igStart    = $state('');
+	let igEnd      = $state('');
+
+	type IgDateStatus = 'pending' | 'processing' | 'done' | 'error';
+	type IgDateRow = {
+		date: string;
+		status: IgDateStatus;
+		contestsFound?: number;
+		gamesUpserted?: number;
+		playerStatsUpserted?: number;
+		boxScoresCleared?: number;
+		errors?: { contestId: string; message: string }[];
+	};
+	let igDates:              IgDateRow[] = $state([]);
+	let igChecked             = $state(false);
+	let igChecking            = $state(false);
+	let igCheckError          = $state('');
+	let igArchivedGameFiles   = $state(0);
+	let igArchivedBoxScores   = $state(0);
+	let igDbGamesCount        = $state(0);
+	let igRunning             = $state(false);
+
+	let _prevIgSeason = igSeason;
+	$effect(() => {
+		const s = (data.seasons as SeasonRow[]).find(s => s.label === igSeason);
+		if (s && igSeason !== _prevIgSeason) {
+			igStart = s.start_date;
+			igEnd   = s.end_date;
+			_prevIgSeason = igSeason;
+		} else if (s && !igStart && !igEnd) {
+			igStart = s.start_date;
+			igEnd   = s.end_date;
+			_prevIgSeason = igSeason;
+		}
+	});
+
+	async function checkIgStatus() {
+		igChecking = true; igCheckError = ''; igDates = []; igChecked = false;
+		try {
+			const params = new URLSearchParams({
+				sportCode:   igSport,
+				division:    String(igDivision),
+				seasonLabel: igSeason
+			});
+			const res = await fetch(`/api/ingest/status?${params}`);
+			if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+			const { archivedGameFiles, archivedBoxScores, dbGamesCount, startDate, endDate } = await res.json();
+			igArchivedGameFiles = archivedGameFiles;
+			igArchivedBoxScores = archivedBoxScores;
+			igDbGamesCount      = dbGamesCount;
+			const start = igStart || startDate;
+			const end   = igEnd   || endDate;
+			const rows: IgDateRow[] = [];
+			const cur = new Date(start + 'T00:00:00Z');
+			const fin = new Date(end   + 'T00:00:00Z');
+			while (cur <= fin) {
+				rows.push({ date: cur.toISOString().slice(0, 10), status: 'pending' });
+				cur.setUTCDate(cur.getUTCDate() + 1);
+			}
+			igDates   = rows;
+			igChecked = true;
+		} catch (e) {
+			igCheckError = e instanceof Error ? e.message : String(e);
+		} finally {
+			igChecking = false;
+		}
+	}
+
+	async function runIgIngest() {
+		igRunning = true;
+		for (const row of igDates) {
+			igDates = igDates.map(d => d.date === row.date ? { ...d, status: 'processing' as IgDateStatus } : d);
+			try {
+				const res = await fetch('/api/ingest/date', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({
+						sportCode:   igSport,
+						division:    igDivision,
+						seasonLabel: igSeason,
+						contestDate: row.date
+					})
+				});
+				if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+				const { contestsFound, gamesUpserted, playerStatsUpserted, boxScoresCleared, errors } = await res.json();
+				igDates = igDates.map(d =>
+					d.date === row.date
+						? { ...d, status: errors.length > 0 ? 'error' : 'done' as IgDateStatus, contestsFound, gamesUpserted, playerStatsUpserted, boxScoresCleared, errors }
+						: d
+				);
+			} catch (e) {
+				igDates = igDates.map(d =>
+					d.date === row.date
+						? { ...d, status: 'error' as IgDateStatus, errors: [{ contestId: '', message: e instanceof Error ? e.message : String(e) }] }
+						: d
+				);
+			}
+		}
+		igRunning = false;
 	}
 
 	// ── Stat card helper ────────────────────────────────────────
@@ -775,6 +1071,355 @@
 								{missGames.length} game{missGames.length === 1 ? '' : 's'} with missing stats
 							</p>
 						{/if}
+					{/if}
+				</div>
+
+			{:else if activeView === 'archive'}
+				<!-- ── Archive Raw ───────────────────────────────── -->
+				<div class="space-y-4 max-w-2xl">
+					<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Archive Raw Games</h2>
+					<p class="text-xs text-gray-500 dark:text-gray-400">
+						Fetches the raw <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">GetContests_web</code> NCAA API response for each date in the selected range and saves it to Supabase Storage (<code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">ncaa-raw-games</code> bucket) at <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">sportCode/division/year/MM-DD.json</code>.
+					</p>
+
+					<div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+						<div>
+							<Label class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Gender</Label>
+							<Select size="sm" bind:value={archiveSport}
+								items={[{ value: 'MSO', name: "Men's" }, { value: 'WSO', name: "Women's" }]}
+							/>
+						</div>
+						<div>
+							<Label class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Division</Label>
+							<Select size="sm" bind:value={archiveDivision}
+								items={[{ value: 1, name: 'Division I' }, { value: 2, name: 'Division II' }, { value: 3, name: 'Division III' }]}
+							/>
+						</div>
+						<div>
+							<Label class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Season</Label>
+							<Select size="sm" bind:value={archiveSeason}
+								items={allSeasons.map(s => ({ value: s.label, name: s.label }))}
+							/>
+						</div>
+						<div>
+							<Label class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Start date</Label>
+							<Input size="sm" type="date" bind:value={archiveStart} />
+						</div>
+						<div>
+							<Label class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">End date</Label>
+							<Input size="sm" type="date" bind:value={archiveEnd} />
+						</div>
+						<div>
+							<Label class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+								Delay (ms) &mdash; <span class="normal-case font-normal">{archiveDelay > 0 ? (1000 / archiveDelay).toFixed(1) : '∞'} req/s</span>
+							</Label>
+							<Input size="sm" type="number" min={0} max={5000} bind:value={archiveDelay} />
+						</div>
+					</div>
+
+					<div class="flex gap-2 items-center flex-wrap">
+						<Button color="alternative" size="sm" class="w-fit" disabled={archiveChecking} onclick={checkArchiveStatus}>
+							{archiveChecking ? 'Checking…' : 'Check status'}
+						</Button>
+						{#if archiveChecked}
+							<Button color="primary" size="sm" class="w-fit" disabled={archiveRunning} onclick={runArchive}>
+								{archiveRunning ? 'Archiving…' : `Archive all (${archiveDates.length})`}
+							</Button>
+						{/if}
+					</div>
+
+					{#if archiveCheckError}
+						<Alert color="red" class="text-xs">{archiveCheckError}</Alert>
+					{/if}
+
+					{#if archiveChecked}
+						{@const archivedCount = archiveDates.filter(d => d.status === 'archived' || d.status === 'done').length}
+						{@const missingCount  = archiveDates.filter(d => d.status === 'missing').length}
+						{@const errorCount    = archiveDates.filter(d => d.status === 'error').length}
+						{@const scrapingCount = archiveDates.filter(d => d.status === 'scraping').length}
+
+						<p class="text-xs text-gray-500 dark:text-gray-400">
+							<span class="text-green-600 dark:text-green-400 font-semibold">{archivedCount} archived</span>
+							{#if scrapingCount > 0}
+								&nbsp;·&nbsp;<span class="text-blue-500 font-semibold">{scrapingCount} scraping</span>
+							{/if}
+							&nbsp;·&nbsp;<span class="font-semibold">{missingCount} missing</span>
+							{#if errorCount > 0}
+								&nbsp;·&nbsp;<span class="text-red-500 font-semibold">{errorCount} errors</span>
+							{/if}
+							&nbsp;·&nbsp;{archiveDates.length} total dates
+						</p>
+
+						<div class="rounded border border-gray-200 dark:border-gray-700 overflow-hidden">
+							<div class="overflow-y-auto max-h-96">
+								<table class="w-full text-xs">
+									<thead class="sticky top-0 bg-gray-50 dark:bg-gray-900 text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 z-10">
+										<tr>
+											<th class="text-left px-3 py-2 font-semibold">Date</th>
+											<th class="text-left px-3 py-2 font-semibold">Status</th>
+											<th class="text-right px-3 py-2 font-semibold">Games</th>
+										</tr>
+									</thead>
+									<tbody class="divide-y divide-gray-100 dark:divide-gray-700/60">
+										{#each archiveDates as row (row.date)}
+											<tr class="hover:bg-gray-50 dark:hover:bg-gray-800/30">
+												<td class="px-3 py-1.5 font-mono text-gray-700 dark:text-gray-300">{row.date}</td>
+												<td class="px-3 py-1.5">
+													{#if row.status === 'archived'}
+														<span class="text-green-600 dark:text-green-400">✓ archived</span>
+													{:else if row.status === 'done'}
+														<span class="text-green-600 dark:text-green-400">✓ saved</span>
+													{:else if row.status === 'scraping'}
+														<span class="text-blue-500 dark:text-blue-400 animate-pulse">… scraping</span>
+													{:else if row.status === 'error'}
+														<span class="text-red-500" title={row.error}>✗ error</span>
+													{:else}
+														<span class="text-gray-400 dark:text-gray-500">○ missing</span>
+													{/if}
+												</td>
+												<td class="px-3 py-1.5 text-right text-gray-500 dark:text-gray-400 tabular-nums">
+													{row.gamesCount != null ? row.gamesCount : ''}
+												</td>
+											</tr>
+										{/each}
+									</tbody>
+								</table>
+							</div>
+						</div>
+					{/if}
+				</div>
+
+			{:else if activeView === 'archive-boxscores'}
+				<!-- ── Archive Raw Box Scores ────────────────────── -->
+				<div class="space-y-4 max-w-2xl">
+					<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Archive Raw Box Scores</h2>
+					<p class="text-xs text-gray-500 dark:text-gray-400">
+						Reads each archived game JSON file from Storage, extracts every <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">contestId</code>, and saves the raw <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">NCAA_GetGamecenterBoxscoreSoccerById_web</code> response for each to <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">sportCode/division/year/boxscores/&#123;contestId&#125;.json</code>.
+					</p>
+
+					<div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+						<div>
+							<Label class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Gender</Label>
+							<Select size="sm" bind:value={bsSport}
+								items={[{ value: 'MSO', name: "Men's" }, { value: 'WSO', name: "Women's" }]}
+							/>
+						</div>
+						<div>
+							<Label class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Division</Label>
+							<Select size="sm" bind:value={bsDivision}
+								items={[{ value: 1, name: 'Division I' }, { value: 2, name: 'Division II' }, { value: 3, name: 'Division III' }]}
+							/>
+						</div>
+						<div>
+							<Label class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Season</Label>
+							<Select size="sm" bind:value={bsSeason}
+								items={allSeasons.map(s => ({ value: s.label, name: s.label }))}
+							/>
+						</div>
+						<div>
+							<Label class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Start date</Label>
+							<Input size="sm" type="date" bind:value={bsStart} />
+						</div>
+						<div>
+							<Label class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">End date</Label>
+							<Input size="sm" type="date" bind:value={bsEnd} />
+						</div>
+						<div>
+							<Label class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+								Delay (ms) &mdash; <span class="normal-case font-normal">{bsDelay > 0 ? (1000 / bsDelay).toFixed(1) : '∞'} req/s</span>
+							</Label>
+							<Input size="sm" type="number" min={0} max={10000} bind:value={bsDelay} />
+						</div>
+					</div>
+
+					<div class="flex gap-2 items-center flex-wrap">
+						<Button color="alternative" size="sm" class="w-fit" disabled={bsChecking} onclick={checkBsStatus}>
+							{bsChecking ? 'Checking…' : 'Check status'}
+						</Button>
+						{#if bsChecked}
+							<Button color="primary" size="sm" class="w-fit" disabled={bsRunning} onclick={runBsArchive}>
+								{bsRunning ? 'Archiving…' : `Archive all (${bsDates.length} dates)`}
+							</Button>
+						{/if}
+					</div>
+
+					{#if bsCheckError}
+						<Alert color="red" class="text-xs">{bsCheckError}</Alert>
+					{/if}
+
+					{#if bsChecked}
+						<p class="text-xs text-gray-500 dark:text-gray-400">
+							<span class="text-green-600 dark:text-green-400 font-semibold">{bsArchivedCount} box scores already archived</span>
+							&nbsp;·&nbsp;{bsDates.length} dates to process
+						</p>
+
+						<div class="rounded border border-gray-200 dark:border-gray-700 overflow-hidden">
+							<div class="overflow-y-auto max-h-96">
+								<table class="w-full text-xs">
+									<thead class="sticky top-0 bg-gray-50 dark:bg-gray-900 text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 z-10">
+										<tr>
+											<th class="text-left px-3 py-2 font-semibold">Date</th>
+											<th class="text-left px-3 py-2 font-semibold">Status</th>
+											<th class="text-right px-3 py-2 font-semibold">Contests</th>
+											<th class="text-right px-3 py-2 font-semibold">Saved</th>
+											<th class="text-right px-3 py-2 font-semibold">Errors</th>
+										</tr>
+									</thead>
+									<tbody class="divide-y divide-gray-100 dark:divide-gray-700/60">
+										{#each bsDates as row (row.date)}
+											<tr class="hover:bg-gray-50 dark:hover:bg-gray-800/30">
+												<td class="px-3 py-1.5 font-mono text-gray-700 dark:text-gray-300">{row.date}</td>
+												<td class="px-3 py-1.5">
+													{#if row.status === 'scraping'}
+														<span class="text-blue-500 dark:text-blue-400 animate-pulse">… scraping</span>
+													{:else if row.status === 'done' && row.contestsFound === 0}
+														<span class="text-gray-400 dark:text-gray-500">— no games</span>
+													{:else if row.status === 'done'}
+														<span class="text-green-600 dark:text-green-400">✓ saved</span>
+													{:else if row.status === 'error'}
+														<span class="text-red-500" title={(row.errors ?? []).map(e => `${e.contestId}: ${e.message}`).join('\n')}>✗ error</span>
+													{:else}
+														<span class="text-gray-400 dark:text-gray-500">—</span>
+													{/if}
+												</td>
+												<td class="px-3 py-1.5 text-right text-gray-500 dark:text-gray-400 tabular-nums">
+													{row.contestsFound != null ? row.contestsFound : ''}
+												</td>
+												<td class="px-3 py-1.5 text-right text-gray-500 dark:text-gray-400 tabular-nums">
+													{row.saved != null ? row.saved : ''}
+												</td>
+												<td class="px-3 py-1.5 text-right tabular-nums">
+													{#if row.errors && row.errors.length > 0}
+														<span class="text-red-500">{row.errors.length}</span>
+													{:else if row.saved != null}
+														<span class="text-gray-300 dark:text-gray-600">0</span>
+													{/if}
+												</td>
+											</tr>
+										{/each}
+									</tbody>
+								</table>
+							</div>
+						</div>
+					{/if}
+				</div>
+
+			{:else if activeView === 'ingest-archives'}
+				<!-- ── Ingest Archives ──────────────────────────────── -->
+				<div class="space-y-4 max-w-2xl">
+					<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Ingest Archives</h2>
+					<p class="text-xs text-gray-500 dark:text-gray-400">
+						Reads archived game and box score JSON files from Storage and writes games, teams, and player stats to the database. The stored files are treated as the source of truth.
+					</p>
+
+					<div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+						<div>
+							<Label class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Gender</Label>
+							<Select size="sm" bind:value={igSport}
+								items={[{ value: 'MSO', name: "Men's" }, { value: 'WSO', name: "Women's" }]}
+							/>
+						</div>
+						<div>
+							<Label class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Division</Label>
+							<Select size="sm" bind:value={igDivision}
+								items={[{ value: 1, name: 'Division I' }, { value: 2, name: 'Division II' }, { value: 3, name: 'Division III' }]}
+							/>
+						</div>
+						<div>
+							<Label class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Season</Label>
+							<Select size="sm" bind:value={igSeason}
+								items={allSeasons.map(s => ({ value: s.label, name: s.label }))}
+							/>
+						</div>
+						<div>
+							<Label class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Start date</Label>
+							<Input size="sm" type="date" bind:value={igStart} />
+						</div>
+						<div>
+							<Label class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">End date</Label>
+							<Input size="sm" type="date" bind:value={igEnd} />
+						</div>
+					</div>
+
+					<div class="flex gap-2 items-center flex-wrap">
+						<Button color="alternative" size="sm" class="w-fit" disabled={igChecking} onclick={checkIgStatus}>
+							{igChecking ? 'Checking…' : 'Check status'}
+						</Button>
+						{#if igChecked}
+							<Button color="primary" size="sm" class="w-fit" disabled={igRunning} onclick={runIgIngest}>
+								{igRunning ? 'Ingesting…' : `Ingest all (${igDates.length} dates)`}
+							</Button>
+						{/if}
+					</div>
+
+					{#if igCheckError}
+						<Alert color="red" class="text-xs">{igCheckError}</Alert>
+					{/if}
+
+					{#if igChecked}
+						<p class="text-xs text-gray-500 dark:text-gray-400">
+							<span class="font-semibold">{igArchivedGameFiles} game files</span>
+							&nbsp;·&nbsp;<span class="font-semibold">{igArchivedBoxScores} box scores</span>
+							&nbsp;·&nbsp;<span class="font-semibold">{igDbGamesCount} games in DB</span>
+						</p>
+
+						<div class="rounded border border-gray-200 dark:border-gray-700 overflow-hidden">
+							<div class="overflow-y-auto max-h-96">
+								<table class="w-full text-xs">
+									<thead class="sticky top-0 bg-gray-50 dark:bg-gray-900 text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 z-10">
+										<tr>
+											<th class="text-left px-3 py-2 font-semibold">Date</th>
+											<th class="text-left px-3 py-2 font-semibold">Status</th>
+											<th class="text-right px-3 py-2 font-semibold">Contests</th>
+											<th class="text-right px-3 py-2 font-semibold">Games</th>
+											<th class="text-right px-3 py-2 font-semibold">Stats</th>
+											<th class="text-right px-3 py-2 font-semibold">Errors</th>
+										</tr>
+									</thead>
+									<tbody class="divide-y divide-gray-100 dark:divide-gray-700/60">
+										{#each igDates as row (row.date)}
+											<tr class="hover:bg-gray-50 dark:hover:bg-gray-800/30">
+												<td class="px-3 py-1.5 font-mono text-gray-700 dark:text-gray-300">{row.date}</td>
+												<td class="px-3 py-1.5">
+													{#if row.status === 'processing'}
+														<span class="text-blue-500 dark:text-blue-400 animate-pulse">… ingesting</span>
+													{:else if row.status === 'done' && row.contestsFound === 0}
+														<span class="text-gray-400 dark:text-gray-500">— no game file</span>
+													{:else if row.status === 'done'}
+														<span class="text-green-600 dark:text-green-400">✓ done</span>
+													{:else if row.status === 'error'}
+														<span class="text-red-500" title={(row.errors ?? []).map(e => `${e.contestId}: ${e.message}`).join('\n')}>✗ error</span>
+													{:else}
+														<span class="text-gray-400 dark:text-gray-500">—</span>
+													{/if}
+												</td>
+												<td class="px-3 py-1.5 text-right text-gray-500 dark:text-gray-400 tabular-nums">
+													{row.contestsFound != null ? row.contestsFound : ''}
+												</td>
+												<td class="px-3 py-1.5 text-right text-gray-500 dark:text-gray-400 tabular-nums">
+													{row.gamesUpserted != null ? row.gamesUpserted : ''}
+												</td>
+												<td class="px-3 py-1.5 text-right text-gray-500 dark:text-gray-400 tabular-nums">
+													{#if row.playerStatsUpserted != null}
+														{row.playerStatsUpserted}
+														{#if row.boxScoresCleared && row.boxScoresCleared > 0}
+															<span class="text-gray-400 dark:text-gray-500"> · {row.boxScoresCleared} cleared</span>
+														{/if}
+													{/if}
+												</td>
+												<td class="px-3 py-1.5 text-right tabular-nums">
+													{#if row.errors && row.errors.length > 0}
+														<span class="text-red-500">{row.errors.length}</span>
+													{:else if row.gamesUpserted != null}
+														<span class="text-gray-300 dark:text-gray-600">0</span>
+													{/if}
+												</td>
+											</tr>
+										{/each}
+									</tbody>
+								</table>
+							</div>
+						</div>
 					{/if}
 				</div>
 

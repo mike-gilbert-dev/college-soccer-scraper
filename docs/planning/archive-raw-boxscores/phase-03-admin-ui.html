@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 3: Admin UI — Archive Raw Box Scores</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1.25rem; line-height: 1.65; color: #111; }
+    h1 { font-size: 1.6rem; border-bottom: 3px solid #e8463a; padding-bottom: .5rem; margin-bottom: .5rem; }
+    h2 { font-size: 1.1rem; color: #333; margin-top: 2rem; border-bottom: 1px solid #e5e5e5; padding-bottom: .25rem; }
+    h3 { font-size: 1rem; color: #444; }
+    .meta { display: flex; flex-wrap: wrap; gap: 1.5rem; background: #f7f7f7; padding: .75rem 1rem; border-radius: 6px; font-size: .875rem; margin-bottom: 1.75rem; color: #444; }
+    .meta strong { color: #111; }
+    .checklist { list-style: none; padding: 0; margin: 0; }
+    .checklist li { padding: .4rem 0 .4rem .25rem; border-bottom: 1px solid #f0f0f0; display: flex; gap: .75rem; align-items: flex-start; font-size: .95rem; }
+    .checklist li::before { content: "☐"; font-size: 1.1rem; color: #aaa; flex-shrink: 0; margin-top: .05rem; }
+    .dep { background: #eff6ff; border-left: 3px solid #60a5fa; padding: .5rem .85rem; margin-bottom: 1.25rem; border-radius: 0 5px 5px 0; font-size: .875rem; color: #1e40af; }
+    .note { background: #f0fdf4; border-left: 3px solid #4ade80; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    code { background: #f3f4f6; padding: .15rem .4rem; border-radius: 3px; font-size: .875em; font-family: ui-monospace, monospace; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem 1.25rem; border-radius: 7px; overflow-x: auto; font-size: .875rem; }
+    pre code { background: none; padding: 0; font-size: inherit; }
+    a { color: #e8463a; }
+  </style>
+</head>
+<body>
+
+<div style="background:#f0fdf4;border:1.5px solid #4ade80;border-radius:7px;padding:.65rem 1.1rem;margin-bottom:1.5rem;font-size:.9rem;color:#166534;font-weight:500;">
+  ✅ Phase complete — all criteria satisfied.
+</div>
+<h1>Phase 3: Admin UI</h1>
+
+<div class="meta">
+  <span><strong>Project:</strong> Archive Raw Box Scores</span>
+  <span><strong>Phase:</strong> 3 of 3</span>
+  <span><strong>Depends on:</strong> Phase 2 complete</span>
+</div>
+
+<div class="dep">
+  ⚠️ <strong>Prerequisite:</strong> Phase 2 (API Endpoints) must be complete. Both <code>POST /api/archive/boxscore/date</code> and <code>GET /api/archive/boxscore/status</code> must be working before building the UI against them.
+</div>
+
+<h2>Overview</h2>
+<p>Adds an "Archive Raw Box Scores" tool to the existing <code>/admin</code> panel as a new <code>ViewId</code>, placed immediately below "Archive Raw Games" in the sidebar. The tool follows the same pattern as the game scraper: the user selects sport/division/season, checks how many box scores are already archived, then runs a date-by-date loop that fetches all box scores for each date and shows per-date progress in real time.</p>
+
+<h2>What Will Be Built</h2>
+<p>All changes are confined to <code>src/routes/admin/+page.svelte</code>.</p>
+
+<h3>1. Sidebar entry</h3>
+<p>Add <code>{ id: 'archive-boxscores', label: 'Archive Raw Box Scores' }</code> to the <code>'scraping'</code> section of <code>navSections</code>, immediately after the existing <code>{ id: 'archive', label: 'Archive Raw Games' }</code> entry.</p>
+
+<h3>2. State variables</h3>
+<p>Add alongside the existing archive state block (keep the two blocks visually grouped with a comment):</p>
+<pre><code>// ── Archive Box Scores state ──────────────────────────────
+let bsSport       = $state('MSO');
+let bsDivision    = $state(1);
+let bsSeason      = $state((data.seasons as SeasonRow[])[0]?.label ?? '');
+let bsStart       = $state('');
+let bsEnd         = $state('');
+let bsDelay       = $state(1000);   // ms between box score fetches within a date
+
+type BsDateStatus = 'pending' | 'scraping' | 'done' | 'error';
+type BsDateRow = {
+  date: string;
+  status: BsDateStatus;
+  contestsFound?: number;
+  saved?: number;
+  errors?: { contestId: string; message: string }[];
+};
+let bsDates:         BsDateRow[] = $state([]);
+let bsChecked        = $state(false);
+let bsChecking       = $state(false);
+let bsCheckError     = $state('');
+let bsArchivedCount  = $state(0);
+let bsRunning        = $state(false);
+</code></pre>
+
+<p>Add a <code>$effect</code> to auto-populate start/end dates from the selected season (same pattern as the game scraper, using a <code>_prevBsSeason</code> tracker):</p>
+<pre><code>let _prevBsSeason = bsSeason;
+$effect(() => {
+  const s = (data.seasons as SeasonRow[]).find(s => s.label === bsSeason);
+  if (s && bsSeason !== _prevBsSeason) {
+    bsStart = s.start_date;
+    bsEnd   = s.end_date;
+    _prevBsSeason = bsSeason;
+  } else if (s && !bsStart && !bsEnd) {
+    bsStart = s.start_date;
+    bsEnd   = s.end_date;
+    _prevBsSeason = bsSeason;
+  }
+});
+</code></pre>
+
+<h3>3. <code>checkBsStatus()</code></h3>
+<p>Calls <code>GET /api/archive/boxscore/status</code> and builds the <code>bsDates</code> list — one row per calendar day in the date range, all initially <code>'pending'</code>. The archived count is stored in <code>bsArchivedCount</code> for display in the summary line.</p>
+<pre><code>async function checkBsStatus() {
+  bsChecking = true; bsCheckError = ''; bsDates = []; bsChecked = false;
+  try {
+    const params = new URLSearchParams({
+      sportCode: bsSport,
+      division:  String(bsDivision),
+      seasonLabel: bsSeason
+    });
+    const res = await fetch(`/api/archive/boxscore/status?${params}`);
+    if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+    const { archivedCount, startDate, endDate } = await res.json();
+
+    bsArchivedCount = archivedCount;
+
+    const start = bsStart || startDate;
+    const end   = bsEnd   || endDate;
+    const rows: BsDateRow[] = [];
+    const cur = new Date(start + 'T00:00:00Z');
+    const fin = new Date(end   + 'T00:00:00Z');
+    while (cur <= fin) {
+      rows.push({ date: cur.toISOString().slice(0, 10), status: 'pending' });
+      cur.setUTCDate(cur.getUTCDate() + 1);
+    }
+    bsDates  = rows;
+    bsChecked = true;
+  } catch (e) {
+    bsCheckError = e instanceof Error ? e.message : String(e);
+  } finally {
+    bsChecking = false;
+  }
+}
+</code></pre>
+
+<h3>4. <code>runBsArchive()</code></h3>
+<p>Loops date-by-date through <code>bsDates</code>, calling <code>POST /api/archive/boxscore/date</code> for each. Updates the row's status in real time. No inter-date delay is added client-side — the server already applies <code>bsDelay</code> between each box score fetch within a date, so the natural response time paces the loop.</p>
+<pre><code>async function runBsArchive() {
+  bsRunning = true;
+  for (const row of bsDates) {
+    bsDates = bsDates.map(d =>
+      d.date === row.date ? { ...d, status: 'scraping' } : d
+    );
+    try {
+      const res = await fetch('/api/archive/boxscore/date', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sportCode:   bsSport,
+          division:    bsDivision,
+          seasonLabel: bsSeason,
+          contestDate: row.date,
+          delayMs:     bsDelay
+        })
+      });
+      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+      const { contestsFound, saved, errors } = await res.json();
+      bsDates = bsDates.map(d =>
+        d.date === row.date
+          ? { ...d, status: errors.length > 0 ? 'error' : 'done', contestsFound, saved, errors }
+          : d
+      );
+    } catch (e) {
+      bsDates = bsDates.map(d =>
+        d.date === row.date
+          ? { ...d, status: 'error', errors: [{ contestId: '', message: e instanceof Error ? e.message : String(e) }] }
+          : d
+      );
+    }
+  }
+  bsRunning = false;
+}
+</code></pre>
+
+<div class="note">
+  <strong>No client-side inter-date delay:</strong> Each POST request blocks until all box score fetches for that date complete (the server applies <code>bsDelay</code> between each). For a date with 10 games and 1000ms delay, the request takes ~10 seconds. This naturally paces the loop without needing an additional <code>setTimeout</code> on the client.
+</div>
+
+<h3>5. View markup — <code>{:else if activeView === 'archive-boxscores'}</code></h3>
+<p>Add after the <code>archive</code> view block. Follow the exact same layout as "Archive Raw Games".</p>
+
+<p><strong>Form section</strong> — same 4 selects + 2 date inputs as the game scraper, bound to the <code>bs*</code> state variables. Plus delay input (min=0, max=10000, default 1000ms), with derived label <code>{bsDelay > 0 ? (1000 / bsDelay).toFixed(1) : '∞'} req/s</code>.</p>
+
+<p><strong>Action buttons:</strong></p>
+<ul>
+  <li>"Check status" — calls <code>checkBsStatus()</code>, disabled while <code>bsChecking</code></li>
+  <li>"Archive all (N dates)" — only shown after <code>bsChecked</code>, disabled while <code>bsRunning</code>, label shows <code>bsDates.length</code></li>
+</ul>
+
+<p><strong>Summary line</strong> (shown after check):</p>
+<p><code>{bsArchivedCount} box scores already archived · {bsDates.length} dates to process</code></p>
+
+<p><strong>Date progress table</strong> — scrollable, max-height ~400px, columns: Date · Status · Contests · Saved · Errors. Status uses colored indicators:</p>
+<ul>
+  <li><strong>pending</strong> — <code>—</code> in gray</li>
+  <li><strong>scraping</strong> — <code>…</code> in blue (pulsing)</li>
+  <li><strong>done</strong> — <code>✓</code> in green, shows <code>saved / contestsFound</code></li>
+  <li><strong>error</strong> — <code>✗</code> in red, error count shown, full messages in <code>title</code> attribute</li>
+</ul>
+
+<p>Dates with <code>contestsFound === 0</code> (no game file for that date) should show as <code>done</code> with a gray "0 contests" note rather than a green checkmark — these are off-days, not failures.</p>
+
+<h2>Implementation Notes</h2>
+<ul>
+  <li>All new state and functions go inside the existing <code>&lt;script lang="ts"&gt;</code> block.</li>
+  <li>The <code>SeasonRow</code> type is already defined in the script block — reuse it for the <code>$effect</code>.</li>
+  <li>Since box score requests take longer per date than game requests (the server is making N NCAA API calls per date), expect the progress table to update more slowly than the game scraper. This is normal and expected.</li>
+  <li>The "Archive all" button should not be disabled based on <code>bsArchivedCount</code> — re-running always overwrites, so the count is informational only.</li>
+  <li>The <code>bsDelay</code> input controls the delay between individual box score API calls <em>within</em> each date (sent to the server). There is no separate client-side inter-date delay control — the server response time is the natural pacing.</li>
+</ul>
+
+<h3>Key files to read before starting</h3>
+<ul>
+  <li><code>src/routes/admin/+page.svelte</code> — read the entire archive view block (<code>{:else if activeView === 'archive'}</code>) and replicate its structure exactly for the new view</li>
+  <li><code>src/routes/admin/+page.server.ts</code> — confirm <code>seasons</code> is already loaded (it is, from the archive-raw-json project)</li>
+</ul>
+
+<h2>Completion Criteria</h2>
+<ul class="checklist">
+  <li class="done">"Archive Raw Box Scores" appears in the sidebar under Scraping, immediately below "Archive Raw Games"</li>
+  <li class="done">Selecting a season auto-fills the start and end date fields</li>
+  <li class="done">"Check status" shows the correct <code>archivedCount</code> and builds the date list</li>
+  <li class="done">The summary line displays the archived count and total dates to process</li>
+  <li class="done">"Archive all (N dates)" button is visible after check and disabled only while running</li>
+  <li class="done">Running the archive updates each date row in real time: — → … → ✓ (with saved/contestsFound counts) or ✗</li>
+  <li class="done">Dates with no game file show as done with 0 contests (not as an error)</li>
+  <li class="done">After a full run, re-running immediately processes all dates again and overwrites existing files (verified by changed timestamps in Supabase Studio)</li>
+  <li class="done"><code>npm run check</code> passes with no TypeScript errors</li>
+</ul>
+
+<h2>How to Validate</h2>
+<ol>
+  <li>Start dev server: <code>npm run dev</code>, navigate to <code>http://localhost:5173/admin</code>.</li>
+  <li>Click "Archive Raw Box Scores" in the sidebar — the form should appear with dates auto-filled.</li>
+  <li>Narrow the date range to 2–3 days (e.g. 2025-12-13 to 2025-12-15) for a quick test. Set delay to 500ms.</li>
+  <li>Click "Check status" — confirm the summary line shows the archived count and the date table renders with all rows as pending (—).</li>
+  <li>Click "Archive all" — watch rows transition from — → … → ✓ with contest and saved counts. Dates with no game file show "0 contests".</li>
+  <li>Open Supabase Studio → Storage → <code>ncaa-raw-games</code> → <code>MSO/1/2025/boxscores/</code> — confirm JSON files exist for the contest IDs from those dates.</li>
+  <li>Click "Archive all" again immediately — all rows should complete again, and file timestamps in Studio should update.</li>
+</ol>
+
+</body>
+</html>

@@ -81,8 +81,8 @@ export const load: PageServerLoad = async ({ url }) => {
 		const s = map.get(ts.id)!;
 		return {
 			id:           ts.id,
-			team:         ts.team         as TeamStanding['team'],
-			conference:   ts.conference   as TeamStanding['conference'],
+			team:         ts.team         as unknown as TeamStanding['team'],
+			conference:   ts.conference   as unknown as TeamStanding['conference'],
 			wins:         s.wins,
 			losses:       s.losses,
 			ties:         s.ties,

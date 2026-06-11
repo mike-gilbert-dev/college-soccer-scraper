@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 1: Storage Bucket &amp; Server Helpers — Archive Raw JSON</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1.25rem; line-height: 1.65; color: #111; }
+    h1 { font-size: 1.6rem; border-bottom: 3px solid #e8463a; padding-bottom: .5rem; margin-bottom: .5rem; }
+    h2 { font-size: 1.1rem; color: #333; margin-top: 2rem; border-bottom: 1px solid #e5e5e5; padding-bottom: .25rem; }
+    h3 { font-size: 1rem; color: #444; }
+    .meta { display: flex; flex-wrap: wrap; gap: 1.5rem; background: #f7f7f7; padding: .75rem 1rem; border-radius: 6px; font-size: .875rem; margin-bottom: 1.75rem; color: #444; }
+    .meta strong { color: #111; }
+    .checklist { list-style: none; padding: 0; margin: 0; }
+    .checklist li { padding: .4rem 0 .4rem .25rem; border-bottom: 1px solid #f0f0f0; display: flex; gap: .75rem; align-items: flex-start; font-size: .95rem; }
+    .checklist li::before { content: "☐"; font-size: 1.1rem; color: #aaa; flex-shrink: 0; margin-top: .05rem; }
+    .ref { background: #fffbeb; border-left: 3px solid #f59e0b; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    .ref a { color: #92400e; font-weight: 500; }
+    .dep { background: #eff6ff; border-left: 3px solid #60a5fa; padding: .5rem .85rem; margin-bottom: 1.25rem; border-radius: 0 5px 5px 0; font-size: .875rem; color: #1e40af; }
+    .note { background: #f0fdf4; border-left: 3px solid #4ade80; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    code { background: #f3f4f6; padding: .15rem .4rem; border-radius: 3px; font-size: .875em; font-family: ui-monospace, monospace; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem 1.25rem; border-radius: 7px; overflow-x: auto; font-size: .875rem; }
+    pre code { background: none; padding: 0; font-size: inherit; }
+    a { color: #e8463a; }
+  </style>
+</head>
+<body>
+
+<div style="background:#f0fdf4;border:1.5px solid #4ade80;border-radius:7px;padding:.65rem 1.1rem;margin-bottom:1.5rem;font-size:.9rem;color:#166534;font-weight:500;">
+  ✅ Phase complete — all criteria satisfied.
+</div>
+<h1>Phase 1: Storage Bucket &amp; Server Helpers</h1>
+
+<div class="meta">
+  <span><strong>Project:</strong> Archive Raw JSON</span>
+  <span><strong>Phase:</strong> 1 of 3</span>
+  <span><strong>Depends on:</strong> None (first phase)</span>
+</div>
+
+<h2>Overview</h2>
+<p>Creates the private <code>ncaa-raw-games</code> Supabase Storage bucket via a SQL migration and adds a thin server-side helper module (<code>src/lib/server/ncaa-archive.ts</code>) that encapsulates all Storage interactions: computing object paths, uploading raw JSON, and listing already-archived dates. Phases 2 and 3 import from this module — nothing outside it should talk to Storage directly.</p>
+
+<h2>What Will Be Built</h2>
+
+<h3>1. Migration: <code>supabase/migrations/20260610000000_ncaa_raw_bucket.sql</code></h3>
+<p>Creates the private bucket by inserting into <code>storage.buckets</code>. The <code>service_role</code> key bypasses RLS automatically, so no storage policies are needed for server-side access. <code>public = false</code> ensures no unauthenticated URL access.</p>
+<pre><code>INSERT INTO storage.buckets (id, name, public)
+VALUES ('ncaa-raw-games', 'ncaa-raw-games', false)
+ON CONFLICT (id) DO NOTHING;
+</code></pre>
+
+<h3>2. Server helper: <code>src/lib/server/ncaa-archive.ts</code></h3>
+<p>Exports three functions. All use the existing <code>supabaseAdmin</code> client from <code>src/lib/server/supabase-admin.ts</code>.</p>
+
+<p><strong><code>archivePath(sportCode, division, seasonYear, contestDate)</code></strong> — pure function, no I/O. Converts a YYYY-MM-DD ISO date to the storage object key.</p>
+<pre><code>// archivePath('MSO', 1, 2025, '2025-12-15') → 'MSO/1/2025/12-15.json'
+export function archivePath(
+  sportCode: string,
+  division: number,
+  seasonYear: number,
+  contestDate: string   // YYYY-MM-DD
+): string {
+  const [, mm, dd] = contestDate.split('-');
+  return `${sportCode}/${division}/${seasonYear}/${mm}-${dd}.json`;
+}
+</code></pre>
+
+<p><strong><code>saveContestJson(sportCode, division, seasonYear, contestDate, data)</code></strong> — uploads raw JSON to Storage, overwriting any existing file. Serializes <code>data</code> as pretty-printed JSON for human readability.</p>
+<pre><code>export async function saveContestJson(
+  sportCode: string,
+  division: number,
+  seasonYear: number,
+  contestDate: string,   // YYYY-MM-DD
+  data: unknown
+): Promise<{ path: string }> {
+  const path = archivePath(sportCode, division, seasonYear, contestDate);
+  const body = JSON.stringify(data, null, 2);
+  const { error } = await supabaseAdmin.storage
+    .from('ncaa-raw-games')
+    .upload(path, body, {
+      contentType: 'application/json',
+      upsert: true   // overwrite silently
+    });
+  if (error) throw new Error(`Storage upload failed for ${path}: ${error.message}`);
+  return { path };
+}
+</code></pre>
+
+<p><strong><code>listArchivedDates(sportCode, division, seasonYear)</code></strong> — lists all object keys under a season prefix and returns them as YYYY-MM-DD strings.</p>
+<pre><code>export async function listArchivedDates(
+  sportCode: string,
+  division: number,
+  seasonYear: number
+): Promise<string[]> {
+  const prefix = `${sportCode}/${division}/${seasonYear}`;
+  const { data, error } = await supabaseAdmin.storage
+    .from('ncaa-raw-games')
+    .list(prefix, { limit: 400 });   // a season has at most ~140 dates
+  if (error) throw new Error(`Storage list failed for ${prefix}: ${error.message}`);
+  return (data ?? [])
+    .filter(f => f.name.endsWith('.json'))
+    .map(f => {
+      const [mm, dd] = f.name.replace('.json', '').split('-');
+      return `${seasonYear}-${mm}-${dd}`;   // back to YYYY-MM-DD
+    })
+    .sort();
+}
+</code></pre>
+
+<h2>Implementation Notes</h2>
+<ul>
+  <li>The Supabase <code>.list()</code> method returns objects with a <code>name</code> property that is just the filename portion (e.g. <code>12-15.json</code>), not the full path. The prefix must be passed as the first argument.</li>
+  <li><code>upsert: true</code> on the upload is the overwrite mechanism — no pre-check needed.</li>
+  <li>The migration uses <code>ON CONFLICT DO NOTHING</code> so it is safe to re-run (idempotent).</li>
+  <li>All numeric values in the path (division, seasonYear) are stored as-is in the key string. <code>division=1</code> → folder named <code>1</code>, not <code>d1</code> or <code>D1</code>.</li>
+  <li>The <code>limit: 400</code> on <code>.list()</code> is a hard cap. Supabase Storage paginates at 100 by default; passing a higher limit avoids silent truncation for long seasons. 400 safely exceeds any real season length.</li>
+</ul>
+
+<h3>Key files to read before starting</h3>
+<ul>
+  <li><code>src/lib/server/supabase-admin.ts</code> — exports <code>supabaseAdmin</code>; import it directly</li>
+  <li><code>src/lib/server/ncaa-api.ts</code> — reference for existing server module conventions</li>
+</ul>
+
+<h2>Completion Criteria</h2>
+<ul class="checklist">
+  <li class="done">Migration file exists at <code>supabase/migrations/20260610000000_ncaa_raw_bucket.sql</code> and has been pushed to the local Supabase instance (<code>npm run db:push</code> succeeds)</li>
+  <li class="done"><code>ncaa-raw-games</code> bucket visible in the Supabase Studio Storage panel with <strong>Public</strong> = false</li>
+  <li class="done"><code>src/lib/server/ncaa-archive.ts</code> exists and exports <code>archivePath</code>, <code>saveContestJson</code>, <code>listArchivedDates</code></li>
+  <li class="done"><code>npm run check</code> passes with no TypeScript errors</li>
+  <li class="done">Manual smoke test: run a one-off <code>saveContestJson</code> call (e.g., in a temporary <code>+server.ts</code> or via the Supabase JS client in a test script) and confirm the file appears in the bucket under the correct path</li>
+</ul>
+
+<h2>How to Validate</h2>
+<ol>
+  <li>Run <code>npm run db:push</code> — confirm no errors.</li>
+  <li>Open Supabase Studio → Storage → confirm <code>ncaa-raw-games</code> bucket exists and is private.</li>
+  <li>In a temporary route or script, call <code>saveContestJson('MSO', 1, 2025, '2025-10-11', { test: true })</code> — confirm the file <code>MSO/1/2025/10-11.json</code> appears in the bucket.</li>
+  <li>Call <code>listArchivedDates('MSO', 1, 2025)</code> — confirm it returns <code>['2025-10-11']</code>.</li>
+  <li>Delete the test file from the bucket, remove any temporary route.</li>
+</ol>
+
+</body>
+</html>

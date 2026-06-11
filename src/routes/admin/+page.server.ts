@@ -8,7 +8,8 @@ export const load: PageServerLoad = async () => {
 		{ count: finalCount },
 		{ count: liveCount },
 		{ data: recentLog },
-		{ data: allTeams }
+		{ data: allTeams },
+		{ data: seasons }
 	] = await Promise.all([
 		supabaseAdmin.from('games').select('*', { count: 'exact', head: true }),
 		supabaseAdmin.from('teams').select('*', { count: 'exact', head: true }),
@@ -22,7 +23,11 @@ export const load: PageServerLoad = async () => {
 		supabaseAdmin
 			.from('teams')
 			.select('id, ncaa_team_id, name, short_name, ncaa_logo_slug, logo_url_dark, logo_url_light')
-			.order('name')
+			.order('name'),
+		supabaseAdmin
+			.from('seasons')
+			.select('id, label, start_date, end_date')
+			.order('start_date', { ascending: false })
 	]);
 
 	return {
@@ -33,6 +38,7 @@ export const load: PageServerLoad = async () => {
 			liveGames: liveCount ?? 0
 		},
 		recentLog: recentLog ?? [],
+		seasons: (seasons ?? []) as { id: number; label: string; start_date: string; end_date: string }[],
 		allTeams: (allTeams ?? []) as {
 			id: number;
 			ncaa_team_id: string;

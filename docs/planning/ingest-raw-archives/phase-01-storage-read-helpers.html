@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 1: Storage Read Helpers — Ingest Raw Archives</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1.25rem; line-height: 1.65; color: #111; }
+    h1 { font-size: 1.6rem; border-bottom: 3px solid #e8463a; padding-bottom: .5rem; margin-bottom: .5rem; }
+    h2 { font-size: 1.1rem; color: #333; margin-top: 2rem; border-bottom: 1px solid #e5e5e5; padding-bottom: .25rem; }
+    h3 { font-size: 1rem; color: #444; }
+    .meta { display: flex; flex-wrap: wrap; gap: 1.5rem; background: #f7f7f7; padding: .75rem 1rem; border-radius: 6px; font-size: .875rem; margin-bottom: 1.75rem; color: #444; }
+    .meta strong { color: #111; }
+    .checklist { list-style: none; padding: 0; margin: 0; }
+    .checklist li { padding: .4rem 0 .4rem .25rem; border-bottom: 1px solid #f0f0f0; display: flex; gap: .75rem; align-items: flex-start; font-size: .95rem; }
+    .checklist li::before { content: "☐"; font-size: 1.1rem; color: #aaa; flex-shrink: 0; margin-top: .05rem; }
+    .dep { background: #eff6ff; border-left: 3px solid #60a5fa; padding: .5rem .85rem; margin-bottom: 1.25rem; border-radius: 0 5px 5px 0; font-size: .875rem; color: #1e40af; }
+    .note { background: #f0fdf4; border-left: 3px solid #4ade80; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    code { background: #f3f4f6; padding: .15rem .4rem; border-radius: 3px; font-size: .875em; font-family: ui-monospace, monospace; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem 1.25rem; border-radius: 7px; overflow-x: auto; font-size: .875rem; }
+    pre code { background: none; padding: 0; font-size: inherit; }
+    a { color: #e8463a; }
+  </style>
+</head>
+<body>
+
+<div style="background:#f0fdf4;border:1.5px solid #4ade80;border-radius:7px;padding:.65rem 1.1rem;margin-bottom:1.5rem;font-size:.9rem;color:#166534;font-weight:500;">
+  ✅ Phase complete — all criteria satisfied.
+</div>
+<h1>Phase 1: Storage Read Helpers</h1>
+
+<div class="meta">
+  <span><strong>Project:</strong> Ingest Raw Archives</span>
+  <span><strong>Phase:</strong> 1 of 3</span>
+  <span><strong>Depends on:</strong> None (first phase)</span>
+</div>
+
+<h2>Overview</h2>
+<p>Adds two new read functions to <code>src/lib/server/ncaa-archive.ts</code> that the ingest endpoint will use to retrieve full contest and box score data from Storage. This phase is purely additive — no existing functions are modified, no endpoints or UI are touched.</p>
+
+<h2>What Will Be Built</h2>
+<p>Two new exported functions appended to <code>src/lib/server/ncaa-archive.ts</code>, plus a new exported type. Add a new import of <code>NcaaContest</code> and <code>NcaaBoxScore</code> from <code>$lib/server/ncaa-api</code> at the top of the file.</p>
+
+<h3>1. <code>readGameContests()</code></h3>
+<p>Downloads the game JSON file for one date and returns the full <code>NcaaContest[]</code> array (not just the contest IDs). Returns <code>[]</code> if the file does not exist.</p>
+<pre><code>export async function readGameContests(
+  sportCode: string,
+  division: number,
+  seasonYear: number,
+  contestDate: string // YYYY-MM-DD
+): Promise&lt;NcaaContest[]&gt; {
+  const path = archivePath(sportCode, division, seasonYear, contestDate);
+  const { data, error } = await supabaseAdmin.storage.from(BUCKET).download(path);
+  if (error) {
+    if (
+      error.message.includes('Not Found') ||
+      error.message.includes('404') ||
+      error.message.includes('Object not found')
+    ) return [];
+    throw new Error(`Storage download failed for ${path}: ${error.message}`);
+  }
+  const text = await (data as Blob).text();
+  const json = JSON.parse(text) as { data?: { contests?: NcaaContest[] } };
+  return json?.data?.contests ?? [];
+}
+</code></pre>
+
+<h3>2. <code>StoredBoxScoreResult</code> type + <code>readStoredBoxScore()</code></h3>
+<p>Downloads a box score JSON file and returns a discriminated result that distinguishes "file not found" from "file found but no box score data." The caller uses this distinction to decide whether to skip player stats (not found) or delete existing player stats (found but empty).</p>
+<pre><code>export type StoredBoxScoreResult =
+  | { fileFound: false }
+  | { fileFound: true; boxScore: NcaaBoxScore | null };
+
+export async function readStoredBoxScore(
+  sportCode: string,
+  division: number,
+  seasonYear: number,
+  contestId: string | number
+): Promise&lt;StoredBoxScoreResult&gt; {
+  const path = boxScorePath(sportCode, division, seasonYear, contestId);
+  const { data, error } = await supabaseAdmin.storage.from(BUCKET).download(path);
+  if (error) {
+    if (
+      error.message.includes('Not Found') ||
+      error.message.includes('404') ||
+      error.message.includes('Object not found')
+    ) return { fileFound: false };
+    throw new Error(`Storage download failed for ${path}: ${error.message}`);
+  }
+  const text = await (data as Blob).text();
+  const json = JSON.parse(text) as { data?: { boxscore?: NcaaBoxScore | null } };
+  return { fileFound: true, boxScore: json?.data?.boxscore ?? null };
+}
+</code></pre>
+
+<div class="note">
+  <strong>Two distinct nulls:</strong> <code>{ fileFound: false }</code> means no file was ever saved for this contest — skip player stats, leave the DB unchanged. <code>{ fileFound: true, boxScore: null }</code> means the file exists but the NCAA returned no box score data (common for scheduled games) — the ingest endpoint should delete any existing <code>player_game_stats</code> rows for this game to keep the DB in sync with the files.
+</div>
+
+<h2>Implementation Notes</h2>
+<ul>
+  <li>Add <code>import type { NcaaContest, NcaaBoxScore } from '$lib/server/ncaa-api';</code> at the top of <code>ncaa-archive.ts</code>. These types are already defined and exported from that module — no duplication.</li>
+  <li>The "not found" error handling in <code>readStoredBoxScore</code> must check for all three strings (<code>'Not Found'</code>, <code>'404'</code>, <code>'Object not found'</code>) — same pattern used in the existing <code>readGameContestIds</code> function.</li>
+  <li>The data path for the box score file is <code>raw.data.boxscore</code>, not <code>raw.boxscore</code>. Match the shape of the archived files exactly.</li>
+  <li><code>readGameContests</code> is intentionally separate from the existing <code>readGameContestIds</code>. Both can coexist — <code>readGameContestIds</code> is used by the box score archiver, <code>readGameContests</code> is used by the ingest endpoint.</li>
+</ul>
+
+<h3>Key files to read before starting</h3>
+<ul>
+  <li><code>src/lib/server/ncaa-archive.ts</code> — append to this file; understand the existing helpers before adding</li>
+  <li><code>src/lib/server/ncaa-api.ts</code> — check the exact shapes of <code>NcaaContest</code> and <code>NcaaBoxScore</code> before writing the parse casts</li>
+</ul>
+
+<h2>Completion Criteria</h2>
+<p>Every item below must be satisfied before proceeding to Phase 2.</p>
+<ul class="checklist">
+  <li class="done"><code>readGameContests</code> is exported from <code>ncaa-archive.ts</code> and returns <code>NcaaContest[]</code></li>
+  <li class="done"><code>StoredBoxScoreResult</code> type is exported from <code>ncaa-archive.ts</code></li>
+  <li class="done"><code>readStoredBoxScore</code> is exported from <code>ncaa-archive.ts</code> and returns <code>StoredBoxScoreResult</code></li>
+  <li class="done">Calling <code>readGameContests</code> with a date that has an archived game file returns an array with at least one contest</li>
+  <li class="done">Calling <code>readGameContests</code> with a date that has no archived file returns <code>[]</code> (no throw)</li>
+  <li class="done">Calling <code>readStoredBoxScore</code> with a contestId that has an archived box score file returns <code>{ fileFound: true, boxScore: ... }</code></li>
+  <li class="done">Calling <code>readStoredBoxScore</code> with a contestId that has no file returns <code>{ fileFound: false }</code> (no throw)</li>
+  <li class="done"><code>npm run check</code> passes with no TypeScript errors</li>
+</ul>
+
+<h2>How to Validate</h2>
+<ol>
+  <li>Run <code>npm run check</code> — must pass cleanly.</li>
+  <li>Create a quick smoke test script (similar to <code>scripts/smoke-test-boxscore-helpers.mjs</code>):
+    <ul>
+      <li>Call <code>readGameContests('MSO', 1, 2025, '2025-12-15')</code> — expect an array of contests with <code>contestId</code>, <code>teams</code>, <code>statusCodeDisplay</code> fields present.</li>
+      <li>Call <code>readGameContests('MSO', 1, 2025, '2025-01-01')</code> (off-season) — expect <code>[]</code>.</li>
+      <li>Call <code>readStoredBoxScore('MSO', 1, 2025, contestId)</code> with a real contestId from the previous call — expect <code>{ fileFound: true, boxScore: ... }</code>. If no box scores archived yet, manually verify the logic by checking a known-good path.</li>
+      <li>Call <code>readStoredBoxScore('MSO', 1, 2025, '0')</code> (nonexistent) — expect <code>{ fileFound: false }</code>.</li>
+    </ul>
+  </li>
+</ol>
+
+</body>
+</html>

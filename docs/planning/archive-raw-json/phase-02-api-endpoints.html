@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 2: Archive API Endpoints — Archive Raw JSON</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1.25rem; line-height: 1.65; color: #111; }
+    h1 { font-size: 1.6rem; border-bottom: 3px solid #e8463a; padding-bottom: .5rem; margin-bottom: .5rem; }
+    h2 { font-size: 1.1rem; color: #333; margin-top: 2rem; border-bottom: 1px solid #e5e5e5; padding-bottom: .25rem; }
+    h3 { font-size: 1rem; color: #444; }
+    .meta { display: flex; flex-wrap: wrap; gap: 1.5rem; background: #f7f7f7; padding: .75rem 1rem; border-radius: 6px; font-size: .875rem; margin-bottom: 1.75rem; color: #444; }
+    .meta strong { color: #111; }
+    .checklist { list-style: none; padding: 0; margin: 0; }
+    .checklist li { padding: .4rem 0 .4rem .25rem; border-bottom: 1px solid #f0f0f0; display: flex; gap: .75rem; align-items: flex-start; font-size: .95rem; }
+    .checklist li::before { content: "☐"; font-size: 1.1rem; color: #aaa; flex-shrink: 0; margin-top: .05rem; }
+    .dep { background: #eff6ff; border-left: 3px solid #60a5fa; padding: .5rem .85rem; margin-bottom: 1.25rem; border-radius: 0 5px 5px 0; font-size: .875rem; color: #1e40af; }
+    .note { background: #f0fdf4; border-left: 3px solid #4ade80; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    code { background: #f3f4f6; padding: .15rem .4rem; border-radius: 3px; font-size: .875em; font-family: ui-monospace, monospace; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem 1.25rem; border-radius: 7px; overflow-x: auto; font-size: .875rem; }
+    pre code { background: none; padding: 0; font-size: inherit; }
+    a { color: #e8463a; }
+  </style>
+</head>
+<body>
+
+<div style="background:#f0fdf4;border:1.5px solid #4ade80;border-radius:7px;padding:.65rem 1.1rem;margin-bottom:1.5rem;font-size:.9rem;color:#166534;font-weight:500;">
+  ✅ Phase complete — all criteria satisfied.
+</div>
+<h1>Phase 2: Archive API Endpoints</h1>
+
+<div class="meta">
+  <span><strong>Project:</strong> Archive Raw JSON</span>
+  <span><strong>Phase:</strong> 2 of 3</span>
+  <span><strong>Depends on:</strong> Phase 1 complete</span>
+</div>
+
+<div class="dep">
+  ⚠️ <strong>Prerequisite:</strong> Phase 1 (Storage Bucket &amp; Server Helpers) must be complete before starting this phase. The <code>ncaa-raw-games</code> bucket and <code>ncaa-archive.ts</code> helpers must exist.
+</div>
+
+<h2>Overview</h2>
+<p>Adds two SvelteKit server routes under <code>src/routes/api/archive/</code>. The first handles archiving a single date (called once per date by the admin UI's client-side loop). The second returns which dates are already archived for a given sport/division/season (used by the admin UI's status check). The admin UI in Phase 3 calls both endpoints directly.</p>
+
+<h2>What Will Be Built</h2>
+
+<h3>1. <code>src/routes/api/archive/date/+server.ts</code> — POST</h3>
+<p>Receives a single date, fetches the raw NCAA API response, and saves it to Storage. Returns a lightweight result the UI can display immediately.</p>
+
+<p><strong>Request body (JSON):</strong></p>
+<pre><code>{
+  sportCode:   string,   // 'MSO' | 'WSO'
+  division:    number,   // 1 | 2 | 3
+  seasonLabel: string,   // e.g. '2025' — looked up in seasons table
+  contestDate: string    // YYYY-MM-DD
+}
+</code></pre>
+
+<p><strong>Success response (200):</strong></p>
+<pre><code>{
+  path:       string,   // e.g. 'MSO/1/2025/12-15.json'
+  gamesCount: number,   // contests in the response (may be 0 for off-season dates)
+  contestDate: string   // echoed back for the UI to match against its loop state
+}
+</code></pre>
+
+<p><strong>Error response (400 / 500):</strong></p>
+<pre><code>{ error: string }
+</code></pre>
+
+<p><strong>Server logic (pseudocode):</strong></p>
+<pre><code>export const POST: RequestHandler = async ({ request }) => {
+  const { sportCode, division, seasonLabel, contestDate } = await request.json();
+
+  // 1. Look up season year from label
+  const { data: season } = await supabaseAdmin
+    .from('seasons')
+    .select('year')
+    .eq('label', seasonLabel)
+    .single();
+  if (!season) return json({ error: `Season not found: ${seasonLabel}` }, { status: 400 });
+
+  // 2. Fetch raw NCAA API response
+  const [yyyy, mm, dd] = contestDate.split('-');
+  const ncaaDate = `${mm}/${dd}/${yyyy}`;   // NCAA expects MM/DD/YYYY
+  const raw = await fetchRawContests({
+    contestDate: ncaaDate,
+    seasonYear: season.year,
+    division,
+    sportCode
+  });
+
+  // 3. Count contests for the response summary
+  const contests = (raw as any)?.data?.contests ?? [];
+
+  // 4. Save to Storage (overwrites if exists)
+  const { path } = await saveContestJson(sportCode, division, season.year, contestDate, raw);
+
+  return json({ path, gamesCount: contests.length, contestDate });
+};
+</code></pre>
+
+<div class="note">
+  <strong>Note:</strong> No delay is applied server-side. The client controls the inter-request delay via <code>setTimeout</code>. This keeps each individual server request fast and stateless.
+</div>
+
+<h3>2. <code>src/routes/api/archive/status/+server.ts</code> — GET</h3>
+<p>Lists dates that are already archived in Storage for a given sport/division/season. Used by the admin UI's "Check status" button to show which dates still need scraping.</p>
+
+<p><strong>Query parameters:</strong></p>
+<pre><code>?sportCode=MSO&amp;division=1&amp;seasonLabel=2025
+</code></pre>
+
+<p><strong>Success response (200):</strong></p>
+<pre><code>{
+  archivedDates: string[],  // YYYY-MM-DD dates that have files in Storage
+  seasonYear:    number,    // season.year, so the UI can build the full date range
+  startDate:     string,    // season.start_date (YYYY-MM-DD)
+  endDate:       string     // season.end_date   (YYYY-MM-DD)
+}
+</code></pre>
+
+<p><strong>Server logic (pseudocode):</strong></p>
+<pre><code>export const GET: RequestHandler = async ({ url }) => {
+  const sportCode   = url.searchParams.get('sportCode')   ?? 'MSO';
+  const division    = Number(url.searchParams.get('division') ?? 1);
+  const seasonLabel = url.searchParams.get('seasonLabel') ?? '';
+
+  const { data: season } = await supabaseAdmin
+    .from('seasons')
+    .select('year, start_date, end_date')
+    .eq('label', seasonLabel)
+    .single();
+  if (!season) return json({ error: `Season not found: ${seasonLabel}` }, { status: 400 });
+
+  const archivedDates = await listArchivedDates(sportCode, division, season.year);
+
+  return json({
+    archivedDates,
+    seasonYear: season.year,
+    startDate:  season.start_date,
+    endDate:    season.end_date
+  });
+};
+</code></pre>
+
+<h2>Implementation Notes</h2>
+<ul>
+  <li>Import <code>fetchRawContests</code> from <code>$lib/server/ncaa-api</code> — it already exists and handles the NCAA GraphQL request.</li>
+  <li>Import <code>saveContestJson</code> and <code>listArchivedDates</code> from <code>$lib/server/ncaa-archive</code> (built in Phase 1).</li>
+  <li>Import <code>supabaseAdmin</code> from <code>$lib/server/supabase-admin</code> for the seasons lookup.</li>
+  <li>Both endpoints are admin-only paths under <code>/api/archive/</code>. The existing <code>src/routes/admin/+layout.server.ts</code> protects the <code>/admin</code> UI, but these API routes are not under <code>/admin</code>. Add a session check in each endpoint consistent with how the other <code>/api/scrape/</code> endpoints handle auth — check the existing endpoints for the pattern.</li>
+  <li>The date format conversion (<code>YYYY-MM-DD</code> ↔ <code>MM/DD/YYYY</code>) happens only in the POST endpoint. Everything outside the NCAA API call uses ISO format.</li>
+</ul>
+
+<h3>Key files to read before starting</h3>
+<ul>
+  <li><code>src/routes/api/scrape/backfill/+server.ts</code> — pattern for a POST endpoint that calls the NCAA API and does DB work; follow the same structure</li>
+  <li><code>src/routes/api/scrape/test/+server.ts</code> — pattern for a simple GET that calls the NCAA API</li>
+  <li><code>src/lib/server/ncaa-api.ts</code> — <code>fetchRawContests</code> signature</li>
+  <li><code>src/lib/server/ncaa-archive.ts</code> — helpers built in Phase 1</li>
+  <li><code>src/routes/admin/+layout.server.ts</code> — auth guard pattern</li>
+</ul>
+
+<h2>Completion Criteria</h2>
+<ul class="checklist">
+  <li class="done"><code>POST /api/archive/date</code> returns 200 with <code>{ path, gamesCount, contestDate }</code> for a valid date/season combination</li>
+  <li class="done">After a successful POST, the file appears in the <code>ncaa-raw-games</code> Storage bucket at the expected path</li>
+  <li class="done">Calling POST twice for the same date silently overwrites (no 409 or error)</li>
+  <li class="done"><code>GET /api/archive/status?sportCode=MSO&amp;division=1&amp;seasonLabel=2025</code> returns 200 with the correct <code>archivedDates</code> array including the date just posted</li>
+  <li class="done"><code>npm run check</code> passes with no TypeScript errors</li>
+</ul>
+
+<h2>How to Validate</h2>
+<ol>
+  <li>Start the dev server: <code>npm run dev</code></li>
+  <li>In a browser or via <code>curl</code>, POST to <code>http://localhost:5173/api/archive/date</code> with body <code>{"sportCode":"MSO","division":1,"seasonLabel":"2025","contestDate":"2025-10-11"}</code>. Expect a 200 with <code>gamesCount</code> &gt; 0 (Oct 11 2025 was a busy day).</li>
+  <li>Confirm <code>MSO/1/2025/10-11.json</code> appears in the Supabase Studio Storage bucket.</li>
+  <li>POST again for the same date — expect 200, no error, file updated timestamp changes in Storage.</li>
+  <li>GET <code>http://localhost:5173/api/archive/status?sportCode=MSO&amp;division=1&amp;seasonLabel=2025</code> — expect <code>archivedDates</code> to contain <code>"2025-10-11"</code>.</li>
+</ol>
+
+</body>
+</html>

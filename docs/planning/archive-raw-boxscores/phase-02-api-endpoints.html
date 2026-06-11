@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 2: API Endpoints — Archive Raw Box Scores</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1.25rem; line-height: 1.65; color: #111; }
+    h1 { font-size: 1.6rem; border-bottom: 3px solid #e8463a; padding-bottom: .5rem; margin-bottom: .5rem; }
+    h2 { font-size: 1.1rem; color: #333; margin-top: 2rem; border-bottom: 1px solid #e5e5e5; padding-bottom: .25rem; }
+    h3 { font-size: 1rem; color: #444; }
+    .meta { display: flex; flex-wrap: wrap; gap: 1.5rem; background: #f7f7f7; padding: .75rem 1rem; border-radius: 6px; font-size: .875rem; margin-bottom: 1.75rem; color: #444; }
+    .meta strong { color: #111; }
+    .checklist { list-style: none; padding: 0; margin: 0; }
+    .checklist li { padding: .4rem 0 .4rem .25rem; border-bottom: 1px solid #f0f0f0; display: flex; gap: .75rem; align-items: flex-start; font-size: .95rem; }
+    .checklist li::before { content: "☐"; font-size: 1.1rem; color: #aaa; flex-shrink: 0; margin-top: .05rem; }
+    .dep { background: #eff6ff; border-left: 3px solid #60a5fa; padding: .5rem .85rem; margin-bottom: 1.25rem; border-radius: 0 5px 5px 0; font-size: .875rem; color: #1e40af; }
+    .note { background: #f0fdf4; border-left: 3px solid #4ade80; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    code { background: #f3f4f6; padding: .15rem .4rem; border-radius: 3px; font-size: .875em; font-family: ui-monospace, monospace; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem 1.25rem; border-radius: 7px; overflow-x: auto; font-size: .875rem; }
+    pre code { background: none; padding: 0; font-size: inherit; }
+    a { color: #e8463a; }
+  </style>
+</head>
+<body>
+
+<div style="background:#f0fdf4;border:1.5px solid #4ade80;border-radius:7px;padding:.65rem 1.1rem;margin-bottom:1.5rem;font-size:.9rem;color:#166534;font-weight:500;">
+  ✅ Phase complete — all criteria satisfied.
+</div>
+<h1>Phase 2: API Endpoints</h1>
+
+<div class="meta">
+  <span><strong>Project:</strong> Archive Raw Box Scores</span>
+  <span><strong>Phase:</strong> 2 of 3</span>
+  <span><strong>Depends on:</strong> Phase 1 complete</span>
+</div>
+
+<div class="dep">
+  ⚠️ <strong>Prerequisite:</strong> Phase 1 (Storage Helpers) must be complete. The four helper functions in <code>ncaa-archive.ts</code> must exist before these endpoints are built.
+</div>
+
+<h2>Overview</h2>
+<p>Adds two SvelteKit server routes under <code>src/routes/api/archive/boxscore/</code>. The POST endpoint handles a single date — it reads the archived game file for that date, fetches a box score for every <code>contestId</code> found, and saves each raw response to Storage. The GET endpoint returns a count of already-archived box scores for a season, used by the admin UI's status check. The admin UI in Phase 3 calls both endpoints directly.</p>
+
+<h2>What Will Be Built</h2>
+
+<h3>1. <code>src/routes/api/archive/boxscore/date/+server.ts</code> — POST</h3>
+<p>Reads the game JSON file for one date, iterates every <code>contestId</code>, calls the box score API for each, saves the raw response. Returns a per-date summary the UI can display immediately.</p>
+
+<p><strong>Request body (JSON):</strong></p>
+<pre><code>{
+  sportCode:   string,   // 'MSO' | 'WSO'
+  division:    number,   // 1 | 2 | 3
+  seasonLabel: string,   // e.g. '2025-2026'
+  contestDate: string,   // YYYY-MM-DD
+  delayMs:     number    // ms to wait between individual box score fetches (default 1000)
+}
+</code></pre>
+
+<p><strong>Success response (200):</strong></p>
+<pre><code>{
+  contestDate:    string,   // echoed back for UI matching
+  contestsFound:  number,   // contestIds extracted from the game file (0 if no game file)
+  saved:          number,   // box score files successfully written to Storage
+  errors:         { contestId: string; message: string }[]
+}
+</code></pre>
+
+<p><strong>Server logic (pseudocode):</strong></p>
+<pre><code>export const POST: RequestHandler = async ({ request, locals }) => {
+  const { user } = await locals.safeGetSession();
+  if (!user) error(401, 'Unauthorized');
+
+  const { sportCode, division, seasonLabel, contestDate, delayMs = 1000 } = await request.json();
+
+  // 1. Look up season year
+  const { data: season } = await supabaseAdmin
+    .from('seasons').select('year').eq('label', seasonLabel).single();
+  if (!season) return json({ error: `Season not found: ${seasonLabel}` }, { status: 400 });
+
+  // 2. Read contestIds from the archived game file for this date
+  const contestIds = await readGameContestIds(sportCode, division, season.year, contestDate);
+
+  // 3. Fetch and save a box score for each contestId
+  let saved = 0;
+  const errors: { contestId: string; message: string }[] = [];
+
+  for (const contestId of contestIds) {
+    try {
+      const raw = await fetchRawBoxScore(contestId);
+      await saveBoxScoreJson(sportCode, division, season.year, contestId, raw);
+      saved++;
+    } catch (e) {
+      errors.push({ contestId, message: e instanceof Error ? e.message : String(e) });
+    }
+    if (delayMs > 0 && contestId !== contestIds.at(-1)) {
+      await sleep(delayMs);
+    }
+  }
+
+  return json({ contestDate, contestsFound: contestIds.length, saved, errors });
+};
+</code></pre>
+
+<div class="note">
+  <strong>No status filtering:</strong> Unlike the existing backfill, this endpoint archives a box score for every <code>contestId</code> regardless of game status. The NCAA box score API returns an empty or minimal response for scheduled/live games — that response is saved as-is. The ingestion step (a later project) will check <code>data.boxscore</code> for null before processing.
+</div>
+
+<h3>2. <code>src/routes/api/archive/boxscore/status/+server.ts</code> — GET</h3>
+<p>Lists how many box score files are already archived for a given season, plus the season's date bounds so the UI can build the date range. Does not scan game files — it only lists the <code>boxscores/</code> prefix in Storage (one fast API call).</p>
+
+<p><strong>Query parameters:</strong></p>
+<pre><code>?sportCode=MSO&amp;division=1&amp;seasonLabel=2025-2026
+</code></pre>
+
+<p><strong>Success response (200):</strong></p>
+<pre><code>{
+  archivedCount: number,   // box score files already in Storage
+  seasonYear:    number,
+  startDate:     string,   // YYYY-MM-DD
+  endDate:       string    // YYYY-MM-DD
+}
+</code></pre>
+
+<p><strong>Server logic (pseudocode):</strong></p>
+<pre><code>export const GET: RequestHandler = async ({ url, locals }) => {
+  const { user } = await locals.safeGetSession();
+  if (!user) error(401, 'Unauthorized');
+
+  const sportCode   = url.searchParams.get('sportCode')   ?? 'MSO';
+  const division    = Number(url.searchParams.get('division') ?? 1);
+  const seasonLabel = url.searchParams.get('seasonLabel') ?? '';
+  if (!seasonLabel) error(400, 'seasonLabel is required');
+
+  const { data: season } = await supabaseAdmin
+    .from('seasons').select('year, start_date, end_date').eq('label', seasonLabel).single();
+  if (!season) error(400, `Season "${seasonLabel}" not found`);
+
+  const archivedIds = await listArchivedBoxScoreIds(sportCode, division, season.year);
+
+  return json({
+    archivedCount: archivedIds.length,
+    seasonYear:    season.year,
+    startDate:     season.start_date,
+    endDate:       season.end_date
+  });
+};
+</code></pre>
+
+<h2>Implementation Notes</h2>
+<ul>
+  <li>Import <code>fetchRawBoxScore</code> and <code>sleep</code> from <code>$lib/server/ncaa-api</code>.</li>
+  <li>Import <code>readGameContestIds</code>, <code>saveBoxScoreJson</code>, and <code>listArchivedBoxScoreIds</code> from <code>$lib/server/ncaa-archive</code>.</li>
+  <li>Import <code>supabaseAdmin</code> from <code>$lib/server/supabase-admin</code> for the seasons lookup.</li>
+  <li>Both endpoints require authentication. Use the same <code>locals.safeGetSession()</code> pattern as <code>src/routes/api/archive/date/+server.ts</code>.</li>
+  <li>The delay (<code>delayMs</code>) is applied server-side between individual box score API calls within a single date. The client controls the delay between date-level requests via its own loop. This means for a date with 10 contests and <code>delayMs=1000</code>, the POST request will take ~10 seconds to respond — this is intentional and expected since the app runs locally.</li>
+  <li>Do not apply the delay after the last contest in a date to avoid unnecessary waiting at the end of each request.</li>
+</ul>
+
+<h3>Key files to read before starting</h3>
+<ul>
+  <li><code>src/routes/api/archive/date/+server.ts</code> — exact pattern to follow for the POST endpoint (auth check, season lookup, Storage helpers)</li>
+  <li><code>src/routes/api/archive/status/+server.ts</code> — exact pattern to follow for the GET endpoint</li>
+  <li><code>src/lib/server/ncaa-archive.ts</code> — confirm the four new helpers from Phase 1 are present before building</li>
+  <li><code>src/lib/server/ncaa-api.ts</code> — <code>fetchRawBoxScore</code> and <code>sleep</code> signatures</li>
+</ul>
+
+<h2>Completion Criteria</h2>
+<ul class="checklist">
+  <li class="done"><code>POST /api/archive/boxscore/date</code> returns 200 with <code>{ contestDate, contestsFound, saved, errors }</code> for a date that has an archived game file</li>
+  <li class="done">After a successful POST, box score files appear in Supabase Studio at <code>MSO/1/2025/boxscores/{contestId}.json</code></li>
+  <li class="done">Posting the same date twice overwrites silently (no 409, <code>saved</code> count same both times)</li>
+  <li class="done">Posting a date with no archived game file returns 200 with <code>contestsFound: 0</code> and <code>saved: 0</code> (not an error)</li>
+  <li class="done"><code>GET /api/archive/boxscore/status?sportCode=MSO&amp;division=1&amp;seasonLabel=2025-2026</code> returns 200 with <code>archivedCount</code> reflecting the files saved above</li>
+  <li class="done"><code>npm run check</code> passes with no TypeScript errors</li>
+</ul>
+
+<h2>How to Validate</h2>
+<ol>
+  <li>Start the dev server: <code>npm run dev</code>. Navigate to <code>/admin</code> and log in (endpoints require auth).</li>
+  <li>In a separate script replicating endpoint logic (like previous smoke tests), or via browser fetch from the console while logged in, POST to <code>/api/archive/boxscore/date</code> with <code>{"sportCode":"MSO","division":1,"seasonLabel":"2025-2026","contestDate":"2025-12-15","delayMs":0}</code>. Expect <code>contestsFound &gt; 0</code> and <code>saved === contestsFound</code>.</li>
+  <li>Open Supabase Studio → Storage → <code>ncaa-raw-games</code> → <code>MSO/1/2025/boxscores/</code>. Confirm files like <code>6500844.json</code> appear.</li>
+  <li>POST the same date again — expect 200, same counts, no errors.</li>
+  <li>POST with <code>contestDate: "2025-01-01"</code> (no game file) — expect <code>{ contestsFound: 0, saved: 0, errors: [] }</code>.</li>
+  <li>GET <code>/api/archive/boxscore/status?sportCode=MSO&amp;division=1&amp;seasonLabel=2025-2026</code> — expect <code>archivedCount</code> matches the number of files in Studio.</li>
+</ol>
+
+</body>
+</html>
