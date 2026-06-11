@@ -7,6 +7,7 @@
 	import { onMount } from 'svelte';
 	import { dev } from '$app/environment';
 	import { injectAnalytics } from '@vercel/analytics/sveltekit';
+  import { Alert } from 'flowbite-svelte';
 
 	let { data, children } = $props();
 
@@ -34,5 +35,10 @@
 <Navbar />
 
 <main class="max-w-5xl mx-auto px-3 py-3">
+	<div class="bg-white dark:bg-gray-950 text-gray-500 border dark:border-gray-800 border-gray-200 p-4 rounded-lg mb-4">
+		<p class="text-xs tracking-wider">
+			CollegeSoccer.IO is currently in early development. Check back soon to see full scores and player stats!
+		</p>
+	</div>
 	{@render children()}
 </main>
