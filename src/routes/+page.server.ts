@@ -34,9 +34,9 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 	const bounds    = seasonBounds(parseInt(seasonLabel) || 2025);
 	const startDate = season?.start_date ?? bounds.start;
 	const endDate   = season?.end_date   ?? bounds.end;
-	const contestDate = defaultDate(startDate, endDate);
 
 	if (!season) {
+		const contestDate = defaultDate(startDate, endDate);
 		return {
 			games: [],
 			contestDate,
@@ -49,50 +49,49 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 		};
 	}
 
-	// Run both queries in parallel: the games for the selected date, and all
-	// distinct dates that have at least one game (for arrow navigation).
-	const [
-		{ data: games, error: gamesError },
-		{ data: gameDatesRaw }
-	] = await Promise.all([
-		supabase
-			.from('games')
-			.select(`
-				id,
-				ncaa_contest_id,
-				contest_date,
-				start_time,
-				home_score,
-				away_score,
-				status,
-				neutral_site,
-				broadcaster_name,
-				round_description,
-				home_team_season:team_seasons!home_team_season_id(
-					team:teams(name, short_name, ncaa_team_id, logo_url_dark, logo_url_light),
-					conference:conferences(name, short_name)
-				),
-				away_team_season:team_seasons!away_team_season_id(
-					team:teams(name, short_name, ncaa_team_id, logo_url_dark, logo_url_light),
-					conference:conferences(name, short_name)
-				)
-			`)
-			.eq('contest_date', contestDate)
-			.eq('sport_code', sportCode)
-			.eq('division', division)
-			.eq('season_id', season.id)
-			.order('start_time', { ascending: true, nullsFirst: false }),
-		supabase.rpc('get_game_dates', {
-			p_season_id:  season.id,
-			p_sport_code: sportCode,
-			p_division:   division
-		})
-	]);
+	// Fetch available dates first so we can use the actual first/last game date
+	// as bounds instead of the season's start/end dates. This ensures switching
+	// between sports lands on a date that has real games for that sport.
+	const { data: gameDatesRaw } = await supabase.rpc('get_game_dates', {
+		p_season_id:  season.id,
+		p_sport_code: sportCode,
+		p_division:   division
+	});
+
+	const availableDates = (gameDatesRaw ?? []).map((r: { contest_date: string }) => r.contest_date);
+	const firstGameDate  = availableDates[0]                       ?? startDate;
+	const lastGameDate   = availableDates[availableDates.length - 1] ?? endDate;
+	const contestDate    = defaultDate(firstGameDate, lastGameDate);
+
+	const { data: games, error: gamesError } = await supabase
+		.from('games')
+		.select(`
+			id,
+			ncaa_contest_id,
+			contest_date,
+			start_time,
+			home_score,
+			away_score,
+			status,
+			neutral_site,
+			broadcaster_name,
+			round_description,
+			home_team_season:team_seasons!home_team_season_id(
+				team:teams(name, short_name, ncaa_team_id, logo_url_dark, logo_url_light),
+				conference:conferences(name, short_name)
+			),
+			away_team_season:team_seasons!away_team_season_id(
+				team:teams(name, short_name, ncaa_team_id, logo_url_dark, logo_url_light),
+				conference:conferences(name, short_name)
+			)
+		`)
+		.eq('contest_date', contestDate)
+		.eq('sport_code', sportCode)
+		.eq('division', division)
+		.eq('season_id', season.id)
+		.order('start_time', { ascending: true, nullsFirst: false });
 
 	if (gamesError) console.error('[scoreboard] games query error:', gamesError);
-
-	// RPC returns DISTINCT dates already; map to strings for the client.
-	const availableDates = (gameDatesRaw ?? []).map((r: { contest_date: string }) => r.contest_date);
 
 	return {
 		games: games ?? [],

@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 4: Admin UI — Sport-Specific Seasons</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1.25rem; line-height: 1.65; color: #111; }
+    h1 { font-size: 1.6rem; border-bottom: 3px solid #e8463a; padding-bottom: .5rem; margin-bottom: .5rem; }
+    h2 { font-size: 1.1rem; color: #333; margin-top: 2rem; border-bottom: 1px solid #e5e5e5; padding-bottom: .25rem; }
+    h3 { font-size: 1rem; color: #444; }
+    .meta { display: flex; flex-wrap: wrap; gap: 1.5rem; background: #f7f7f7; padding: .75rem 1rem; border-radius: 6px; font-size: .875rem; margin-bottom: 1.75rem; color: #444; }
+    .meta strong { color: #111; }
+    .checklist { list-style: none; padding: 0; margin: 0; }
+    .checklist li { padding: .4rem 0 .4rem .25rem; border-bottom: 1px solid #f0f0f0; display: flex; gap: .75rem; align-items: flex-start; font-size: .95rem; }
+    .checklist li::before { content: "☐"; font-size: 1.1rem; color: #aaa; flex-shrink: 0; margin-top: .05rem; }
+    .dep { background: #eff6ff; border-left: 3px solid #60a5fa; padding: .5rem .85rem; margin-bottom: 1.25rem; border-radius: 0 5px 5px 0; font-size: .875rem; color: #1e40af; }
+    .note { background: #f0fdf4; border-left: 3px solid #4ade80; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    code { background: #f3f4f6; padding: .15rem .4rem; border-radius: 3px; font-size: .875em; font-family: ui-monospace, monospace; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem 1.25rem; border-radius: 7px; overflow-x: auto; font-size: .875rem; }
+    pre code { background: none; padding: 0; font-size: inherit; }
+    a { color: #e8463a; }
+  </style>
+</head>
+<body>
+
+<h1>Phase 4: Admin UI</h1>
+
+<div class="meta">
+  <span><strong>Project:</strong> Sport-Specific Seasons</span>
+  <span><strong>Phase:</strong> 4 of 4</span>
+  <span><strong>Depends on:</strong> Phase 1, 3 complete</span>
+</div>
+
+<div class="dep">
+  ⚠️ <strong>Prerequisite:</strong> Phase 1 (Schema Migration) and Phase 3 (Admin API Endpoints) must be complete before this phase. The Manage Seasons form calls <code>/api/seasons</code>; the tool dropdowns must match what the endpoints now expect.
+</div>
+
+<h2>Overview</h2>
+<p>Updates the admin page's "Manage Seasons" section and all tool-form season dropdowns to handle sport+division-specific seasons. The Manage Seasons table gains Sport and Division columns; its add/edit form gains gender and division selectors. All five tool forms (backfill, missing dates, missing games, archive raw games, archive box scores, ingest archives) gain a reactive filter so their season dropdown only shows seasons matching the currently selected sport and division.</p>
+
+<h2>What Will Be Built</h2>
+<p>All changes are confined to <code>src/routes/admin/+page.svelte</code> and <code>src/routes/admin/+page.server.ts</code>.</p>
+
+<h3>1. Update the server load (<code>+page.server.ts</code>)</h3>
+<p>The server load currently fetches all seasons for the <code>allSeasons</code> list. Update the SELECT to include <code>sport_code</code> and <code>division</code>:</p>
+<pre><code>// BEFORE
+supabase.from('seasons').select('id, label, start_date, end_date').order('start_date', { ascending: false })
+
+// AFTER
+supabase.from('seasons').select('id, label, start_date, end_date, sport_code, division').order('label', { ascending: false }).order('sport_code').order('division')
+</code></pre>
+<p>Update the <code>SeasonRow</code> type to include <code>sport_code: string</code> and <code>division: number</code>.</p>
+
+<h3>2. Season dropdown filtering in all tool forms</h3>
+<p>Each tool form has its own sport selector (e.g., <code>backfillSport</code>, <code>archiveSport</code>, <code>bsSport</code>, <code>igSport</code>) and division selector. The season dropdown for each tool currently shows all seasons. Add a <code>$derived</code> filtered list per tool:</p>
+<pre><code>// Example for backfill tool (replicate for all 6 tools)
+const backfillSeasons = $derived(
+  (data.seasons as SeasonRow[]).filter(s =>
+    s.sport_code === backfillSport && s.division === Number(backfillDivision)
+  )
+);
+</code></pre>
+<p>Then bind each tool's season <code>&lt;Select&gt;</code> to its filtered list instead of <code>data.seasons</code>.</p>
+
+<p>The six tool prefixes and their sport/division state variables are:</p>
+<ul>
+  <li><strong>Backfill:</strong> <code>backfillSport</code>, <code>backfillDivision</code> → <code>backfillSeasons</code></li>
+  <li><strong>Missing Dates:</strong> read the file to find the prefixed sport/division state variables</li>
+  <li><strong>Missing Games:</strong> same</li>
+  <li><strong>Archive Raw Games:</strong> <code>archiveSport</code>, <code>archiveDivision</code> → <code>archiveSeasons</code></li>
+  <li><strong>Archive Box Scores:</strong> <code>bsSport</code>, <code>bsDivision</code> → <code>bsSeasons</code></li>
+  <li><strong>Ingest Archives:</strong> <code>igSport</code>, <code>igDivision</code> → <code>igFilteredSeasons</code> (avoid naming it <code>igSeasons</code> since that might conflict with existing state)</li>
+</ul>
+
+<div class="note">
+  ℹ️ When the sport or division changes and the currently selected season label no longer exists in the filtered list, reset the season state variable to the first item in the filtered list (or empty string). Add this reset logic inside the existing <code>$effect</code> blocks that already watch sport/division changes, or add a new <code>$effect</code> per tool.
+</div>
+
+<h3>3. Update the Manage Seasons table</h3>
+<p>The seasons table in the Manage Seasons view currently shows Label, Start Date, End Date, and actions. Add Sport and Division columns:</p>
+<ul>
+  <li><strong>Sport</strong> column: display <code>'Men'</code> for <code>sport_code === 'MSO'</code>, <code>'Women'</code> for <code>'WSO'</code></li>
+  <li><strong>Division</strong> column: display <code>s.division</code></li>
+  <li>Sort order in the display: group by label, then by sport (Men first), then by division ascending. The server load's order-by handles this.</li>
+</ul>
+
+<h3>4. Update the Add Season form</h3>
+<p>The "Add New Season" form below the table currently has inputs for Label, Start Date, and End Date. Add two new selectors before the date inputs:</p>
+<ul>
+  <li><strong>Sport:</strong> Select with options <code>Men (MSO)</code> / <code>Women (WSO)</code>, bound to a new <code>newSeasonSport</code> state variable (default <code>'MSO'</code>)</li>
+  <li><strong>Division:</strong> Select with options 1 / 2 / 3, bound to a new <code>newSeasonDivision</code> state variable (default <code>1</code>)</li>
+</ul>
+<p>Include <code>sport_code</code> and <code>division</code> in the POST body when submitting:</p>
+<pre><code>const body = {
+  label:       newSeasonLabel.trim(),
+  start_date:  newSeasonStart,
+  end_date:    newSeasonEnd,
+  sport_code:  newSeasonSport,
+  division:    Number(newSeasonDivision)
+};
+</code></pre>
+<p>After a successful add, push the new row into <code>data.seasons</code> (or re-fetch) so the table and all dropdowns update reactively.</p>
+
+<h3>5. Update the Edit Season inline form</h3>
+<p>The inline edit row currently edits Label, Start Date, and End Date. Add Sport and Division selectors to the edit form as well, pre-populated from the row being edited. Include them in the PATCH body.</p>
+
+<h2>Implementation Notes</h2>
+<ul>
+  <li>Read the full script block of <code>src/routes/admin/+page.svelte</code> before making any changes — the file is large and the variable names for each tool's sport/division state must be confirmed before writing derived variables.</li>
+  <li>The <code>SeasonRow</code> type is defined in the script block and used in <code>$effect</code> blocks for auto-filling dates. Add <code>sport_code</code> and <code>division</code> to this type.</li>
+  <li>The auto-fill <code>$effect</code> blocks that set <code>start_date</code>/<code>end_date</code> when the season changes use <code>(data.seasons as SeasonRow[]).find(s => s.label === igSeason)</code>. After the change, the season dropdown will only show seasons matching the current sport+division, so the find will still work — no change needed to those effects.</li>
+  <li>Follow the existing Svelte 5 runes patterns throughout: use <code>$derived</code> for the filtered season lists, not <code>$effect</code>.</li>
+  <li>Use Flowbite Svelte <code>&lt;Select&gt;</code> components for the new Sport and Division fields in the add/edit form, consistent with the existing form fields.</li>
+  <li>The Manage Seasons table currently shows all seasons. After this change it will show 6× as many rows — sorting by label then sport then division keeps it readable.</li>
+</ul>
+
+<h3>Key files to read before starting</h3>
+<ul>
+  <li><code>src/routes/admin/+page.svelte</code> — read the full script block to find all prefixed state variable names; read the Manage Seasons view block and each tool form's season dropdown</li>
+  <li><code>src/routes/admin/+page.server.ts</code> — current seasons query and <code>SeasonRow</code> type definition</li>
+</ul>
+
+<h2>Completion Criteria</h2>
+<ul class="checklist">
+  <li>The Manage Seasons table shows Sport and Division columns for every row</li>
+  <li>The Add Season form has Sport and Division selectors; submitting creates a single row with the correct <code>sport_code</code> and <code>division</code></li>
+  <li>The Edit Season inline form pre-populates Sport and Division and includes them in the PATCH</li>
+  <li>Each tool's season dropdown filters to only show seasons matching the tool's currently selected sport and division</li>
+  <li>Changing the sport or division selector on any tool updates the season dropdown immediately (reactive)</li>
+  <li>When sport or division changes and the current season no longer exists in the filtered list, the season resets to the first available option</li>
+  <li>The auto-fill of start/end date inputs when selecting a season still works correctly for all tools</li>
+  <li><code>npm run check</code> passes with no TypeScript errors</li>
+</ul>
+
+<h2>How to Validate</h2>
+<ol>
+  <li>Start dev server: <code>npm run dev</code>, navigate to <code>http://localhost:5173/admin</code>.</li>
+  <li>Click "Manage Seasons" in the sidebar — confirm the table shows Sport and Division columns, with 6 rows per season label.</li>
+  <li>Fill in the Add Season form with Women / Division 2 / label "2025-2026" / any dates — confirm a 400 error is returned (duplicate unique key) and that a new label with valid dates creates a new row.</li>
+  <li>Click Edit on any season row — confirm the Sport and Division fields are pre-populated and can be changed.</li>
+  <li>Navigate to "Historic Backfill". Select Men / D1 — confirm the season dropdown shows only MSO D1 seasons. Switch to Women / D1 — confirm the season dropdown now shows only WSO D1 seasons.</li>
+  <li>Repeat step 5 for Archive Raw Games, Archive Box Scores, and Ingest Archives.</li>
+  <li>Select a sport+division combination that has a season, then switch division to one that has the same label — confirm the season field resets correctly.</li>
+  <li>Run a Check Status on Ingest Archives for both MSO D1 and WSO D1 — confirm both return without error (WSO D1 game count will be 0).</li>
+  <li>Run <code>npm run check</code> — 0 errors.</li>
+</ol>
+
+</body>
+</html>

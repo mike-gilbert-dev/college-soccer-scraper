@@ -1,4 +1,5 @@
 ---
+name: project-builder
 description: Executes a project plan produced by the project-planner skill. Scans docs/planning/ for available plans, lets the user choose one, then builds and verifies each phase in order — checking off completion criteria in real time and never re-executing finished work. Invoke when the user wants to begin or resume executing a plan.
 arguments: [project_name]
 allowed-tools: Read Glob Grep Write Edit Bash WebFetch

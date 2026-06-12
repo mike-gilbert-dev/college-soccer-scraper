@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 1: Schema Migration — Sport-Specific Seasons</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1.25rem; line-height: 1.65; color: #111; }
+    h1 { font-size: 1.6rem; border-bottom: 3px solid #e8463a; padding-bottom: .5rem; margin-bottom: .5rem; }
+    h2 { font-size: 1.1rem; color: #333; margin-top: 2rem; border-bottom: 1px solid #e5e5e5; padding-bottom: .25rem; }
+    h3 { font-size: 1rem; color: #444; }
+    .meta { display: flex; flex-wrap: wrap; gap: 1.5rem; background: #f7f7f7; padding: .75rem 1rem; border-radius: 6px; font-size: .875rem; margin-bottom: 1.75rem; color: #444; }
+    .meta strong { color: #111; }
+    .checklist { list-style: none; padding: 0; margin: 0; }
+    .checklist li { padding: .4rem 0 .4rem .25rem; border-bottom: 1px solid #f0f0f0; display: flex; gap: .75rem; align-items: flex-start; font-size: .95rem; }
+    .checklist li::before { content: "☐"; font-size: 1.1rem; color: #aaa; flex-shrink: 0; margin-top: .05rem; }
+    .dep { background: #eff6ff; border-left: 3px solid #60a5fa; padding: .5rem .85rem; margin-bottom: 1.25rem; border-radius: 0 5px 5px 0; font-size: .875rem; color: #1e40af; }
+    .note { background: #f0fdf4; border-left: 3px solid #4ade80; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    code { background: #f3f4f6; padding: .15rem .4rem; border-radius: 3px; font-size: .875em; font-family: ui-monospace, monospace; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem 1.25rem; border-radius: 7px; overflow-x: auto; font-size: .875rem; }
+    pre code { background: none; padding: 0; font-size: inherit; }
+    a { color: #e8463a; }
+  </style>
+</head>
+<body>
+
+<h1>Phase 1: Schema Migration</h1>
+
+<div class="meta">
+  <span><strong>Project:</strong> Sport-Specific Seasons</span>
+  <span><strong>Phase:</strong> 1 of 4</span>
+  <span><strong>Depends on:</strong> None (first phase)</span>
+</div>
+
+<h2>Overview</h2>
+<p>Adds <code>sport_code</code> and <code>division</code> columns to the <code>seasons</code> table, making each season row specific to one sport+division combination. The existing generic season rows are relabeled as MSO D1, and five additional rows are created for MSO D2, MSO D3, WSO D1, WSO D2, and WSO D3 — all seeded with the same <code>start_date</code>/<code>end_date</code> as the original row. Games and team_seasons are remapped to the correct sport-specific season. The <code>/api/seasons</code> CRUD endpoint is updated to accept and return the new columns.</p>
+
+<h2>What Will Be Built</h2>
+
+<h3>1. New migration file</h3>
+<p>Create <code>supabase/migrations/20260612000000_sport_specific_seasons.sql</code> with the following steps in order:</p>
+
+<pre><code>-- Step 1: Add columns as nullable so existing rows don't violate NOT NULL
+ALTER TABLE seasons
+  ADD COLUMN sport_code text    CHECK (sport_code IN ('MSO', 'WSO')),
+  ADD COLUMN division   smallint CHECK (division BETWEEN 1 AND 3);
+
+-- Step 2: Mark all existing rows as MSO D1 (that is what was actually scraped)
+UPDATE seasons SET sport_code = 'MSO', division = 1;
+
+-- Step 3: Make columns NOT NULL now that every row has a value
+ALTER TABLE seasons
+  ALTER COLUMN sport_code SET NOT NULL,
+  ALTER COLUMN division   SET NOT NULL;
+
+-- Step 4: Drop the two existing uniqueness constraints
+--   seasons_year_key   — created by the inline UNIQUE on year in the initial schema
+--   seasons_label_unique — added by the season_label migration
+-- Verify constraint names first if unsure:
+--   SELECT conname FROM pg_constraint WHERE conrelid = 'seasons'::regclass AND contype = 'u';
+ALTER TABLE seasons DROP CONSTRAINT IF EXISTS seasons_year_key;
+ALTER TABLE seasons DROP CONSTRAINT IF EXISTS seasons_label_unique;
+
+-- Step 5: Add the new compound unique constraint
+ALTER TABLE seasons
+  ADD CONSTRAINT seasons_label_sport_division_unique
+  UNIQUE (label, sport_code, division);
+
+-- Step 6: Expand — insert 5 new rows per existing season label
+-- Copies start_date/end_date from the existing MSO D1 row for each label.
+INSERT INTO seasons (label, year, start_date, end_date, sport_code, division)
+SELECT
+  s.label,
+  s.year,
+  s.start_date,
+  s.end_date,
+  combo.sport_code,
+  combo.division
+FROM seasons s
+CROSS JOIN (VALUES
+  ('MSO'::text, 2::smallint),
+  ('MSO'::text, 3::smallint),
+  ('WSO'::text, 1::smallint),
+  ('WSO'::text, 2::smallint),
+  ('WSO'::text, 3::smallint)
+) AS combo(sport_code, division);
+
+-- Step 7: Remap games.season_id where the game's sport_code/division
+-- does not match the season's sport_code/division.
+-- (No-op for current data which is all MSO D1, but correct for future safety.)
+UPDATE games g
+SET season_id = ns.id
+FROM seasons old_s
+JOIN seasons ns
+  ON  ns.label      = old_s.label
+  AND ns.sport_code = g.sport_code
+  AND ns.division   = g.division
+WHERE g.season_id = old_s.id
+  AND (old_s.sport_code <> g.sport_code OR old_s.division <> g.division);
+
+-- Step 8: Remap team_seasons.season_id similarly.
+UPDATE team_seasons ts
+SET season_id = ns.id
+FROM seasons old_s
+JOIN seasons ns
+  ON  ns.label      = old_s.label
+  AND ns.sport_code = ts.sport_code
+  AND ns.division   = ts.division
+WHERE ts.season_id = old_s.id
+  AND (old_s.sport_code <> ts.sport_code OR old_s.division <> ts.division);
+
+-- Step 9: Grant permissions on the updated table
+-- (No new tables, so existing grants carry forward. No action needed.)
+</code></pre>
+
+<div class="note">
+  ℹ️ The <code>conferences</code> table requires <strong>no changes</strong>. Its unique constraint is <code>(ncaa_conference_id, season_id)</code> — since <code>season_id</code> now encodes sport+division, the constraint naturally separates conference records by sport. The upsert conflict key <code>'ncaa_conference_id,season_id'</code> in application code is still correct.
+</div>
+
+<h3>2. Update <code>/api/seasons</code> CRUD endpoint</h3>
+<p>File: <code>src/routes/api/seasons/+server.ts</code></p>
+
+<p><strong>POST</strong> — accept <code>sport_code</code> and <code>division</code> in the request body; validate and include them in the INSERT:</p>
+<pre><code>const { label, start_date, end_date, sport_code, division } = await request.json();
+// Validate: sport_code must be 'MSO' or 'WSO', division must be 1/2/3
+// INSERT: { label, start_date, end_date, sport_code, division }
+// SELECT: 'id, label, start_date, end_date, sport_code, division'
+</code></pre>
+
+<p><strong>PATCH</strong> — accept <code>sport_code</code> and <code>division</code> in the request body; include them in the UPDATE. Since the unique key is now <code>(label, sport_code, division)</code>, these fields can legitimately change.</p>
+
+<p><strong>DELETE</strong> — no change needed; still deletes by <code>id</code>.</p>
+
+<p><strong>GET</strong> — add a GET handler that returns all seasons ordered by <code>start_date DESC</code>, selecting <code>id, label, start_date, end_date, sport_code, division</code>. This is used by the admin page to populate the <code>allSeasons</code> list. Currently the admin page loads seasons via the <code>+page.server.ts</code> server load — we keep that and also expose it via GET for any client-side refresh needs.</p>
+
+<h2>Implementation Notes</h2>
+<ul>
+  <li>Run the migration against the local Supabase instance and verify with <code>SELECT * FROM seasons ORDER BY label, sport_code, division;</code> — you should see 6 rows per label.</li>
+  <li>The <code>year</code> column loses its UNIQUE constraint but stays in the table. It is still used by archive/ingest endpoints to build Storage file paths (e.g. <code>MSO/1/2025/...</code>).</li>
+  <li>Steps 7 and 8 in the migration are no-ops for current data (all games are MSO D1) but must be included so the migration is correct when WSO/D2/D3 data is later ingested.</li>
+  <li>The admin page currently loads <code>allSeasons</code> from the server load (<code>+page.server.ts</code>), not from the API. The API GET handler added here is for completeness — Phase 4 will update the admin UI.</li>
+</ul>
+
+<h3>Key files to read before starting</h3>
+<ul>
+  <li><code>supabase/migrations/20260606000000_initial_schema.sql</code> — original seasons schema with inline UNIQUE on year</li>
+  <li><code>supabase/migrations/20260608000001_season_label.sql</code> — added the label column and <code>seasons_label_unique</code> constraint</li>
+  <li><code>supabase/migrations/20260609000001_split_team_seasons_by_sport.sql</code> — prior data migration pattern to follow</li>
+  <li><code>src/routes/api/seasons/+server.ts</code> — current CRUD endpoint to update</li>
+</ul>
+
+<h2>Completion Criteria</h2>
+<ul class="checklist">
+  <li>Migration file exists at <code>supabase/migrations/20260612000000_sport_specific_seasons.sql</code></li>
+  <li>After running the migration, <code>SELECT count(*) FROM seasons</code> returns 12 (2 original labels × 6 combinations each) or more if additional seasons exist</li>
+  <li><code>SELECT sport_code, division, label FROM seasons ORDER BY label, sport_code, division</code> shows all 6 combinations for each label (MSO/1, MSO/2, MSO/3, WSO/1, WSO/2, WSO/3)</li>
+  <li><code>SELECT count(*) FROM seasons WHERE sport_code IS NULL OR division IS NULL</code> returns 0</li>
+  <li>The old <code>seasons_label_unique</code> and <code>seasons_year_key</code> constraints are gone; <code>seasons_label_sport_division_unique</code> is present</li>
+  <li>All existing game rows still have valid <code>season_id</code> references (no orphaned games)</li>
+  <li>All existing team_seasons rows still have valid <code>season_id</code> references</li>
+  <li><code>POST /api/seasons</code> with <code>{label, start_date, end_date, sport_code, division}</code> creates a new row and returns it with all 5 fields</li>
+  <li><code>POST /api/seasons</code> without <code>sport_code</code> or <code>division</code> returns a 400 error</li>
+  <li><code>npm run check</code> passes with no TypeScript errors</li>
+</ul>
+
+<h2>How to Validate</h2>
+<ol>
+  <li>Apply the migration: <code>npx supabase db push</code> (or equivalent for local dev).</li>
+  <li>Open Supabase Studio → Table Editor → <code>seasons</code>. Verify 12 rows, all with non-null <code>sport_code</code> and <code>division</code>.</li>
+  <li>Run: <code>SELECT label, sport_code, division, start_date, end_date FROM seasons ORDER BY label, sport_code, division;</code> — confirm the 6-combo pattern.</li>
+  <li>Run: <code>SELECT count(*) FROM games g LEFT JOIN seasons s ON s.id = g.season_id WHERE s.id IS NULL;</code> — should return 0.</li>
+  <li>Start dev server and navigate to <code>/admin</code>. Call <code>POST /api/seasons</code> with all 5 fields via the browser network tab or curl — confirm 201 response with <code>sport_code</code> and <code>division</code> in the response.</li>
+  <li>Call <code>POST /api/seasons</code> with only <code>{label, start_date, end_date}</code> — confirm 400 response.</li>
+</ol>
+
+</body>
+</html>

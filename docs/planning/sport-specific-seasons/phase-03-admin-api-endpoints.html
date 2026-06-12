@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 3: Admin API Endpoints — Sport-Specific Seasons</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1.25rem; line-height: 1.65; color: #111; }
+    h1 { font-size: 1.6rem; border-bottom: 3px solid #e8463a; padding-bottom: .5rem; margin-bottom: .5rem; }
+    h2 { font-size: 1.1rem; color: #333; margin-top: 2rem; border-bottom: 1px solid #e5e5e5; padding-bottom: .25rem; }
+    h3 { font-size: 1rem; color: #444; }
+    .meta { display: flex; flex-wrap: wrap; gap: 1.5rem; background: #f7f7f7; padding: .75rem 1rem; border-radius: 6px; font-size: .875rem; margin-bottom: 1.75rem; color: #444; }
+    .meta strong { color: #111; }
+    .checklist { list-style: none; padding: 0; margin: 0; }
+    .checklist li { padding: .4rem 0 .4rem .25rem; border-bottom: 1px solid #f0f0f0; display: flex; gap: .75rem; align-items: flex-start; font-size: .95rem; }
+    .checklist li::before { content: "☐"; font-size: 1.1rem; color: #aaa; flex-shrink: 0; margin-top: .05rem; }
+    .dep { background: #eff6ff; border-left: 3px solid #60a5fa; padding: .5rem .85rem; margin-bottom: 1.25rem; border-radius: 0 5px 5px 0; font-size: .875rem; color: #1e40af; }
+    .note { background: #f0fdf4; border-left: 3px solid #4ade80; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    code { background: #f3f4f6; padding: .15rem .4rem; border-radius: 3px; font-size: .875em; font-family: ui-monospace, monospace; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem 1.25rem; border-radius: 7px; overflow-x: auto; font-size: .875rem; }
+    pre code { background: none; padding: 0; font-size: inherit; }
+    a { color: #e8463a; }
+  </style>
+</head>
+<body>
+
+<h1>Phase 3: Admin API Endpoints</h1>
+
+<div class="meta">
+  <span><strong>Project:</strong> Sport-Specific Seasons</span>
+  <span><strong>Phase:</strong> 3 of 4</span>
+  <span><strong>Depends on:</strong> Phase 1 complete</span>
+</div>
+
+<div class="dep">
+  ⚠️ <strong>Prerequisite:</strong> Phase 1 (Schema Migration) must be complete. All 9 endpoints below already receive <code>sportCode</code> and <code>division</code> as request parameters — they just need to pass them into the season lookup.
+</div>
+
+<h2>Overview</h2>
+<p>Updates the 9 admin tool API endpoints so their season lookups filter by <code>sport_code</code> and <code>division</code> in addition to <code>label</code>. All 9 endpoints already accept <code>sportCode</code> (or equivalent) and <code>division</code> as request params, so no interface changes are needed — only the internal Supabase query for the season row gains two additional <code>.eq()</code> filters.</p>
+
+<h2>What Will Be Built</h2>
+
+<h3>The universal change</h3>
+<p>Every endpoint below has a pattern like:</p>
+<pre><code>// BEFORE
+const { data: season } = await supabaseAdmin
+  .from('seasons')
+  .select('id, year, start_date, end_date')
+  .eq('label', seasonLabel)
+  .single();
+
+// AFTER
+const { data: season } = await supabaseAdmin
+  .from('seasons')
+  .select('id, year, start_date, end_date')
+  .eq('label', seasonLabel)
+  .eq('sport_code', sportCode)
+  .eq('division', division)
+  .single();
+</code></pre>
+<p>The <code>sportCode</code> and <code>division</code> variables are already parsed from the request in every endpoint. Check what the variable is named in each file before editing — some use <code>sportCode</code>, some use <code>sport_code</code>, some use <code>division</code> as a <code>Number()</code>-parsed param.</p>
+
+<h3>Files to update (9 total)</h3>
+
+<p><strong>1. <code>src/routes/api/scrape/backfill/+server.ts</code></strong><br>
+Season lookup selects <code>id, start_date</code>. Add <code>.eq('sport_code', sportCode).eq('division', division)</code>. Confirm that <code>sportCode</code> and <code>division</code> are already parsed from the POST body.</p>
+
+<p><strong>2. <code>src/routes/api/scrape/missing-dates/+server.ts</code></strong><br>
+Season lookup selects <code>id</code>. Add the two filters. The endpoint receives <code>sport</code>, <code>division</code>, and <code>season</code> as URL search params — map <code>sport</code> → <code>sport_code</code> filter value.</p>
+
+<p><strong>3. <code>src/routes/api/scrape/missing-games/+server.ts</code></strong><br>
+Same pattern as missing-dates. Read the file to confirm param names before editing.</p>
+
+<p><strong>4. <code>src/routes/api/archive/status/+server.ts</code></strong><br>
+Season lookup selects <code>id, year, start_date, end_date</code>. The endpoint receives <code>sportCode</code> and <code>division</code> as URL search params. Add the two filters.</p>
+
+<p><strong>5. <code>src/routes/api/archive/date/+server.ts</code></strong><br>
+Season lookup selects <code>year</code> (only). The endpoint receives <code>sportCode</code> and <code>division</code> in the POST body. Add the two filters.</p>
+
+<p><strong>6. <code>src/routes/api/archive/boxscore/status/+server.ts</code></strong><br>
+Season lookup selects <code>year</code>. Same as archive/status. Add the two filters.</p>
+
+<p><strong>7. <code>src/routes/api/archive/boxscore/date/+server.ts</code></strong><br>
+Season lookup selects <code>id</code>. Add the two filters.</p>
+
+<p><strong>8. <code>src/routes/api/ingest/status/+server.ts</code></strong><br>
+Season lookup selects <code>id, year, start_date, end_date</code>. The endpoint receives <code>sportCode</code> and <code>division</code> as URL search params. Add the two filters.</p>
+
+<p><strong>9. <code>src/routes/api/ingest/date/+server.ts</code></strong><br>
+Season lookup selects <code>id, year</code>. The endpoint receives <code>sportCode</code> and <code>division</code> in the POST body. Add the two filters.</p>
+
+<h2>Implementation Notes</h2>
+<ul>
+  <li>Read each file before editing to confirm the exact variable names for sport code and division. Some endpoints use <code>sportCode</code>, others may use <code>sport_code</code> or <code>sport</code>.</li>
+  <li>The <code>division</code> value arriving from the client is a string from URL params or a number from JSON bodies. Confirm parsing before using: for URL params use <code>Number(url.searchParams.get('division') ?? 1)</code>; for JSON bodies <code>Number(body.division)</code>.</li>
+  <li>Do not change the request parameter names or response shapes — this is purely an internal query filter change. The admin UI (Phase 4) already passes <code>sportCode</code> and <code>division</code> to all these endpoints.</li>
+  <li>No changes are needed to the <code>conferences</code> upsert logic in <code>backfill</code> and <code>ingest/date</code>. The conference upsert uses <code>onConflict: 'ncaa_conference_id,season_id'</code> — since <code>season_id</code> now encodes sport+division, separate conference rows are created automatically.</li>
+  <li>After this change, running the backfill for WSO D1 will correctly resolve to the WSO D1 season row, and all games, team_seasons, and conferences created will be correctly scoped to that season.</li>
+</ul>
+
+<h3>Key files to read before starting</h3>
+<ul>
+  <li><code>src/routes/api/scrape/backfill/+server.ts</code> — season lookup near top; <code>sportCode</code> and <code>division</code> parsed from POST body</li>
+  <li><code>src/routes/api/scrape/missing-dates/+server.ts</code> — uses URL search params; sport param may be named differently</li>
+  <li><code>src/routes/api/scrape/missing-games/+server.ts</code> — same as missing-dates</li>
+  <li><code>src/routes/api/archive/status/+server.ts</code> — GET endpoint with URL params</li>
+  <li><code>src/routes/api/archive/date/+server.ts</code> — POST endpoint with JSON body</li>
+  <li><code>src/routes/api/archive/boxscore/status/+server.ts</code> — GET with URL params</li>
+  <li><code>src/routes/api/archive/boxscore/date/+server.ts</code> — POST with JSON body</li>
+  <li><code>src/routes/api/ingest/status/+server.ts</code> — GET with URL params</li>
+  <li><code>src/routes/api/ingest/date/+server.ts</code> — POST with JSON body</li>
+</ul>
+
+<h2>Completion Criteria</h2>
+<ul class="checklist">
+  <li>All 9 endpoint files filter the seasons query by both <code>sport_code</code> and <code>division</code></li>
+  <li>Calling <code>GET /api/ingest/status?sportCode=MSO&amp;division=1&amp;seasonLabel=2025-2026</code> returns data scoped to the MSO D1 season row</li>
+  <li>Calling <code>GET /api/ingest/status?sportCode=WSO&amp;division=1&amp;seasonLabel=2025-2026</code> returns data scoped to the WSO D1 season row (different <code>season_id</code> in the DB query)</li>
+  <li>Calling any endpoint with a valid <code>sportCode + division + seasonLabel</code> combination that exists in the DB returns a 200 response (not a 400 "season not found")</li>
+  <li>Calling any endpoint with a <code>seasonLabel</code> that doesn't exist for the given sport+division returns a 400 error</li>
+  <li><code>npm run check</code> passes with no TypeScript errors</li>
+</ul>
+
+<h2>How to Validate</h2>
+<ol>
+  <li>Start dev server: <code>npm run dev</code>.</li>
+  <li>Open the admin panel and run "Check Status" on the Ingest Archives tool with MSO D1 selected — confirm it returns counts without error.</li>
+  <li>Switch to WSO (Women) on the Ingest Archives tool and run "Check Status" — confirm it hits the WSO D1 season row (game count will be 0 since no WSO data has been ingested yet).</li>
+  <li>Similarly test Archive Raw Games and Archive Box Scores status checks with both MSO and WSO.</li>
+  <li>Run the backfill tool for a 1–2 day range with MSO D1 — confirm games are created linked to the MSO D1 season.</li>
+  <li>Run <code>npm run check</code> — 0 errors.</li>
+</ol>
+
+</body>
+</html>

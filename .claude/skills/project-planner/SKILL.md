@@ -1,4 +1,5 @@
 ---
+name: project-planner
 description: Conducts a structured intake interview to fully understand a new feature, epic, or sub-project, then generates a sequence of HTML phase documents that a project-builder skill can execute in order. Invoke when the user wants to plan significant new work.
 arguments: [project_name]
 allowed-tools: Read Glob Grep Write Bash WebFetch

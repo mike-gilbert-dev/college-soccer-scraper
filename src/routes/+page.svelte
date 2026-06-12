@@ -43,12 +43,15 @@
 	}
 
 	// Always build the full URL from current state so no param ever gets dropped.
+	// Switching gender or division drops the date so the server picks the right
+	// default for that sport/division rather than carrying over an unrelated date.
 	function navigate(overrides: Record<string, string | number> = {}) {
+		const switchingSport = 'gender' in overrides || 'division' in overrides;
 		const sp = new URLSearchParams({
 			gender,
 			division: String(division),
 			season:   seasonLabel,
-			date:     contestDate ?? '',
+			...(switchingSport ? {} : { date: contestDate ?? '' }),
 			...Object.fromEntries(Object.entries(overrides).map(([k, v]) => [k, String(v)]))
 		});
 		goto(`?${sp}`);

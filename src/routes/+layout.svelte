@@ -11,6 +11,8 @@
 
 	let { data, children } = $props();
 
+	const fmt = (n: number) => n.toLocaleString('en-US');
+
 	// Vercel Analytics
 	injectAnalytics({ mode: dev ? 'development' : 'production' });
 
@@ -36,7 +38,15 @@
 
 <main class="max-w-5xl mx-auto px-3 py-3">
 	<div class="bg-white dark:bg-gray-950 text-gray-500 border dark:border-gray-800 border-gray-200 p-4 rounded-lg mb-4">
-		<p class="text-xs tracking-wider">
+		<div class="grid grid-cols-3 divide-x divide-gray-200 dark:divide-gray-800 mb-4">
+			{#each [{ label: 'Teams', count: data.teamCount }, { label: 'Games', count: data.gameCount }, { label: 'Players', count: data.playerCount }] as stat}
+				<div class="flex flex-col items-center py-1">
+					<span class="text-2xl font-bold font-mono text-gray-800 dark:text-gray-100">{fmt(stat.count)}</span>
+					<span class="text-xs uppercase tracking-widest text-gray-400 dark:text-gray-500 mt-0.5">{stat.label}</span>
+				</div>
+			{/each}
+		</div>
+		<p class="text-xs tracking-wider text-center">
 			CollegeSoccer.IO is currently in early development. Check back soon to see full scores and player stats!
 		</p>
 	</div>
