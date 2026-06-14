@@ -29,7 +29,7 @@ export const load: PageServerLoad = async ({ url }) => {
 		return { teams: [] as TeamStanding[], conferences: [] as { name: string; short_name: string }[], sport, division, seasonLabel };
 	}
 
-	const [{ data: teamSeasons }, { data: games }] = await Promise.all([
+	const [{ data: teamSeasons }, { data: standingsRows }] = await Promise.all([
 		supabaseAdmin
 			.from('team_seasons')
 			.select(`
@@ -40,45 +40,27 @@ export const load: PageServerLoad = async ({ url }) => {
 			.eq('season_id', season.id)
 			.eq('division', division)
 			.eq('sport_code', sport),
-		supabaseAdmin
-			.from('games')
-			.select('home_team_season_id, away_team_season_id, home_score, away_score')
-			.eq('season_id', season.id)
-			.eq('sport_code', sport)
-			.eq('division', division)
-			.eq('status', 'final')
-			.limit(10000)
+		supabaseAdmin.rpc('get_standings', {
+			p_season_id:  season.id,
+			p_sport_code: sport,
+			p_division:   division
+		})
 	]);
 
-	// Build a standings accumulator keyed by team_season id
 	type Accum = { wins: number; losses: number; ties: number; goals_for: number; goals_against: number };
 	const map = new Map<number, Accum>();
-	for (const ts of teamSeasons ?? []) {
-		map.set(ts.id, { wins: 0, losses: 0, ties: 0, goals_for: 0, goals_against: 0 });
-	}
-
-	for (const g of games ?? []) {
-		if (g.home_score == null || g.away_score == null) continue;
-		const home = map.get(g.home_team_season_id);
-		const away = map.get(g.away_team_season_id);
-		if (home) {
-			home.goals_for     += g.home_score;
-			home.goals_against += g.away_score;
-			if      (g.home_score > g.away_score) home.wins++;
-			else if (g.home_score < g.away_score) home.losses++;
-			else                                   home.ties++;
-		}
-		if (away) {
-			away.goals_for     += g.away_score;
-			away.goals_against += g.home_score;
-			if      (g.away_score > g.home_score) away.wins++;
-			else if (g.away_score < g.home_score) away.losses++;
-			else                                   away.ties++;
-		}
+	for (const row of standingsRows ?? []) {
+		map.set(Number(row.ts_id), {
+			wins:         Number(row.wins),
+			losses:       Number(row.losses),
+			ties:         Number(row.ties),
+			goals_for:    Number(row.goals_for),
+			goals_against: Number(row.goals_against)
+		});
 	}
 
 	const teams: TeamStanding[] = (teamSeasons ?? []).map(ts => {
-		const s = map.get(ts.id)!;
+		const s = map.get(ts.id) ?? { wins: 0, losses: 0, ties: 0, goals_for: 0, goals_against: 0 };
 		return {
 			id:           ts.id,
 			team:         ts.team         as unknown as TeamStanding['team'],
