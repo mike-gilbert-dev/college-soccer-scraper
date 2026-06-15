@@ -1,10 +1,11 @@
-﻿<script lang="ts">
+<script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { Table, TableHead, TableHeadCell, TableBody, TableBodyRow, TableBodyCell, Dropdown, DropdownItem } from 'flowbite-svelte';
 	import { ChevronDownOutline } from 'flowbite-svelte-icons';
 	import TeamLogo from '$lib/components/TeamLogo.svelte';
 	import type { PageData } from './$types';
+	import type { ScheduleGame } from './+page.server';
 
 	let { data }: { data: PageData } = $props();
 
@@ -15,8 +16,13 @@
 	const division       = $derived(data.division);
 	const seasonLabel    = $derived(data.seasonLabel);
 	const seasons        = $derived(data.seasons);
+	const tc             = $derived(team.team_color);
 
 	let activeTab = $state<'roster' | 'schedule'>('schedule');
+
+	const gender      = $derived(sport === 'WSO' ? 'W' : 'M');
+	const genderLabel = $derived(gender === 'W' ? "Women's" : "Men's");
+	const divLabel    = $derived(division === 1 ? 'DI' : division === 2 ? 'DII' : 'DIII');
 
 	// Returns a darker, slightly desaturated version of a hex color — same hue, looks like a shadow.
 	function shadowColor(hex: string): string {
@@ -40,7 +46,6 @@
 	}
 
 	let seasonDropdownOpen = $state(false);
-
 	function navigateSeason(label: string) {
 		const sp = new URLSearchParams({ sport, division: String(division), season: label });
 		goto(`/teams/${team.ncaa_team_id}?${sp}`);
@@ -51,8 +56,8 @@
 	const pageTitle = $derived(`${team.name} — ${seasonLabel} Soccer Schedule & Roster | CollegeSoccer.IO`);
 	const pageDesc = $derived(`${team.name} ${seasonLabel} NCAA soccer schedule, roster, and player stats.${conferenceName ? ` ${conferenceName}.` : ''}`);
 
+	// ── Roster ─────────────────────────────────────────────────────────────
 	const posOrder: Record<string, number> = { GK: 0, D: 1, M: 2, F: 3 };
-
 	const sortedPlayers = $derived(
 		[...data.players].sort((a, b) => {
 			const pa = posOrder[a.position ?? ''] ?? 9;
@@ -65,53 +70,102 @@
 	function playerHref(ncaaPlayerId: string) {
 		return `/players/${ncaaPlayerId}?sport=${sport}&division=${division}&season=${seasonLabel}`;
 	}
-
 	function gameHref(ncaaContestId: string) {
 		return `/games/${ncaaContestId}?sport=${sport}&division=${division}&season=${seasonLabel}&from=${team.ncaa_team_id}`;
 	}
-
 	function dash(v: number | null | undefined) {
 		return v == null ? '—' : String(v);
 	}
 
-	function formatDate(iso: string) {
-		return new Date(iso + 'T00:00:00Z').toLocaleDateString('en-US', {
-			month: 'short', day: 'numeric', timeZone: 'UTC'
-		});
+	// ── Schedule helpers (team's perspective) ──────────────────────────────
+	const isHome      = (g: ScheduleGame) => g.home_team_season_id === teamSeason?.id;
+	const opponent    = (g: ScheduleGame) => (isHome(g) ? g.away_team_season?.team : g.home_team_season?.team);
+	const oppConfName = (g: ScheduleGame) => (isHome(g) ? g.away_team_season?.conference?.name : g.home_team_season?.conference?.name) ?? null;
+	const oppConfShort= (g: ScheduleGame) => (isHome(g) ? g.away_team_season?.conference?.short_name : g.home_team_season?.conference?.short_name) ?? null;
+	const isFinal     = (g: ScheduleGame) => g.status === 'final' && g.home_score != null && g.away_score != null;
+
+	function myScore(g: ScheduleGame) {
+		if (g.home_score == null || g.away_score == null) return null;
+		return isHome(g) ? g.home_score : g.away_score;
+	}
+	function oppScore(g: ScheduleGame) {
+		if (g.home_score == null || g.away_score == null) return null;
+		return isHome(g) ? g.away_score : g.home_score;
+	}
+	function result(g: ScheduleGame): 'W' | 'L' | 'T' | null {
+		const my = myScore(g), op = oppScore(g);
+		if (my == null || op == null) return null;
+		return my > op ? 'W' : my < op ? 'L' : 'T';
 	}
 
-	type ScheduleGame = typeof data.schedule[number];
-
-	function isHome(game: ScheduleGame) {
-		return game.home_team_season_id === teamSeason?.id;
+	function dateParts(iso: string) {
+		const d = new Date(iso + 'T00:00:00Z');
+		const fmt = (opt: Intl.DateTimeFormatOptions) => d.toLocaleDateString('en-US', { ...opt, timeZone: 'UTC' });
+		return {
+			key: `${d.getUTCFullYear()}-${d.getUTCMonth()}`,
+			monthAbbr: fmt({ month: 'short' }),
+			monthName: fmt({ month: 'long' }),
+			day: d.getUTCDate(),
+			weekday: fmt({ weekday: 'short' })
+		};
 	}
 
-	function opponent(game: ScheduleGame) {
-		return isHome(game)
-			? game.away_team_season?.team
-			: game.home_team_season?.team;
-	}
+	// Group games by month, preserving schedule (date) order.
+	const groups = $derived.by(() => {
+		const out: { key: string; monthName: string; games: ScheduleGame[] }[] = [];
+		for (const g of data.schedule) {
+			const p = dateParts(g.contest_date);
+			const last = out[out.length - 1];
+			if (last && last.key === p.key) last.games.push(g);
+			else out.push({ key: p.key, monthName: p.monthName, games: [g] });
+		}
+		return out;
+	});
 
-	function result(game: ScheduleGame): 'W' | 'L' | 'T' | null {
-		if (game.home_score == null || game.away_score == null) return null;
-		const myScore  = isHome(game) ? game.home_score : game.away_score;
-		const oppScore = isHome(game) ? game.away_score : game.home_score;
-		if (myScore > oppScore) return 'W';
-		if (myScore < oppScore) return 'L';
-		return 'T';
-	}
+	// Season-record summary derived from completed games.
+	const finals = $derived(data.schedule.filter(isFinal));
+	const summary = $derived.by(() => {
+		let w = 0, l = 0, t = 0, cw = 0, cl = 0, ct = 0, gf = 0, ga = 0;
+		for (const g of finals) {
+			const r = result(g)!;
+			gf += myScore(g)!;
+			ga += oppScore(g)!;
+			if (r === 'W') w++; else if (r === 'L') l++; else t++;
+			if (oppConfName(g) && oppConfName(g) === conferenceName) {
+				if (r === 'W') cw++; else if (r === 'L') cl++; else ct++;
+			}
+		}
+		let streak: { type: 'W' | 'L' | 'T' | null; n: number } = { type: null, n: 0 };
+		for (let i = finals.length - 1; i >= 0; i--) {
+			const r = result(finals[i])!;
+			if (streak.type == null) streak = { type: r, n: 1 };
+			else if (r === streak.type) streak.n++;
+			else break;
+		}
+		const form = finals.slice(-10).map((g) => result(g)!);
+		return { w, l, t, cw, cl, ct, gf, ga, gd: gf - ga, streak, form };
+	});
 
-	function scoreDisplay(game: ScheduleGame) {
-		if (game.home_score == null || game.away_score == null) return '—';
-		const myScore  = isHome(game) ? game.home_score : game.away_score;
-		const oppScore = isHome(game) ? game.away_score : game.home_score;
-		return `${myScore}–${oppScore}`;
-	}
+	const rec = (w: number, l: number, t: number) => `${w}-${l}-${t}`;
 
-	const resultClasses: Record<string, string> = {
-		W: 'text-green-600 dark:text-green-400 font-bold',
-		L: 'text-red-600 dark:text-red-400 font-bold',
-		T: 'text-gray-500 dark:text-gray-400 font-bold'
+	const summaryCells = $derived([
+		{ label: 'Overall', value: rec(summary.w, summary.l, summary.t) },
+		{ label: conferenceName ?? 'Conference', value: rec(summary.cw, summary.cl, summary.ct) },
+		{ label: 'Goals For', value: String(summary.gf) },
+		{ label: 'Goals Against', value: String(summary.ga) },
+		{ label: 'Goal Diff', value: (summary.gd > 0 ? '+' : '') + summary.gd }
+	]);
+
+	// Result → color classes (chips, accent line, scoreline emphasis).
+	const resChip: Record<string, string> = {
+		W: 'text-green-600 dark:text-green-400 bg-green-500/15',
+		L: 'text-red-600 dark:text-red-400 bg-red-500/15',
+		T: 'text-gray-500 dark:text-gray-400 bg-gray-500/15'
+	};
+	const resLine: Record<string, string> = {
+		W: 'bg-green-500 dark:bg-green-400',
+		L: 'bg-red-500 dark:bg-red-400',
+		T: 'bg-gray-300 dark:bg-gray-600'
 	};
 </script>
 
@@ -128,27 +182,41 @@
 	<meta name="twitter:description" content={pageDesc} />
 </svelte:head>
 
-<div class="space-y-6">
-	<!-- Team header card — colored background when team_color is available -->
+{#snippet statCell(label: string, value: string)}
+	{#if tc}
+		<div class="min-w-19.5 flex-1 rounded px-3 py-2.5" style="background:rgba(255,255,255,.12)">
+			<div class="font-mono text-xl font-bold leading-tight text-white">{value}</div>
+			<div class="mt-1 text-[10px] uppercase tracking-wider" style="color:rgba(255,255,255,.72)">{label}</div>
+		</div>
+	{:else}
+		<div class="min-w-19.5 flex-1 rounded border border-gray-200 bg-gray-50 px-3 py-2.5 dark:border-gray-700 dark:bg-gray-900">
+			<div class="font-mono text-xl font-bold leading-tight text-gray-900 dark:text-white">{value}</div>
+			<div class="mt-1 text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">{label}</div>
+		</div>
+	{/if}
+{/snippet}
+
+<div class="space-y-3">
+	<!-- Team-color hero with embedded season summary -->
 	<div
-		class="rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 {!team.team_color ? 'bg-white dark:bg-gray-800' : ''}"
-		style={team.team_color ? `background-color: ${team.team_color}` : ''}
+		class="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700 {!tc ? 'bg-white dark:bg-gray-800' : ''}"
+		style={tc ? `background-color: ${tc}` : ''}
 	>
 		<!-- Back link -->
 		<div class="px-4 pt-3 pb-1">
 			<a href="/teams?sport={sport}&division={division}&season={seasonLabel}"
-				class="text-xs {team.team_color ? 'text-white/70 hover:text-white' : 'text-gray-500 dark:text-gray-400 hover:text-primary-500 dark:hover:text-primary-400'}">
+				class="text-xs {tc ? 'text-white/70 hover:text-white' : 'text-gray-500 hover:text-primary-500 dark:text-gray-400 dark:hover:text-primary-400'}">
 				← Teams
 			</a>
 		</div>
 
 		<!-- Logo + name + season selector -->
-		<div class="px-4 pb-4 flex items-center justify-between gap-4">
+		<div class="flex items-center justify-between gap-4 px-4 pb-4">
 			<div class="flex items-center gap-4">
 				{#if team.logo_url_dark || team.logo_url_light}
-					<div class="w-14 h-14 shrink-0 flex items-center justify-center">
+					<div class="flex h-14 w-14 shrink-0 items-center justify-center">
 						<TeamLogo
-							lightUrl={team.team_color ? null : team.logo_url_light}
+							lightUrl={tc ? null : team.logo_url_light}
 							darkUrl={team.logo_url_dark ?? team.logo_url_light}
 							name={team.name}
 							size={56}
@@ -156,54 +224,69 @@
 					</div>
 				{/if}
 				<div>
-					<h1 class="text-lg font-bold {team.team_color ? 'text-white' : 'text-gray-900 dark:text-white'}">{team.name}</h1>
-					{#if conferenceName}
-						<p class="text-xs {team.team_color ? 'text-white/75' : 'text-gray-500 dark:text-gray-400'}">{conferenceName}</p>
-					{/if}
+					<h1 class="text-xl font-bold tracking-tight {tc ? 'text-white' : 'text-gray-900 dark:text-white'}">{team.name}</h1>
+					<p class="mt-0.5 text-xs {tc ? 'text-white/75' : 'text-gray-500 dark:text-gray-400'}">
+						{conferenceName ? `${conferenceName} · ` : ''}{genderLabel} {divLabel}
+					</p>
 				</div>
 			</div>
 
-			<!-- Season selector -->
 			<div class="shrink-0">
-				<p class="text-[10px] font-semibold uppercase tracking-wider mb-1 {team.team_color ? 'text-white/70' : 'text-gray-500 dark:text-gray-400'}">Season</p>
+				<p class="mb-1 text-[10px] font-semibold uppercase tracking-wider {tc ? 'text-white/70' : 'text-gray-500 dark:text-gray-400'}">Season</p>
 				<button
 					onclick={() => (seasonDropdownOpen = !seasonDropdownOpen)}
-					class="flex items-center gap-1.5 text-xs border rounded px-2 py-1 {team.team_color ? 'bg-white/20 text-white border-white/30' : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-600'}"
+					class="flex items-center gap-1.5 rounded border px-2 py-1 text-xs {tc ? 'border-white/30 bg-white/20 text-white' : 'border-gray-200 bg-white text-gray-700 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300'}"
 				>
 					{seasonLabel}
-					<ChevronDownOutline class="w-3 h-3 opacity-70 shrink-0" />
+					<ChevronDownOutline class="h-3 w-3 shrink-0 opacity-70" />
 				</button>
 				<Dropdown bind:isOpen={seasonDropdownOpen} placement="bottom-end">
 					{#each seasons as s}
-						<DropdownItem onclick={() => navigateSeason(s.label)}>
-							{s.label}
-						</DropdownItem>
+						<DropdownItem onclick={() => navigateSeason(s.label)}>{s.label}</DropdownItem>
 					{/each}
 				</Dropdown>
 			</div>
 		</div>
+
+		<!-- Season summary cells -->
+		{#if finals.length > 0}
+			<div class="flex flex-wrap gap-2 px-4 pb-4">
+				{#each summaryCells as c (c.label)}
+					{@render statCell(c.label, c.value)}
+				{/each}
+				<!-- Streak (colored) -->
+				{#if tc}
+					<div class="min-w-19.5 flex-1 rounded px-3 py-2.5" style="background:rgba(255,255,255,.12)">
+						<div class="font-mono text-xl font-bold leading-tight" style="color:{summary.streak.type === 'L' ? '#ffd9d4' : '#fff'}">
+							{summary.streak.type ? summary.streak.type + summary.streak.n : '—'}
+						</div>
+						<div class="mt-1 text-[10px] uppercase tracking-wider" style="color:rgba(255,255,255,.72)">Streak</div>
+					</div>
+				{:else}
+					<div class="min-w-19.5 flex-1 rounded border border-gray-200 bg-gray-50 px-3 py-2.5 dark:border-gray-700 dark:bg-gray-900">
+						<div class="font-mono text-xl font-bold leading-tight
+							{summary.streak.type === 'W' ? 'text-green-600 dark:text-green-400' : summary.streak.type === 'L' ? 'text-red-600 dark:text-red-400' : 'text-gray-900 dark:text-white'}">
+							{summary.streak.type ? summary.streak.type + summary.streak.n : '—'}
+						</div>
+						<div class="mt-1 text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">Streak</div>
+					</div>
+				{/if}
+			</div>
+		{/if}
 	</div>
 
-	<!-- Roster / Schedule tabs -->
-	<div class="flex rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700">
-		{#each [
-			{ key: 'schedule' as const, label: 'Schedule' },
-			{ key: 'roster' as const, label: 'Roster' }
-		] as tab}
+	<!-- Schedule / Roster tabs -->
+	<div class="flex overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
+		{#each [{ key: 'schedule' as const, label: 'Schedule' }, { key: 'roster' as const, label: 'Roster' }] as tab}
 			{@const isActive = activeTab === tab.key}
-			{@const tc = team.team_color}
 			<button
-				class="flex-1 flex items-center justify-center gap-2.5 px-4 py-3 text-sm font-medium transition-colors
+				class="flex flex-1 items-center justify-center gap-2.5 px-4 py-3 text-sm font-medium transition-colors
 					{tc
 						? isActive ? 'text-white' : 'text-white/60'
 						: isActive
-							? 'bg-gray-700 dark:bg-gray-600 text-white'
-							: 'bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-700 dark:hover:bg-gray-600 hover:text-white'}"
-				style={tc
-					? isActive
-						? `background-color: ${tc};`
-						: `background-color: ${shadowColor(tc)};`
-					: ''}
+							? 'bg-gray-700 text-white dark:bg-gray-600'
+							: 'bg-white text-gray-500 hover:bg-gray-700 hover:text-white dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-600'}"
+				style={tc ? (isActive ? `background-color: ${tc};` : `background-color: ${shadowColor(tc)};`) : ''}
 				onclick={() => (activeTab = tab.key)}
 			>
 				<span>{tab.label}</span>
@@ -211,16 +294,109 @@
 		{/each}
 	</div>
 
-	<!-- Tab content -->
-	{#if activeTab === 'roster'}
+	<!-- ── SCHEDULE TAB ──────────────────────────────────────────────────── -->
+	{#if activeTab === 'schedule'}
 		{#if !teamSeason}
-			<p class="text-sm text-gray-500 dark:text-gray-400">
-				No team data found for the {seasonLabel} season.
-			</p>
+			<p class="text-sm text-gray-500 dark:text-gray-400">No schedule data for the {seasonLabel} season.</p>
+		{:else if data.schedule.length === 0}
+			<p class="text-sm text-gray-500 dark:text-gray-400">No games found. Run the backfill to populate.</p>
+		{:else}
+			<div class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+				<!-- Recent form guide -->
+				{#if summary.form.length > 0}
+					<div class="flex items-center gap-3 border-b border-gray-200 bg-gray-50 px-3.5 py-2.5 dark:border-gray-700 dark:bg-gray-900">
+						<span class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">Last {summary.form.length}</span>
+						<div class="flex gap-1">
+							{#each summary.form as r, i (i)}
+								<span class="inline-flex h-4.75 w-4.75 items-center justify-center rounded-sm font-mono text-[11px] font-bold {resChip[r]}">{r}</span>
+							{/each}
+						</div>
+						<span class="ml-auto text-[10px] text-gray-400 dark:text-gray-500">most recent →</span>
+					</div>
+				{/if}
+
+				<!-- Month-grouped game rows -->
+				{#each groups as grp (grp.key)}
+					<div class="flex items-center gap-2.5 border-b border-gray-200 bg-gray-50 px-3.5 py-2 dark:border-gray-700 dark:bg-gray-900">
+						<span class="text-xs font-bold uppercase tracking-wide text-gray-600 dark:text-gray-300">{grp.monthName}</span>
+						<span class="h-px flex-1 bg-gray-200 dark:bg-gray-700"></span>
+						<span class="text-[10px] text-gray-400 dark:text-gray-500">{grp.games.length} {grp.games.length === 1 ? 'game' : 'games'}</span>
+					</div>
+
+					{#each grp.games as g (g.ncaa_contest_id)}
+						{@const opp = opponent(g)}
+						{@const r = result(g)}
+						{@const final = isFinal(g)}
+						{@const p = dateParts(g.contest_date)}
+						{@const confShort = oppConfShort(g)}
+						<a
+							href={gameHref(g.ncaa_contest_id)}
+							class="grid grid-cols-[3px_64px_28px_1fr_auto] items-center border-b border-gray-200 transition-colors last:border-0 hover:bg-gray-50 md:grid-cols-[3px_76px_34px_1fr_auto_96px] dark:border-gray-700 dark:hover:bg-gray-700/30"
+						>
+							<!-- result accent line -->
+							<span class="self-stretch {r ? resLine[r] : ''}" style={final ? '' : 'opacity:0'}></span>
+							<!-- date -->
+							<div class="py-2.5 pl-3">
+								<div class="font-mono text-xs font-semibold text-gray-900 dark:text-white">{p.monthAbbr} {p.day}</div>
+								<div class="mt-px text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500">{p.weekday}</div>
+							</div>
+							<!-- vs / @ -->
+							<div class="justify-self-center font-mono text-xs font-semibold text-gray-500 dark:text-gray-400">{isHome(g) ? 'vs' : '@'}</div>
+							<!-- opponent -->
+							<div class="flex min-w-0 items-center gap-2.5 py-2">
+								{#if opp}
+									<span class="flex h-6.5 w-6.5 shrink-0 items-center justify-center">
+										<TeamLogo lightUrl={opp.logo_url_light} darkUrl={opp.logo_url_dark} name={opp.name} size={26} />
+									</span>
+								{/if}
+								<div class="min-w-0">
+									<div class="truncate text-sm text-gray-900 dark:text-white">{opp?.name ?? '—'}</div>
+									<div class="mt-px text-[10px] text-gray-400 dark:text-gray-500">
+										{confShort ?? ''}{isHome(g) ? '' : confShort ? ' · Away' : 'Away'}
+									</div>
+								</div>
+							</div>
+							<!-- score / result -->
+							<div class="flex items-center justify-end gap-2.5 py-2 pr-2 md:pr-0">
+								{#if r}
+									{@const my = myScore(g)}
+									{@const them = oppScore(g)}
+									<span class="font-mono text-sm">
+										<span class={r === 'W' ? 'font-bold text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'}>{my}</span>
+										<span class="mx-px text-gray-400">–</span>
+										<span class={r === 'L' ? 'font-bold text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'}>{them}</span>
+									</span>
+									<span class="inline-flex h-5.5 w-5.5 items-center justify-center rounded-sm font-mono text-[11px] font-bold {resChip[r]}">{r}</span>
+								{:else}
+									<span class="text-xs text-gray-400 dark:text-gray-500">TBD</span>
+								{/if}
+							</div>
+							<!-- boxscore / preview (md+) -->
+							<div class="hidden justify-self-end pr-3 md:block">
+								{#if final}
+									<span class="rounded-sm border border-gray-200 px-2.5 py-1 text-xs text-gray-600 dark:border-gray-700 dark:text-gray-300">Boxscore</span>
+								{:else}
+									<span class="text-[10px] text-gray-400 dark:text-gray-500">Preview</span>
+								{/if}
+							</div>
+						</a>
+					{/each}
+				{/each}
+
+				<!-- Legend -->
+				<div class="flex gap-4 px-3.5 py-2.5 text-[10px] text-gray-400 dark:text-gray-500">
+					<span><b class="font-semibold text-gray-500 dark:text-gray-400">vs</b> home</span>
+					<span><b class="font-semibold text-gray-500 dark:text-gray-400">@</b> away</span>
+				</div>
+			</div>
+		{/if}
+
+	<!-- ── ROSTER TAB ────────────────────────────────────────────────────── -->
+	{:else}
+		{#if !teamSeason}
+			<p class="text-sm text-gray-500 dark:text-gray-400">No team data found for the {seasonLabel} season.</p>
 		{:else if sortedPlayers.length === 0}
-			<p class="text-sm text-gray-500 dark:text-gray-400">
-				No player stats available for this season. Check back later.
-			</p>
+			<p class="text-sm text-gray-500 dark:text-gray-400">No player stats available for this season. Check back later.</p>
 		{:else}
 			<div class="overflow-x-auto rounded border border-gray-200 dark:border-gray-700">
 				<Table hoverable striped class="text-xs whitespace-nowrap">
@@ -245,10 +421,7 @@
 							<TableBodyRow>
 								<TableBodyCell class="py-1.5 text-gray-500">{p.jersey_number ?? '—'}</TableBodyCell>
 								<TableBodyCell class="py-1.5 font-medium">
-									<a href={playerHref(p.ncaa_player_id)}
-										class="hover:underline">
-										{p.player_name}
-									</a>
+									<a href={playerHref(p.ncaa_player_id)} class="hover:underline">{p.player_name}</a>
 								</TableBodyCell>
 								<TableBodyCell class="py-1.5">{p.position ?? '—'}</TableBodyCell>
 								<TableBodyCell class="py-1.5">{p.class_year ?? '—'}</TableBodyCell>
@@ -266,79 +439,6 @@
 						{/each}
 					</TableBody>
 				</Table>
-			</div>
-		{/if}
-	{:else}
-		{#if !teamSeason}
-			<p class="text-sm text-gray-500 dark:text-gray-400">No schedule data for the {seasonLabel} season.</p>
-		{:else if data.schedule.length === 0}
-			<p class="text-sm text-gray-500 dark:text-gray-400">No games found. Run the backfill to populate.</p>
-		{:else}
-			<div class="overflow-x-auto rounded border border-gray-200 dark:border-gray-700">
-				<Table hoverable striped class="text-xs whitespace-nowrap">
-					<TableHead class="text-[11px] uppercase tracking-wide">
-						<TableHeadCell class="py-2">Date</TableHeadCell>
-						<TableHeadCell class="py-2">Opponent</TableHeadCell>
-						<TableHeadCell class="py-2 text-right">Score</TableHeadCell>
-						<TableHeadCell class="py-2 text-center">Result</TableHeadCell>
-						<TableHeadCell class="py-2"></TableHeadCell>
-					</TableHead>
-					<TableBody>
-						{#each data.schedule as game}
-							{@const opp = opponent(game)}
-							{@const res = result(game)}
-							<TableBodyRow>
-								<TableBodyCell class="py-1.5 text-gray-500">
-									<a href={gameHref(game.ncaa_contest_id)}
-										class="hover:text-primary-500 hover:underline">
-										{formatDate(game.contest_date)}
-									</a>
-								</TableBodyCell>
-								<TableBodyCell class="py-1.5 font-medium">
-									{#if opp}
-										<a href="/teams/{opp.ncaa_team_id}?sport={sport}&division={division}&season={seasonLabel}"
-											class="inline-flex items-center gap-1.5 hover:underline">
-											{#if opp.logo_url_dark || opp.logo_url_light}
-												<TeamLogo
-													lightUrl={opp.logo_url_light}
-													darkUrl={opp.logo_url_dark}
-													name={opp.name}
-													size={18}
-												/>
-											{/if}
-											{opp.name}{#if isHome(game)}<span class="text-gray-400 dark:text-gray-500 font-normal ml-0.5">*</span>{/if}
-										</a>
-									{:else}—{/if}
-								</TableBodyCell>
-								<TableBodyCell class="py-1.5 text-right font-mono">
-									{#if res}
-										<a href={gameHref(game.ncaa_contest_id)} class="hover:underline">
-											{scoreDisplay(game)}
-										</a>
-									{:else}
-										<span class="text-gray-400">{game.status === 'scheduled' ? 'TBD' : scoreDisplay(game)}</span>
-									{/if}
-								</TableBodyCell>
-								<TableBodyCell class="py-1.5 text-center">
-									{#if res}
-										<span class={resultClasses[res]}>{res}</span>
-									{:else}
-										<span class="text-gray-400">—</span>
-									{/if}
-								</TableBodyCell>
-								<TableBodyCell class="py-1.5 text-center">
-									{#if game.status === 'final'}
-										<a href={gameHref(game.ncaa_contest_id)}
-											class="text-xs font-light! tracking-wide text-gray-600 dark:text-gray-300 px-2 py-0.5 rounded border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
-											Boxscore
-										</a>
-									{/if}
-								</TableBodyCell>
-							</TableBodyRow>
-						{/each}
-					</TableBody>
-				</Table>
-				<p class="px-3 py-1.5 text-[10px] text-gray-400 dark:text-gray-500 border-t border-gray-200 dark:border-gray-700">* = home game</p>
 			</div>
 		{/if}
 	{/if}
