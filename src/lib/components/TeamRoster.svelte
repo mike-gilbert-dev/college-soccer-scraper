@@ -23,7 +23,13 @@
 	};
 
 	function posCode(pos: string | null): 'FWD' | 'MID' | 'DEF' | 'GK' | '—' {
-		return pos === 'GK' ? 'GK' : pos === 'F' ? 'FWD' : pos === 'M' ? 'MID' : pos === 'D' ? 'DEF' : '—';
+		switch (pos) {
+			case 'GK': return 'GK';
+			case 'FWD': case 'F': return 'FWD';
+			case 'MID': case 'M': return 'MID';
+			case 'DEF': case 'D': return 'DEF';
+			default: return '—';
+		}
 	}
 
 	const fieldPlayers = $derived<Field[]>(
