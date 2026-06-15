@@ -2,6 +2,7 @@
 	import { page } from '$app/state';
 	import TeamLogo from '$lib/components/TeamLogo.svelte';
 	import PlayerFormChart from '$lib/components/PlayerFormChart.svelte';
+	import MinutesBarChart from '$lib/components/MinutesBarChart.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -368,6 +369,13 @@
 				<div class="border-b border-gray-200 p-3.5 dark:border-gray-700">
 					<PlayerFormChart data={careerGames} {series} visible={careerVisible} />
 				</div>
+				<div class="border-b border-gray-200 px-3.5 py-3 dark:border-gray-700">
+					<div class="mb-1 flex items-baseline justify-between">
+						<span class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">Minutes per game</span>
+						<span class="text-[10px] text-gray-400 dark:text-gray-500">{careerGames.length} career games</span>
+					</div>
+					<MinutesBarChart data={careerGames} />
+				</div>
 			{/if}
 
 			<div class="overflow-x-auto">
@@ -462,6 +470,18 @@
 					data={logGames}
 					{series}
 					visible={logVisible}
+					hoverIndex={hoverIndex != null && hoverIndex >= 0 ? hoverIndex : null}
+					onHover={(i) => (hoverId = i == null ? null : logGames[i].id)}
+				/>
+			</div>
+
+			<div class="border-b border-gray-200 px-3.5 py-3 dark:border-gray-700">
+				<div class="mb-1 flex items-baseline justify-between">
+					<span class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">Minutes per game</span>
+					<span class="text-[10px] text-gray-400 dark:text-gray-500">{logGames.length} games</span>
+				</div>
+				<MinutesBarChart
+					data={logGames}
 					hoverIndex={hoverIndex != null && hoverIndex >= 0 ? hoverIndex : null}
 					onHover={(i) => (hoverId = i == null ? null : logGames[i].id)}
 				/>
