@@ -138,7 +138,6 @@
 		};
 	}
 
-	// gameStats arrive newest-first; reverse for chronological (oldest→newest).
 	function withSeasonStarts(list: Datum[]): Datum[] {
 		let prev = '';
 		return list.map((d) => {
@@ -148,7 +147,15 @@
 		});
 	}
 
-	const allDatums = $derived([...gameStats].reverse().map(enrich));
+	// Sort chronologically (oldest→newest) so charts read left-to-right as a
+	// timeline. contest_date is ISO (YYYY-MM-DD), so string compare is correct;
+	// don't rely on the DB row order, which referenced-table ordering can't
+	// reliably control.
+	const allDatums = $derived(
+		[...gameStats]
+			.sort((a, b) => a.game.contest_date.localeCompare(b.game.contest_date))
+			.map(enrich)
+	);
 	const careerGames = $derived(withSeasonStarts(allDatums));
 
 	// --- stat series + toggles -----------------------------------------------
@@ -215,13 +222,13 @@
 		isGk
 			? [
 					{ label: 'GP', value: totals.gp },
-					{ label: 'Saves', value: totals.sv, accent: true },
+					{ label: 'Saves', value: totals.sv },
 					{ label: 'GA', value: totals.ga },
 					{ label: 'ShO', value: totals.sho }
 				]
 			: [
 					{ label: 'GP', value: totals.gp },
-					{ label: 'Goals', value: totals.g, accent: true },
+					{ label: 'Goals', value: totals.g },
 					{ label: 'Assists', value: totals.a },
 					{ label: 'Points', value: totals.pts }
 				]
@@ -285,7 +292,7 @@
 	</div>
 {/snippet}
 
-<div class="max-w-4xl space-y-3.5">
+<div class="space-y-3.5">
 	<!-- Breadcrumb -->
 	<nav class="flex items-center gap-1.5 text-xs text-gray-400 dark:text-gray-500">
 		<a href="/teams?sport={sport}&division={division}&season={seasonLabel}"
@@ -339,7 +346,7 @@
 					<div class="flex flex-col gap-1 rounded border border-gray-200 bg-gray-50 px-3 py-2.5 dark:border-gray-700 dark:bg-gray-900">
 						<span class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">{t.label}</span>
 						<span
-							class="font-mono text-2xl font-bold leading-none tabular-nums {t.accent ? 'text-primary-500' : 'text-gray-900 dark:text-white'}"
+							class="font-mono text-2xl font-bold leading-none tabular-nums text-gray-900 dark:text-white"
 						>{t.value}</span>
 					</div>
 				{/each}
@@ -401,7 +408,7 @@
 								</td>
 								<td class="px-2.5 py-1.5 text-right tabular-nums">{stat.games_played}</td>
 								<td class="px-2.5 py-1.5 text-right tabular-nums">{stat.minutes_played.toLocaleString()}</td>
-								<td class="px-2.5 py-1.5 text-right font-semibold tabular-nums text-gray-900 dark:text-white">{stat.goals}</td>
+								<td class="px-2.5 py-1.5 text-right tabular-nums">{stat.goals}</td>
 								<td class="px-2.5 py-1.5 text-right tabular-nums">{stat.assists}</td>
 								<td class="px-2.5 py-1.5 text-right tabular-nums">{stat.points}</td>
 								<td class="px-2.5 py-1.5 text-right tabular-nums">{stat.shots}</td>
@@ -509,7 +516,7 @@
 									<span class={r.gs ? 'text-primary-500' : 'text-gray-300 dark:text-gray-600'}>{r.gs ? '●' : '—'}</span>
 								</td>
 								<td class="px-2.5 py-1.5 text-right tabular-nums">{dash(r.min)}</td>
-								<td class="px-2.5 py-1.5 text-right font-semibold tabular-nums text-gray-900 dark:text-white">{r.g}</td>
+								<td class="px-2.5 py-1.5 text-right tabular-nums">{r.g}</td>
 								<td class="px-2.5 py-1.5 text-right tabular-nums">{r.a}</td>
 								<td class="px-2.5 py-1.5 text-right tabular-nums">{r.sh}</td>
 								<td class="px-2.5 py-1.5 text-right tabular-nums">{r.sog}</td>
