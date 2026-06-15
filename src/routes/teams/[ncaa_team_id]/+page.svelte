@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { Table, TableHead, TableHeadCell, TableBody, TableBodyRow, TableBodyCell, Dropdown, DropdownItem } from 'flowbite-svelte';
+	import { Dropdown, DropdownItem } from 'flowbite-svelte';
 	import { ChevronDownOutline } from 'flowbite-svelte-icons';
 	import TeamLogo from '$lib/components/TeamLogo.svelte';
+	import TeamRoster from '$lib/components/TeamRoster.svelte';
 	import type { PageData } from './$types';
 	import type { ScheduleGame } from './+page.server';
 
@@ -56,25 +57,11 @@
 	const pageTitle = $derived(`${team.name} — ${seasonLabel} Soccer Schedule & Roster | CollegeSoccer.IO`);
 	const pageDesc = $derived(`${team.name} ${seasonLabel} NCAA soccer schedule, roster, and player stats.${conferenceName ? ` ${conferenceName}.` : ''}`);
 
-	// ── Roster ─────────────────────────────────────────────────────────────
-	const posOrder: Record<string, number> = { GK: 0, D: 1, M: 2, F: 3 };
-	const sortedPlayers = $derived(
-		[...data.players].sort((a, b) => {
-			const pa = posOrder[a.position ?? ''] ?? 9;
-			const pb = posOrder[b.position ?? ''] ?? 9;
-			if (pa !== pb) return pa - pb;
-			return (b.goals ?? 0) - (a.goals ?? 0);
-		})
-	);
-
 	function playerHref(ncaaPlayerId: string) {
 		return `/players/${ncaaPlayerId}?sport=${sport}&division=${division}&season=${seasonLabel}`;
 	}
 	function gameHref(ncaaContestId: string) {
 		return `/games/${ncaaContestId}?sport=${sport}&division=${division}&season=${seasonLabel}&from=${team.ncaa_team_id}`;
-	}
-	function dash(v: number | null | undefined) {
-		return v == null ? '—' : String(v);
 	}
 
 	// ── Schedule helpers (team's perspective) ──────────────────────────────
@@ -395,51 +382,10 @@
 	{:else}
 		{#if !teamSeason}
 			<p class="text-sm text-gray-500 dark:text-gray-400">No team data found for the {seasonLabel} season.</p>
-		{:else if sortedPlayers.length === 0}
+		{:else if data.players.length === 0}
 			<p class="text-sm text-gray-500 dark:text-gray-400">No player stats available for this season. Check back later.</p>
 		{:else}
-			<div class="overflow-x-auto rounded border border-gray-200 dark:border-gray-700">
-				<Table hoverable striped class="text-xs whitespace-nowrap">
-					<TableHead class="text-[11px] uppercase tracking-wide">
-						<TableHeadCell class="py-2 w-8">#</TableHeadCell>
-						<TableHeadCell class="py-2">Name</TableHeadCell>
-						<TableHeadCell class="py-2">Pos</TableHeadCell>
-						<TableHeadCell class="py-2">Yr</TableHeadCell>
-						<TableHeadCell class="py-2 text-right">GP</TableHeadCell>
-						<TableHeadCell class="py-2 text-right">Min</TableHeadCell>
-						<TableHeadCell class="py-2 text-right">G</TableHeadCell>
-						<TableHeadCell class="py-2 text-right">A</TableHeadCell>
-						<TableHeadCell class="py-2 text-right">Pts</TableHeadCell>
-						<TableHeadCell class="py-2 text-right">Sh</TableHeadCell>
-						<TableHeadCell class="py-2 text-right">SOG</TableHeadCell>
-						<TableHeadCell class="py-2 text-right">Sv</TableHeadCell>
-						<TableHeadCell class="py-2 text-right">GA</TableHeadCell>
-						<TableHeadCell class="py-2 text-right">ShO</TableHeadCell>
-					</TableHead>
-					<TableBody>
-						{#each sortedPlayers as p}
-							<TableBodyRow>
-								<TableBodyCell class="py-1.5 text-gray-500">{p.jersey_number ?? '—'}</TableBodyCell>
-								<TableBodyCell class="py-1.5 font-medium">
-									<a href={playerHref(p.ncaa_player_id)} class="hover:underline">{p.player_name}</a>
-								</TableBodyCell>
-								<TableBodyCell class="py-1.5">{p.position ?? '—'}</TableBodyCell>
-								<TableBodyCell class="py-1.5">{p.class_year ?? '—'}</TableBodyCell>
-								<TableBodyCell class="py-1.5 text-right">{p.games_played}</TableBodyCell>
-								<TableBodyCell class="py-1.5 text-right">{p.minutes_played}</TableBodyCell>
-								<TableBodyCell class="py-1.5 text-right font-semibold">{p.goals}</TableBodyCell>
-								<TableBodyCell class="py-1.5 text-right">{p.assists}</TableBodyCell>
-								<TableBodyCell class="py-1.5 text-right">{p.points}</TableBodyCell>
-								<TableBodyCell class="py-1.5 text-right">{p.shots}</TableBodyCell>
-								<TableBodyCell class="py-1.5 text-right">{p.shots_on_goal}</TableBodyCell>
-								<TableBodyCell class="py-1.5 text-right">{dash(p.gk_saves)}</TableBodyCell>
-								<TableBodyCell class="py-1.5 text-right">{dash(p.gk_goals_against)}</TableBodyCell>
-								<TableBodyCell class="py-1.5 text-right">{p.gk_shutouts > 0 ? p.gk_shutouts : '—'}</TableBodyCell>
-							</TableBodyRow>
-						{/each}
-					</TableBody>
-				</Table>
-			</div>
+			<TeamRoster players={data.players} {playerHref} />
 		{/if}
 	{/if}
 </div>

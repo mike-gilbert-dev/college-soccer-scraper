@@ -2,7 +2,7 @@ import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { supabaseAdmin } from '$lib/server/supabase-admin';
 
-type PlayerSeasonStat = {
+export type PlayerSeasonStat = {
 	player_season_id: number;
 	player_id: number;
 	ncaa_player_id: string;
