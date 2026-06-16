@@ -22,10 +22,14 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	if (!end_date?.trim())   error(400, 'end_date is required');
 	if (end_date <= start_date) error(400, 'end_date must be after start_date');
 
+	// `year` (NOT NULL) is the season's starting calendar year, e.g. label
+	// "2025-2026" → 2025. Derive it from start_date.
+	const year = parseInt(start_date.slice(0, 4), 10);
+
 	const { data, error: dbErr } = await supabaseAdmin
 		.from('seasons')
-		.insert({ label: label.trim(), start_date, end_date })
-		.select('id, label, start_date, end_date')
+		.insert({ year, label: label.trim(), start_date, end_date })
+		.select('id, year, label, start_date, end_date')
 		.single();
 
 	if (dbErr) error(400, dbErr.message);
@@ -49,11 +53,13 @@ export const PATCH: RequestHandler = async ({ request, locals }) => {
 	if (!end_date?.trim())   error(400, 'end_date is required');
 	if (end_date <= start_date) error(400, 'end_date must be after start_date');
 
+	const year = parseInt(start_date.slice(0, 4), 10);
+
 	const { data, error: dbErr } = await supabaseAdmin
 		.from('seasons')
-		.update({ label: label.trim(), start_date, end_date })
+		.update({ year, label: label.trim(), start_date, end_date })
 		.eq('id', id)
-		.select('id, label, start_date, end_date')
+		.select('id, year, label, start_date, end_date')
 		.single();
 
 	if (dbErr) error(400, dbErr.message);

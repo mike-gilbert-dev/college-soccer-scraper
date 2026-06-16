@@ -47,7 +47,7 @@
 			{/each}
 		</div>
 		<p class="text-xs tracking-wider text-center">
-			CollegeSoccer.IO is currently in early development. Check back soon to see full scores and player stats!
+			Welcome to CollegeSoccer.IO — your ultimate source for NCAA soccer scores, stats, and insights. Whether you're a fan, coach, or analyst, CollegeSoccer.IO has you covered with up-to-date information and in-depth analysis to fuel your passion for NCAA soccer.
 		</p>
 	</div>
 	{@render children()}
