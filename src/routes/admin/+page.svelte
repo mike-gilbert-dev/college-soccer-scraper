@@ -7,7 +7,7 @@
 	let { data }: { data: PageData } = $props();
 
 	// ── Sidebar navigation ──────────────────────────────────────
-	type ViewId = 'archive' | 'archive-boxscores' | 'ingest-archives' | 'api-test' | 'logos' | 'data-overview' | 'scrape-log' | 'manage-seasons';
+	type ViewId = 'archive' | 'archive-boxscores' | 'ingest-archives' | 'api-test' | 'logos' | 'data-overview' | 'scrape-log' | 'manage-seasons' | 'ratings-recompute';
 
 	let activeView = $state<ViewId>('archive');
 	let collapsed: Record<string, boolean> = $state({});
@@ -53,6 +53,13 @@
 			label: 'Seasons',
 			tools: [
 				{ id: 'manage-seasons', label: 'Manage Seasons' },
+			]
+		},
+		{
+			id: 'ratings',
+			label: 'Ratings',
+			tools: [
+				{ id: 'ratings-recompute', label: 'Recompute Ratings' },
 			]
 		}
 	];
@@ -543,6 +550,64 @@
 			seasonError = e instanceof Error ? e.message : String(e);
 		} finally {
 			seasonSaving = false;
+		}
+	}
+
+	// ── Recompute ratings ───────────────────────────────────────
+	let rrSport    = $state('MSO');
+	let rrDivision = $state(1);
+	let rrSeason   = $state((data.seasons as SeasonRow[])[0]?.label ?? '');
+	let rrSystems  = $state<Record<string, boolean>>({ elo: true, rpi: true, power: true });
+	let rrRunning  = $state(false);
+	let rrError    = $state('');
+	let rrResult: { results: { system: string; gamesProcessed: number; teamsRated: number; rowsWritten: number }[] } | null = $state(null);
+
+	async function runRecompute() {
+		rrRunning = true; rrError = ''; rrResult = null;
+		try {
+			const systems = Object.entries(rrSystems).filter(([, on]) => on).map(([s]) => s);
+			const res = await fetch('/api/ratings/recompute', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					sportCode:   rrSport,
+					division:    rrDivision,
+					seasonLabel: rrSeason,
+					systems
+				})
+			});
+			if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+			rrResult = await res.json();
+		} catch (e) {
+			rrError = e instanceof Error ? e.message : String(e);
+		} finally {
+			rrRunning = false;
+		}
+	}
+
+	// ── Refresh division membership ─────────────────────────────
+	let rmRunning = $state(false);
+	let rmError   = $state('');
+	let rmResult: { members: number; nonMembers: number } | null = $state(null);
+
+	async function refreshMembers() {
+		rmRunning = true; rmError = ''; rmResult = null;
+		try {
+			const res = await fetch('/api/ratings/refresh-members', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					sportCode:   rrSport,
+					division:    rrDivision,
+					seasonLabel: rrSeason
+				})
+			});
+			if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+			rmResult = await res.json();
+		} catch (e) {
+			rmError = e instanceof Error ? e.message : String(e);
+		} finally {
+			rmRunning = false;
 		}
 	}
 </script>
@@ -1286,6 +1351,106 @@
 									{seasonSaving ? 'Saving…' : 'Add Season'}
 								</Button>
 							</div>
+						</div>
+					{/if}
+				</div>
+
+			{:else if activeView === 'ratings-recompute'}
+				<!-- ── Recompute Ratings ──────────────────────────── -->
+				<div class="space-y-4 max-w-2xl">
+					<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Recompute Ratings</h2>
+					<p class="text-xs text-gray-500 dark:text-gray-400">
+						Rebuilds team ratings from final games for the selected scope. Non-destructive to game data: ratings are deleted and recomputed from scratch, so running it repeatedly is safe and idempotent. ELO carries over from the prior season with regression toward 1500.
+					</p>
+
+					<div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+						<div>
+							<Label class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Gender</Label>
+							<Select size="sm" bind:value={rrSport}
+								items={[{ value: 'MSO', name: "Men's" }, { value: 'WSO', name: "Women's" }]}
+							/>
+						</div>
+						<div>
+							<Label class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Division</Label>
+							<Select size="sm" bind:value={rrDivision}
+								items={[{ value: 1, name: 'Division I' }, { value: 2, name: 'Division II' }, { value: 3, name: 'Division III' }]}
+							/>
+						</div>
+						<div>
+							<Label class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Season</Label>
+							<Select size="sm" bind:value={rrSeason}
+								items={allSeasons.map(s => ({ value: s.label, name: s.label }))}
+							/>
+						</div>
+					</div>
+
+					<div>
+						<Label class="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Systems</Label>
+						<div class="flex gap-4">
+							<label class="inline-flex items-center gap-1.5 text-xs text-gray-700 dark:text-gray-300">
+								<input type="checkbox" bind:checked={rrSystems.elo} class="rounded border-gray-300 dark:border-gray-600" />
+								ELO
+							</label>
+							<label class="inline-flex items-center gap-1.5 text-xs text-gray-700 dark:text-gray-300">
+								<input type="checkbox" bind:checked={rrSystems.rpi} class="rounded border-gray-300 dark:border-gray-600" />
+								RPI
+							</label>
+							<label class="inline-flex items-center gap-1.5 text-xs text-gray-700 dark:text-gray-300">
+								<input type="checkbox" bind:checked={rrSystems.power} class="rounded border-gray-300 dark:border-gray-600" />
+								Power
+							</label>
+						</div>
+					</div>
+
+					<div class="flex gap-2 items-center flex-wrap">
+						<Button color="primary" size="sm" class="w-fit" disabled={rrRunning} onclick={runRecompute}>
+							{rrRunning ? 'Recomputing…' : 'Recompute'}
+						</Button>
+						<Button color="alternative" size="sm" class="w-fit" disabled={rmRunning} onclick={refreshMembers}>
+							{rmRunning ? 'Refreshing…' : 'Refresh membership'}
+						</Button>
+					</div>
+
+					<p class="text-xs text-gray-500 dark:text-gray-400">
+						<span class="font-semibold text-gray-700 dark:text-gray-300">Refresh membership</span> re-derives which teams genuinely belong to this division (filtering out non-D1 opponents from standings and ratings). It runs automatically on every recompute — use this for scopes you only view standings on.
+					</p>
+
+					{#if rmResult}
+						<Alert color="green" class="text-xs">
+							{rmResult.members} members · {rmResult.nonMembers} non-members hidden.
+						</Alert>
+					{/if}
+
+					{#if rmError}
+						<Alert color="red" class="text-xs">{rmError}</Alert>
+					{/if}
+
+					{#if rrError}
+						<Alert color="red" class="text-xs">{rrError}</Alert>
+					{/if}
+
+					{#if rrResult}
+						<div class="rounded border border-gray-200 dark:border-gray-700 overflow-hidden">
+							<table class="w-full text-xs">
+								<thead class="bg-gray-50 dark:bg-gray-900 text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
+									<tr>
+										<th class="text-left px-3 py-2 font-semibold">System</th>
+										<th class="text-right px-3 py-2 font-semibold">Games</th>
+										<th class="text-right px-3 py-2 font-semibold">Teams</th>
+										<th class="text-right px-3 py-2 font-semibold">Rows written</th>
+									</tr>
+								</thead>
+								<tbody class="divide-y divide-gray-100 dark:divide-gray-700/60">
+									{#each rrResult.results as r}
+										<tr>
+											<td class="px-3 py-1.5 font-medium text-gray-800 dark:text-gray-200 uppercase">{r.system}</td>
+											<td class="px-3 py-1.5 text-right tabular-nums text-gray-500 dark:text-gray-400">{r.gamesProcessed}</td>
+											<td class="px-3 py-1.5 text-right tabular-nums text-gray-500 dark:text-gray-400">{r.teamsRated}</td>
+											<td class="px-3 py-1.5 text-right tabular-nums text-gray-500 dark:text-gray-400">{r.rowsWritten}</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
 						</div>
 					{/if}
 				</div>

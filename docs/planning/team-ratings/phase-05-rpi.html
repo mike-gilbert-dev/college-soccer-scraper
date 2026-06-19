@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 5: RPI — Team Ratings</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1.25rem; line-height: 1.65; color: #111; }
+    h1 { font-size: 1.6rem; border-bottom: 3px solid #e8463a; padding-bottom: .5rem; margin-bottom: .5rem; }
+    h2 { font-size: 1.1rem; color: #333; margin-top: 2rem; border-bottom: 1px solid #e5e5e5; padding-bottom: .25rem; }
+    h3 { font-size: 1rem; color: #444; }
+    .meta { display: flex; flex-wrap: wrap; gap: 1.5rem; background: #f7f7f7; padding: .75rem 1rem; border-radius: 6px; font-size: .875rem; margin-bottom: 1.75rem; color: #444; }
+    .meta strong { color: #111; }
+    .checklist { list-style: none; padding: 0; margin: 0; }
+    .checklist li { padding: .4rem 0 .4rem .25rem; border-bottom: 1px solid #f0f0f0; display: flex; gap: .75rem; align-items: flex-start; font-size: .95rem; }
+    .checklist li::before { content: "\2610"; font-size: 1.1rem; color: #aaa; flex-shrink: 0; margin-top: .05rem; }
+    .ref { background: #fffbeb; border-left: 3px solid #f59e0b; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    .ref a { color: #92400e; font-weight: 500; }
+    .dep { background: #eff6ff; border-left: 3px solid #60a5fa; padding: .5rem .85rem; margin-bottom: 1.25rem; border-radius: 0 5px 5px 0; font-size: .875rem; color: #1e40af; }
+    .note { background: #f0fdf4; border-left: 3px solid #4ade80; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    code { background: #f3f4f6; padding: .15rem .4rem; border-radius: 3px; font-size: .875em; font-family: ui-monospace, monospace; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem 1.25rem; border-radius: 7px; overflow-x: auto; font-size: .875rem; }
+    pre code { background: none; padding: 0; font-size: inherit; }
+    a { color: #e8463a; }
+  </style>
+</head>
+<body>
+
+<div style="background:#f0fdf4;border:1.5px solid #4ade80;border-radius:7px;padding:.65rem 1.1rem;margin-bottom:1.5rem;font-size:.9rem;color:#166534;font-weight:500;">
+  ✅ Phase complete — all criteria satisfied.
+</div>
+<h1>Phase 5: RPI</h1>
+
+<div class="meta">
+  <span><strong>Project:</strong> Team Ratings</span>
+  <span><strong>Phase:</strong> 5 of 6</span>
+  <span><strong>Depends on:</strong> Phase 4 complete</span>
+</div>
+
+<div class="dep">
+  ⚠️ <strong>Prerequisite:</strong> The recompute pipeline (Phase 3) and ratings table (Phase 1) must exist. RPI plugs into the same orchestrator and surfaces on the same page (Phase 4).
+</div>
+
+<h2>Overview</h2>
+<p>Adds the Rating Percentage Index as a second rating system. Unlike ELO, RPI is a <strong>whole-season batch aggregate</strong>, not sequential — so it produces a single snapshot per recompute (one row per team, <code>as_of</code> = the latest contest date in scope). It reuses the existing recompute endpoint and admin button; only a new compute module and a system toggle on the public page are needed.</p>
+
+<h2>What Will Be Built</h2>
+
+<h3>1. <code>src/lib/server/ratings/rpi.ts</code></h3>
+<p>A pure function <code>computeRpi(games: GameInput[]): RatingRow[]</code> implementing NCAA soccer RPI:</p>
+<ul>
+  <li><strong>WP (Winning Percentage), 25%</strong> — NCAA soccer uses <em>location-weighted</em> results: a road win and a home loss count more than a home win and a road loss; ties count as half. Standard NCAA soccer weights: home win = 0.6, road win = 1.4, neutral win = 1.0, and the mirror for losses (home loss = 1.4, road loss = 0.6, neutral loss = 1.0); ties = 1.0 both ways. WP = weighted wins / weighted decisions.</li>
+  <li><strong>OWP (Opponents' WP), 50%</strong> — average, over all of a team's games, of each opponent's winning percentage computed <em>excluding</em> games against the team in question, using <em>unweighted</em> W-L-T (per NCAA, OWP/OOWP use unweighted records).</li>
+  <li><strong>OOWP (Opponents' Opponents' WP), 25%</strong> — average of each opponent's OWP.</li>
+  <li><code>RPI = 0.25*WP + 0.50*OWP + 0.25*OOWP</code>, a value in <code>[0,1]</code>.</li>
+</ul>
+<div class="note">Build adjacency once: for each team_season, the list of opponents (with location and result). Compute unweighted records, then WP (weighted), then OWP, then OOWP in three passes. Pool is the per-division scope, matching the chosen rating-pool decision — opponents outside the scope (e.g. a D-I team's D-II opponent) are excluded from the pool's OWP/OOWP, consistent with how standings are scoped. Note this exclusion explicitly in code comments.</div>
+
+<h3>2. Wire into the orchestrator</h3>
+<ul>
+  <li>Extend <code>recomputeRatings</code> so <code>systems</code> may include <code>'rpi'</code>. When present: run <code>computeRpi</code> over the same loaded games, set each row's <code>as_of</code> to the max <code>contest_date</code> in scope, set <code>value</code> to the RPI, <code>meta</code> to <code>{ wp, owp, oowp }</code>, then delete-then-insert the <code>system='rpi'</code> rows for the scope (same rebuild pattern as ELO).</li>
+  <li>The admin Recompute panel should let the user choose which systems to run (checkboxes for ELO / RPI), defaulting to all. Pass the selection in the POST body.</li>
+</ul>
+
+<h3>3. Surface on the public page</h3>
+<ul>
+  <li>Add a system toggle (ELO / RPI) to <code>/ratings</code>. RPI display is a 4-decimal value (e.g. <code>0.6314</code>). Reuse <code>get_current_ratings(..., 'rpi')</code> — no new SQL needed.</li>
+</ul>
+
+<h2>Implementation Notes</h2>
+<ul>
+  <li>RPI is undefined/unstable very early in a season (few games, disconnected schedules). Guard divide-by-zero (no decisions yet &rarr; WP 0 or skip). Document the behavior.</li>
+  <li>Keep <code>computeRpi</code> pure (no DB) like the ELO engine, so it's testable in isolation.</li>
+  <li>The exact NCAA soccer location weights have varied by era; the 0.6/1.4 home/road weighting is the widely used men's/women's soccer convention. Centralize them as named constants in <code>config.ts</code> so they're easy to tune if you later match an official published table.</li>
+</ul>
+
+<h3>Key files to read before starting</h3>
+<ul>
+  <li><code>src/lib/server/ratings/elo.ts</code> — the pure-function style and <code>GameInput</code>/<code>RatingRow</code> contract to follow.</li>
+  <li><code>src/lib/server/ratings/recompute.ts</code> — where to branch on <code>systems</code> and reuse the delete-then-insert helper.</li>
+  <li><code>supabase/migrations/20260614000000_standings_fn.sql</code> — reference for how W-L-T is derived from <code>games</code> (home/away score comparisons), useful for cross-checking RPI records.</li>
+</ul>
+
+<h2>Completion Criteria</h2>
+<ul class="checklist">
+  <li class="done"><code>computeRpi</code> returns one row per team with <code>value</code> in <code>[0,1]</code> and <code>meta</code> containing WP/OWP/OOWP.</li>
+  <li class="done">Recompute with <code>systems=['elo','rpi']</code> populates both systems; re-running is idempotent.</li>
+  <li class="done">OWP/OOWP correctly exclude the team's own games from opponents' records (verified on a small hand example).</li>
+  <li class="done"><code>/ratings</code> can toggle between ELO and RPI and shows sensible rankings for each.</li>
+  <li class="done"><code>npm run check</code> passes.</li>
+</ul>
+
+<h2>How to Validate</h2>
+<ol>
+  <li>Recompute a completed season with both systems selected.</li>
+  <li>Construct a 3&ndash;4 team mini-example by hand (or a scratch script) and confirm WP/OWP/OOWP match a manual calculation, including the self-exclusion rule.</li>
+  <li>On <code>/ratings</code>, toggle to RPI; confirm undefeated teams with strong schedules rank near the top and that values sit in <code>[0,1]</code>.</li>
+  <li>Compare the RPI top-25 against any published NCAA soccer RPI for that season as a sanity check (ordering should be broadly similar even if weights differ slightly).</li>
+</ol>
+
+</body>
+</html>

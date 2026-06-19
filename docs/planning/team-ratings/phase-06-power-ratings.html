@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 6: Power Ratings — Team Ratings</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1.25rem; line-height: 1.65; color: #111; }
+    h1 { font-size: 1.6rem; border-bottom: 3px solid #e8463a; padding-bottom: .5rem; margin-bottom: .5rem; }
+    h2 { font-size: 1.1rem; color: #333; margin-top: 2rem; border-bottom: 1px solid #e5e5e5; padding-bottom: .25rem; }
+    h3 { font-size: 1rem; color: #444; }
+    .meta { display: flex; flex-wrap: wrap; gap: 1.5rem; background: #f7f7f7; padding: .75rem 1rem; border-radius: 6px; font-size: .875rem; margin-bottom: 1.75rem; color: #444; }
+    .meta strong { color: #111; }
+    .checklist { list-style: none; padding: 0; margin: 0; }
+    .checklist li { padding: .4rem 0 .4rem .25rem; border-bottom: 1px solid #f0f0f0; display: flex; gap: .75rem; align-items: flex-start; font-size: .95rem; }
+    .checklist li::before { content: "\2610"; font-size: 1.1rem; color: #aaa; flex-shrink: 0; margin-top: .05rem; }
+    .ref { background: #fffbeb; border-left: 3px solid #f59e0b; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    .ref a { color: #92400e; font-weight: 500; }
+    .dep { background: #eff6ff; border-left: 3px solid #60a5fa; padding: .5rem .85rem; margin-bottom: 1.25rem; border-radius: 0 5px 5px 0; font-size: .875rem; color: #1e40af; }
+    .note { background: #f0fdf4; border-left: 3px solid #4ade80; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    code { background: #f3f4f6; padding: .15rem .4rem; border-radius: 3px; font-size: .875em; font-family: ui-monospace, monospace; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem 1.25rem; border-radius: 7px; overflow-x: auto; font-size: .875rem; }
+    pre code { background: none; padding: 0; font-size: inherit; }
+    a { color: #e8463a; }
+  </style>
+</head>
+<body>
+
+<div style="background:#f0fdf4;border:1.5px solid #4ade80;border-radius:7px;padding:.65rem 1.1rem;margin-bottom:1.5rem;font-size:.9rem;color:#166534;font-weight:500;">
+  ✅ Phase complete — all criteria satisfied.
+</div>
+<h1>Phase 6: Power Ratings</h1>
+
+<div class="meta">
+  <span><strong>Project:</strong> Team Ratings</span>
+  <span><strong>Phase:</strong> 6 of 6</span>
+  <span><strong>Depends on:</strong> Phase 5 complete</span>
+</div>
+
+<div class="dep">
+  ⚠️ <strong>Prerequisite:</strong> The recompute pipeline, ratings table, and public page (Phases 1&ndash;4) must exist; this phase adds the third and most involved system on top of them.
+</div>
+
+<h2>Overview</h2>
+<p>Adds a least-squares Power Rating (Massey-style): solve for a per-team strength value plus a global home-field term that best explains observed goal margins. Like RPI it is a whole-season batch producing one snapshot per recompute. It is sequenced last because it requires a small linear solver and the most tuning.</p>
+
+<h2>What Will Be Built</h2>
+
+<h3>1. <code>src/lib/server/ratings/power.ts</code></h3>
+<p>A pure function <code>computePower(games: GameInput[]): RatingRow[]</code> using a Massey least-squares model on capped margin:</p>
+<ul>
+  <li><strong>Model:</strong> for each game, <code>margin = homeScore - awayScore</code> (capped to &plusmn;<code>MARGIN_CAP</code>, e.g. 5, to limit blowout influence). Predicted margin = <code>rating[home] - rating[away] + homeAdv*(neutral ? 0 : 1)</code>. Solve for the rating vector <code>r</code> and scalar <code>homeAdv</code> minimizing squared error.</li>
+  <li><strong>Normal equations:</strong> build the Massey matrix <code>M</code> (n&times;n, where <code>M[i][i]</code> = games played by i, <code>M[i][j]</code> = &minus;(games between i and j)) and right-hand side <code>p</code> (cumulative capped margin per team, home-adjusted). Add one extra row/column for the home-field unknown, or estimate <code>homeAdv</code> as the mean home margin and subtract it first (simpler; document the choice).</li>
+  <li><strong>Connectivity fix:</strong> the raw Massey matrix is singular (ratings are relative). Replace the last equation with the constraint <code>sum(r) = 0</code> (or add a small ridge term <code>lambda*I</code>) so the system is solvable and ratings are centered at 0.</li>
+  <li><strong>Solver:</strong> implement plain Gaussian elimination with partial pivoting in TypeScript — no external linear-algebra dependency. A per-division pool is a few hundred teams; an O(n&sup3;) dense solve is fine (well under a second).</li>
+  <li><strong>Output:</strong> one <code>RatingRow</code> per team, <code>value</code> = rating (interpretable as expected goal margin vs. an average team on a neutral field), <code>meta</code> = <code>{ homeAdv, marginCap }</code>, <code>as_of</code> = max contest date.</li>
+</ul>
+
+<div class="note">Center ratings at 0 (or rescale to a friendlier display range) so Power values read intuitively. Keep the raw solve precise; apply any display scaling in the page, not the stored value.</div>
+
+<h3>2. Config + wiring</h3>
+<ul>
+  <li>Add <code>POWER_MARGIN_CAP</code> and optional <code>POWER_RIDGE</code> to <code>config.ts</code>.</li>
+  <li>Extend <code>recomputeRatings</code> to handle <code>'power'</code> in <code>systems</code>, with the same delete-then-insert rebuild for <code>system='power'</code> rows.</li>
+  <li>Add a Power checkbox to the admin Recompute panel (now ELO / RPI / Power).</li>
+</ul>
+
+<h3>3. Surface on the public page</h3>
+<ul>
+  <li>Add Power to the <code>/ratings</code> system toggle. Display to 1&ndash;2 decimals (e.g. <code>+1.8</code> / <code>-0.6</code>). Reuse <code>get_current_ratings(..., 'power')</code>.</li>
+</ul>
+
+<h2>Implementation Notes</h2>
+<ul>
+  <li>Keep <code>computePower</code> pure and dependency-free. The solver is the only non-trivial bit — write it defensively (guard singular pivots; if a pivot is ~0 after the centering constraint, the pool is disconnected and the affected component should fall back to 0/NaN handling with a clear comment).</li>
+  <li>Disconnected schedules early in a season make Power unstable; like RPI, document that it is meaningful only once the pool is reasonably connected.</li>
+  <li>The per-division pool decision applies: cross-division opponents are outside the matrix, identical to RPI scoping.</li>
+  <li>If you later want all three numbers comparable, that is a display/normalization concern — out of scope here.</li>
+</ul>
+
+<h3>Key files to read before starting</h3>
+<ul>
+  <li><code>src/lib/server/ratings/rpi.ts</code> — adjacency-building over <code>GameInput[]</code> you can reuse for the matrix.</li>
+  <li><code>src/lib/server/ratings/recompute.ts</code> — the <code>systems</code> branch + rebuild helper.</li>
+  <li><code>src/routes/ratings/+page.svelte</code> — the system toggle to extend.</li>
+</ul>
+
+<h2>Completion Criteria</h2>
+<ul class="checklist">
+  <li class="done"><code>computePower</code> returns one centered rating per team plus a sensible <code>homeAdv</code> in <code>meta</code>.</li>
+  <li class="done">The Gaussian-elimination solver produces correct results on a known small system (verified against a hand-solved 3&times;3).</li>
+  <li class="done">Recompute with all three systems populates ELO, RPI, and Power; re-running is idempotent.</li>
+  <li class="done"><code>/ratings</code> toggles across all three systems with appropriate formatting.</li>
+  <li class="done"><code>npm run check</code> and <code>npm run build</code> both pass.</li>
+</ul>
+
+<h2>How to Validate</h2>
+<ol>
+  <li>Unit-check the solver on a hand-solved 3&times;3 system before wiring it in.</li>
+  <li>Recompute a completed season with Power enabled; confirm <code>homeAdv</code> is a small positive goal value (home teams score modestly more on average).</li>
+  <li>On <code>/ratings</code>, confirm Power ordering broadly agrees with ELO and RPI for the top teams (the three should correlate without being identical).</li>
+  <li>Verify centering: the sum (or mean) of Power ratings across the pool is ~0.</li>
+  <li>Re-run recompute; confirm Power rows are unchanged (idempotent rebuild).</li>
+</ol>
+
+</body>
+</html>

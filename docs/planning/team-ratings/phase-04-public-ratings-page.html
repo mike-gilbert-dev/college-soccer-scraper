@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 4: Public Ratings Page — Team Ratings</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1.25rem; line-height: 1.65; color: #111; }
+    h1 { font-size: 1.6rem; border-bottom: 3px solid #e8463a; padding-bottom: .5rem; margin-bottom: .5rem; }
+    h2 { font-size: 1.1rem; color: #333; margin-top: 2rem; border-bottom: 1px solid #e5e5e5; padding-bottom: .25rem; }
+    h3 { font-size: 1rem; color: #444; }
+    .meta { display: flex; flex-wrap: wrap; gap: 1.5rem; background: #f7f7f7; padding: .75rem 1rem; border-radius: 6px; font-size: .875rem; margin-bottom: 1.75rem; color: #444; }
+    .meta strong { color: #111; }
+    .checklist { list-style: none; padding: 0; margin: 0; }
+    .checklist li { padding: .4rem 0 .4rem .25rem; border-bottom: 1px solid #f0f0f0; display: flex; gap: .75rem; align-items: flex-start; font-size: .95rem; }
+    .checklist li::before { content: "\2610"; font-size: 1.1rem; color: #aaa; flex-shrink: 0; margin-top: .05rem; }
+    .ref { background: #fffbeb; border-left: 3px solid #f59e0b; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    .ref a { color: #92400e; font-weight: 500; }
+    .dep { background: #eff6ff; border-left: 3px solid #60a5fa; padding: .5rem .85rem; margin-bottom: 1.25rem; border-radius: 0 5px 5px 0; font-size: .875rem; color: #1e40af; }
+    .note { background: #f0fdf4; border-left: 3px solid #4ade80; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    code { background: #f3f4f6; padding: .15rem .4rem; border-radius: 3px; font-size: .875em; font-family: ui-monospace, monospace; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem 1.25rem; border-radius: 7px; overflow-x: auto; font-size: .875rem; }
+    pre code { background: none; padding: 0; font-size: inherit; }
+    a { color: #e8463a; }
+  </style>
+</head>
+<body>
+
+<div style="background:#f0fdf4;border:1.5px solid #4ade80;border-radius:7px;padding:.65rem 1.1rem;margin-bottom:1.5rem;font-size:.9rem;color:#166534;font-weight:500;">
+  ✅ Phase complete — all criteria satisfied.
+</div>
+<h1>Phase 4: Public Ratings Page</h1>
+
+<div class="meta">
+  <span><strong>Project:</strong> Team Ratings</span>
+  <span><strong>Phase:</strong> 4 of 6</span>
+  <span><strong>Depends on:</strong> Phase 3 complete</span>
+</div>
+
+<div class="dep">
+  ⚠️ <strong>Prerequisite:</strong> Phase 3 must be complete so <code>team_ratings</code> contains ELO data to display.
+</div>
+
+<h2>Overview</h2>
+<p>Surfaces ELO to users. Adds a public <code>/ratings</code> route — a ranked, filterable table mirroring the existing standings page — that reads current ELO via the <code>get_current_ratings</code> RPC. This completes the ELO milestone: ingest &rarr; recompute &rarr; public display.</p>
+
+<h2>What Will Be Built</h2>
+
+<h3>1. <code>src/routes/ratings/+page.server.ts</code></h3>
+<p>Model it on <code>src/routes/teams/+page.server.ts</code>:</p>
+<ul>
+  <li>Read <code>sport</code>, <code>division</code>, <code>season</code> from <code>url.searchParams</code> with the same defaults (MSO / 1 / latest season by <code>start_date</code>).</li>
+  <li>In parallel: fetch <code>team_seasons</code> for the scope (joining <code>teams</code> for name + <code>logo_url_dark/light</code> and <code>conferences</code> for label), and call <code>supabaseAdmin.rpc('get_current_ratings', { p_season_id, p_sport_code, p_division, p_system: 'elo' })</code>.</li>
+  <li>Join the RPC rows (<code>ts_id &rarr; value, rank, games_played</code>) onto the team_seasons, sort by <code>rank</code> (teams with no rating sort last), and return a typed <code>RatingStanding[]</code> plus the conference list for the filter dropdown.</li>
+</ul>
+
+<h3>2. <code>src/routes/ratings/+page.svelte</code></h3>
+<ul>
+  <li>Svelte 5 runes; reuse the dense sports-table styling and the <code>TeamLogo</code> component already used on the teams page.</li>
+  <li>Columns: Rank, Team (logo + name, linked to <code>/teams/[ncaa_team_id]</code>), ELO (rounded to integer), GP. Show the selected sport/division/season filters as controls that update the query string (same UX as standings).</li>
+  <li>Include a short caption explaining ELO is updated when an admin recomputes, and that it carries over between seasons with regression toward 1500.</li>
+</ul>
+
+<h3>3. Navigation + SEO</h3>
+<ul>
+  <li>Add a "Ratings" link to <code>src/lib/components/Navbar.svelte</code> alongside the existing nav items.</li>
+  <li>Add <code>/ratings</code> to the <code>staticUrls</code> array in <code>src/routes/sitemap.xml/+server.ts</code> (required by CLAUDE.md whenever a public route is added).</li>
+</ul>
+
+<div class="ref">
+  📄 CLAUDE.md, "SEO" section — adding a public route obliges updating <code>sitemap.xml/+server.ts</code>. Do not add <code>/admin</code> or <code>/api</code> routes there; <code>/ratings</code> is public and belongs in <code>staticUrls</code>.
+</div>
+
+<h3>4. (Optional, if quick) ELO trend</h3>
+<p>Because Phase 2 stores per-game history, a small sparkline of a team's ELO over the season can be added to the team detail page using the same pattern as <code>PlayerFormChart.svelte</code>. Treat as a stretch goal — only do it if the core table is solid. If skipped, note it for a future phase.</p>
+
+<h2>Implementation Notes</h2>
+<ul>
+  <li>The page reads through <code>supabaseAdmin</code> in the server load, consistent with <code>teams/+page.server.ts</code> (which also uses the admin client server-side rather than relying on anon RLS).</li>
+  <li>Round ELO for display only (e.g. <code>Math.round(value)</code>); keep the stored value precise.</li>
+  <li>Match the existing filter UX exactly so the standings and ratings pages feel like one product. Consider linking between them.</li>
+  <li>Teams with zero rated games should still appear (seeded ELO &asymp; 1500 or "&mdash;") so the table matches the standings roster — decide and be consistent; recommended: show them at the bottom with their seed value and GP 0.</li>
+</ul>
+
+<h3>Key files to read before starting</h3>
+<ul>
+  <li><code>src/routes/teams/+page.server.ts</code> and <code>+page.svelte</code> — the filter + join + table pattern to mirror.</li>
+  <li><code>src/lib/components/TeamLogo.svelte</code> — logo rendering.</li>
+  <li><code>src/routes/sitemap.xml/+server.ts</code> — where to register the new route.</li>
+  <li><code>docs/design.md</code> — table density, color, and spacing conventions.</li>
+</ul>
+
+<h2>Completion Criteria</h2>
+<ul class="checklist">
+  <li class="done"><code>/ratings</code> renders a ranked ELO table for the default scope (MSO / D-I / latest season).</li>
+  <li class="done">Sport / division / season filters update the listing via the query string.</li>
+  <li class="done">Team names link to their detail pages and logos render.</li>
+  <li class="done">"Ratings" appears in the navbar and <code>/ratings</code> is present in <code>sitemap.xml</code>.</li>
+  <li class="done"><code>npm run check</code> passes and the production build (<code>npm run build</code>) succeeds.</li>
+</ul>
+
+<h2>How to Validate</h2>
+<ol>
+  <li>Visit <code>/ratings</code>. Confirm the top of the table matches the strong teams you spot-checked in Phase 3.</li>
+  <li>Change division and season via the filters; confirm the listing changes and the URL reflects the selection.</li>
+  <li>Click a team name; confirm it navigates to the correct team page.</li>
+  <li>Load <code>/sitemap.xml</code> and confirm <code>/ratings</code> is listed.</li>
+  <li>Cross-check ranking order against the standings page — strong records should broadly correlate with high ELO (not identical, but sane).</li>
+</ol>
+
+</body>
+</html>

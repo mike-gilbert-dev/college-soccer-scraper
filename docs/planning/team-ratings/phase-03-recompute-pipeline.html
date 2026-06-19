@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 3: Recompute Pipeline & Admin UI — Team Ratings</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1.25rem; line-height: 1.65; color: #111; }
+    h1 { font-size: 1.6rem; border-bottom: 3px solid #e8463a; padding-bottom: .5rem; margin-bottom: .5rem; }
+    h2 { font-size: 1.1rem; color: #333; margin-top: 2rem; border-bottom: 1px solid #e5e5e5; padding-bottom: .25rem; }
+    h3 { font-size: 1rem; color: #444; }
+    .meta { display: flex; flex-wrap: wrap; gap: 1.5rem; background: #f7f7f7; padding: .75rem 1rem; border-radius: 6px; font-size: .875rem; margin-bottom: 1.75rem; color: #444; }
+    .meta strong { color: #111; }
+    .checklist { list-style: none; padding: 0; margin: 0; }
+    .checklist li { padding: .4rem 0 .4rem .25rem; border-bottom: 1px solid #f0f0f0; display: flex; gap: .75rem; align-items: flex-start; font-size: .95rem; }
+    .checklist li::before { content: "\2610"; font-size: 1.1rem; color: #aaa; flex-shrink: 0; margin-top: .05rem; }
+    .ref { background: #fffbeb; border-left: 3px solid #f59e0b; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    .ref a { color: #92400e; font-weight: 500; }
+    .dep { background: #eff6ff; border-left: 3px solid #60a5fa; padding: .5rem .85rem; margin-bottom: 1.25rem; border-radius: 0 5px 5px 0; font-size: .875rem; color: #1e40af; }
+    .note { background: #f0fdf4; border-left: 3px solid #4ade80; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    code { background: #f3f4f6; padding: .15rem .4rem; border-radius: 3px; font-size: .875em; font-family: ui-monospace, monospace; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem 1.25rem; border-radius: 7px; overflow-x: auto; font-size: .875rem; }
+    pre code { background: none; padding: 0; font-size: inherit; }
+    a { color: #e8463a; }
+  </style>
+</head>
+<body>
+
+<div style="background:#f0fdf4;border:1.5px solid #4ade80;border-radius:7px;padding:.65rem 1.1rem;margin-bottom:1.5rem;font-size:.9rem;color:#166534;font-weight:500;">
+  ✅ Phase complete — all criteria satisfied.
+</div>
+<h1>Phase 3: Recompute Pipeline &amp; Admin UI</h1>
+
+<div class="meta">
+  <span><strong>Project:</strong> Team Ratings</span>
+  <span><strong>Phase:</strong> 3 of 6</span>
+  <span><strong>Depends on:</strong> Phase 2 complete</span>
+</div>
+
+<div class="dep">
+  ⚠️ <strong>Prerequisite:</strong> Phases 1 (schema) and 2 (ELO engine) must both be complete. This phase wires the pure engine to the database and triggers it from the admin UI.
+</div>
+
+<h2>Overview</h2>
+<p>Connects the ELO engine to real data: an orchestrator reads final games for a <code>(sport, division, season)</code> scope, resolves season-to-season carryover seeds, runs the engine, and writes results to <code>team_ratings</code> via a clean delete-then-insert rebuild. A new admin endpoint and a "Ratings" sidebar section expose a manual <strong>Recompute</strong> button mirroring the existing Archive/Ingest tools.</p>
+
+<h2>What Will Be Built</h2>
+
+<h3>1. Orchestrator — <code>src/lib/server/ratings/recompute.ts</code></h3>
+<p>Exports <code>recomputeRatings({ sportCode, division, seasonId, systems })</code>. For ELO (Phase 3 only handles <code>'elo'</code>; later phases extend the <code>systems</code> array):</p>
+<ol>
+  <li><strong>Load this season's final games</strong> for the scope:
+    <pre><code>supabaseAdmin.from('games')
+  .select('id, contest_date, start_time, home_team_season_id, away_team_season_id, home_score, away_score, neutral_site')
+  .eq('sport_code', sportCode).eq('division', division).eq('season_id', seasonId)
+  .eq('status', 'final')
+  .not('home_score', 'is', null).not('away_score', 'is', null)
+  .order('contest_date').order('start_time', { nullsFirst: false }).order('id');</code></pre>
+    Map rows into <code>GameInput[]</code>.
+  </li>
+  <li><strong>Resolve carryover seeds.</strong> Find the most recent <em>prior</em> season for this sport (a <code>seasons</code> row with a smaller <code>start_date</code> that has team_seasons in this sport). For each <code>team_season</code> in the current scope, look up the same <code>team_id</code>'s final ELO in that prior season via <code>get_current_ratings(priorSeasonId, sportCode, priorDivision, 'elo')</code> joined back through <code>team_seasons.team_id</code>. Build <code>priorFinalByTeamSeasonId</code>, then call <code>buildEloSeeds</code>. Teams with no prior rating seed at <code>ELO_BASE</code>.</li>
+  <li><strong>Run</strong> <code>computeElo(games, seeds)</code>.</li>
+  <li><strong>Collapse same-day rows:</strong> for each <code>(teamSeasonId, asOf)</code> keep only the last emitted row (the day's final value), since the table's unique key is <code>(team_season_id, system, as_of)</code>.</li>
+  <li><strong>Rebuild, don't patch.</strong> In a single logical operation: delete all <code>team_ratings</code> rows for <code>system='elo'</code> whose <code>team_season_id</code> is in this scope, then bulk-insert the collapsed rows. This makes recompute fully deterministic and idempotent — games remain the only source of truth. Insert in chunks (e.g. 1000 rows) to stay within payload limits.</li>
+  <li>Return counts: <code>{ system, gamesProcessed, teamsRated, rowsWritten }</code>.</li>
+</ol>
+<div class="note"><strong>Why delete-then-insert</strong> instead of upsert: ELO emits a variable number of history rows (one per game date). An upsert leaves stale rows behind if a game is deleted or rescheduled. Deleting the scope first guarantees the stored history exactly reflects current games. The delete is scoped to <em>this</em> sport/division/season + system, so other scopes are untouched.</div>
+
+<h3>2. API endpoint — <code>src/routes/api/ratings/recompute/+server.ts</code></h3>
+<p>POST handler following the exact shape of <code>api/ingest/date/+server.ts</code>:</p>
+<ul>
+  <li>Auth: <code>const { user } = await locals.safeGetSession(); if (!user) error(401, 'Unauthorized');</code></li>
+  <li>Body: <code>{ sportCode, division, seasonLabel, systems?: RatingSystem[] }</code> (default <code>['elo']</code>).</li>
+  <li>Resolve <code>seasonLabel</code> &rarr; <code>season.id</code> via the <code>seasons</code> table (same as ingest).</li>
+  <li>Call <code>recomputeRatings(...)</code> and return <code>json(result)</code>.</li>
+</ul>
+
+<h3>3. Admin UI — extend <code>src/routes/admin/+page.svelte</code></h3>
+<ul>
+  <li>Add a <code>'ratings'</code> nav section to <code>navSections</code> with a tool <code>{ id: 'ratings-recompute', label: 'Recompute Ratings' }</code>, and add <code>'ratings-recompute'</code> to the <code>ViewId</code> union.</li>
+  <li>Add a matching <code>{:else if activeView === 'ratings-recompute'}</code> block: Gender / Division / Season selects (copy the bindings already used by the Archive panel) and a <strong>Recompute</strong> button that POSTs to <code>/api/ratings/recompute</code> and shows returned counts + any error in an <code>Alert</code>.</li>
+  <li>Use Svelte 5 runes (<code>$state</code>, <code>$derived</code>) consistent with the rest of the file. Reuse <code>data.seasons</code> already loaded by <code>admin/+page.server.ts</code>.</li>
+</ul>
+
+<h2>Implementation Notes</h2>
+<ul>
+  <li>All server-side DB access uses <code>supabaseAdmin</code> (service_role) — see <code>src/lib/server/supabase-admin.ts</code>. Never the browser client.</li>
+  <li>The endpoint is admin-only by virtue of the <code>safeGetSession()</code> guard; <code>/admin</code> already sits behind auth via <code>admin/+layout.server.ts</code>.</li>
+  <li>Keep the recompute synchronous in the request — a full season is small (a few thousand games) and finishes in well under a second. No background job needed.</li>
+  <li>Division is sent as a number in the JSON body but is <code>smallint</code> in the DB; pass it straight to <code>.eq('division', division)</code> as the ingest endpoint does.</li>
+</ul>
+
+<h3>Key files to read before starting</h3>
+<ul>
+  <li><code>src/routes/api/ingest/date/+server.ts</code> — auth guard, season resolution, result-counts response shape to mirror.</li>
+  <li><code>src/routes/admin/+page.svelte</code> — the <code>navSections</code> array, <code>ViewId</code> union, and the Archive panel whose select bindings you'll copy.</li>
+  <li><code>src/routes/admin/+page.server.ts</code> — confirms <code>data.seasons</code> is available to the page.</li>
+  <li>Phase 2 module — <code>computeElo</code> / <code>buildEloSeeds</code> signatures.</li>
+</ul>
+
+<h2>Completion Criteria</h2>
+<ul class="checklist">
+  <li class="done"><code>recomputeRatings</code> exists and, for a scope with final games, writes ELO rows to <code>team_ratings</code>.</li>
+  <li class="done">Running recompute twice in a row produces byte-identical table contents (idempotent rebuild).</li>
+  <li class="done">Carryover works: a team present in two consecutive seasons starts season N seeded from season N&minus;1's final ELO regressed toward 1500; a brand-new team starts at 1500.</li>
+  <li class="done">The admin "Ratings &rarr; Recompute Ratings" panel exists, runs against the selected scope, and shows returned counts.</li>
+  <li class="done">Unauthenticated POST to <code>/api/ratings/recompute</code> returns 401.</li>
+  <li class="done"><code>npm run check</code> passes.</li>
+</ul>
+
+<h2>How to Validate</h2>
+<ol>
+  <li>In <code>/admin</code>, open <strong>Ratings &rarr; Recompute Ratings</strong>, pick MSO / Division I / a season with ingested final games, click <strong>Recompute</strong>. Expect a success response with non-zero <code>gamesProcessed</code> and <code>rowsWritten</code>.</li>
+  <li><code>SELECT count(*) FROM team_ratings WHERE system='elo';</code> — non-zero.</li>
+  <li>Spot-check a strong team: <code>SELECT * FROM get_current_ratings(&lt;seasonId&gt;, 'MSO', 1::smallint, 'elo') ORDER BY rank LIMIT 10;</code> — top teams should be plausible (good records, high ELO).</li>
+  <li>Click Recompute again; confirm row count is unchanged and top-10 identical.</li>
+  <li>Verify carryover by comparing a returning team's first <code>as_of</code> value in the new season against <code>1500 + 0.70*(prevFinal - 1500)</code>.</li>
+</ol>
+
+</body>
+</html>

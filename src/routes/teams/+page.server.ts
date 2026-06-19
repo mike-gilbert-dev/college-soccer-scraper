@@ -39,7 +39,8 @@ export const load: PageServerLoad = async ({ url }) => {
 			`)
 			.eq('season_id', season.id)
 			.eq('division', division)
-			.eq('sport_code', sport),
+			.eq('sport_code', sport)
+			.eq('division_member', true),
 		supabaseAdmin.rpc('get_standings', {
 			p_season_id:  season.id,
 			p_sport_code: sport,

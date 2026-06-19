@@ -29,6 +29,7 @@ export const GET: RequestHandler = async ({ request }) => {
 	const staticUrls = [
 		{ path: '/', changefreq: 'hourly', priority: '1.0' },
 		{ path: '/teams', changefreq: 'daily', priority: '0.8' },
+		{ path: '/ratings', changefreq: 'daily', priority: '0.8' },
 		{ path: '/stats', changefreq: 'daily', priority: '0.8' },
 	];
 

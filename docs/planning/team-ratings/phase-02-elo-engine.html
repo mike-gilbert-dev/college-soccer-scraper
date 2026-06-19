@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 2: ELO Engine — Team Ratings</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1.25rem; line-height: 1.65; color: #111; }
+    h1 { font-size: 1.6rem; border-bottom: 3px solid #e8463a; padding-bottom: .5rem; margin-bottom: .5rem; }
+    h2 { font-size: 1.1rem; color: #333; margin-top: 2rem; border-bottom: 1px solid #e5e5e5; padding-bottom: .25rem; }
+    h3 { font-size: 1rem; color: #444; }
+    .meta { display: flex; flex-wrap: wrap; gap: 1.5rem; background: #f7f7f7; padding: .75rem 1rem; border-radius: 6px; font-size: .875rem; margin-bottom: 1.75rem; color: #444; }
+    .meta strong { color: #111; }
+    .checklist { list-style: none; padding: 0; margin: 0; }
+    .checklist li { padding: .4rem 0 .4rem .25rem; border-bottom: 1px solid #f0f0f0; display: flex; gap: .75rem; align-items: flex-start; font-size: .95rem; }
+    .checklist li::before { content: "\2610"; font-size: 1.1rem; color: #aaa; flex-shrink: 0; margin-top: .05rem; }
+    .ref { background: #fffbeb; border-left: 3px solid #f59e0b; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    .ref a { color: #92400e; font-weight: 500; }
+    .dep { background: #eff6ff; border-left: 3px solid #60a5fa; padding: .5rem .85rem; margin-bottom: 1.25rem; border-radius: 0 5px 5px 0; font-size: .875rem; color: #1e40af; }
+    .note { background: #f0fdf4; border-left: 3px solid #4ade80; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    code { background: #f3f4f6; padding: .15rem .4rem; border-radius: 3px; font-size: .875em; font-family: ui-monospace, monospace; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem 1.25rem; border-radius: 7px; overflow-x: auto; font-size: .875rem; }
+    pre code { background: none; padding: 0; font-size: inherit; }
+    a { color: #e8463a; }
+  </style>
+</head>
+<body>
+
+<div style="background:#f0fdf4;border:1.5px solid #4ade80;border-radius:7px;padding:.65rem 1.1rem;margin-bottom:1.5rem;font-size:.9rem;color:#166534;font-weight:500;">
+  ✅ Phase complete — all criteria satisfied.
+</div>
+<h1>Phase 2: ELO Engine</h1>
+
+<div class="meta">
+  <span><strong>Project:</strong> Team Ratings</span>
+  <span><strong>Phase:</strong> 2 of 6</span>
+  <span><strong>Depends on:</strong> Phase 1 complete</span>
+</div>
+
+<div class="dep">
+  ⚠️ <strong>Prerequisite:</strong> Phase 1 (Ratings Schema) defines the row shape this engine produces. The engine itself does no DB I/O, but its output type must match what Phase 3 will upsert.
+</div>
+
+<h2>Overview</h2>
+<p>Builds the margin-of-victory ELO calculation as <strong>pure, side-effect-free TypeScript</strong> — no Supabase, no fetch, no <code>$env</code>. Given a chronologically ordered list of games and a map of starting (seed) ratings, it returns one rating row per team per game date plus the final ratings. Keeping it pure makes it deterministic, trivially testable, and reusable by the recompute pipeline in Phase 3.</p>
+
+<h2>What Will Be Built</h2>
+<p>A new module directory <code>src/lib/server/ratings/</code> with three files.</p>
+
+<h3>1. <code>src/lib/server/ratings/types.ts</code></h3>
+<pre><code>export type RatingSystem = 'elo' | 'rpi' | 'power';
+
+export interface GameInput {
+  id: number;
+  contestDate: string;       // 'YYYY-MM-DD'
+  startTime: string | null;  // ISO; tiebreaker for same-day ordering
+  homeTeamSeasonId: number;
+  awayTeamSeasonId: number;
+  homeScore: number;
+  awayScore: number;
+  neutralSite: boolean;
+}
+
+export interface RatingRow {
+  teamSeasonId: number;
+  system: RatingSystem;
+  asOf: string;              // 'YYYY-MM-DD'
+  value: number;
+  gamesPlayed: number;
+  meta?: Record<string, unknown> | null;
+}
+
+/** team_season_id -> starting rating for the season */
+export type SeedMap = Map&lt;number, number&gt;;</code></pre>
+
+<h3>2. <code>src/lib/server/ratings/config.ts</code></h3>
+<pre><code>export const ELO_BASE = 1500;          // mean / new-team rating
+export const ELO_K = 24;               // base K-factor (tune later)
+export const ELO_HOME_ADVANTAGE = 85;  // elo points added to home side's expectation
+export const CARRYOVER_LAMBDA = 0.70;  // season-to-season regression toward mean
+
+/** World-Football-ELO style margin-of-victory multiplier. */
+export function goalDiffMultiplier(goalDiff: number): number {
+  const g = Math.abs(goalDiff);
+  if (g <= 1) return 1;
+  if (g === 2) return 1.5;
+  return (11 + g) / 8;       // 3 -> 1.75, 4 -> 1.875, ...
+}</code></pre>
+
+<h3>3. <code>src/lib/server/ratings/elo.ts</code></h3>
+<p>Two exported functions:</p>
+<pre><code>// Regression-to-mean carryover: seed = BASE + LAMBDA * (priorFinal - BASE).
+// teamSeasonIds with no prior rating seed at ELO_BASE.
+export function buildEloSeeds(
+  teamSeasonIds: number[],
+  priorFinalByTeamSeasonId: Map&lt;number, number&gt;
+): SeedMap;
+
+// Pure sequential ELO over chronologically ordered games.
+// Emits one RatingRow per team per game (post-game value), plus you can
+// derive finals as the last row per team.
+export function computeElo(games: GameInput[], seeds: SeedMap): RatingRow[];</code></pre>
+
+<h3>Algorithm for <code>computeElo</code></h3>
+<ol>
+  <li>Initialize a working map <code>current: Map&lt;number, number&gt;</code> from <code>seeds</code> (default <code>ELO_BASE</code> for any team not seeded).</li>
+  <li><strong>Sort games deterministically</strong>: by <code>contestDate</code>, then <code>startTime</code> (nulls last), then <code>id</code>. Never mutate the caller's array.</li>
+  <li>For each game:
+    <ul>
+      <li>Skip if either score is null/NaN (defensive — pipeline should pre-filter to final games).</li>
+      <li><code>rHome = current(home)</code>, <code>rAway = current(away)</code>.</li>
+      <li>Home-field: <code>effHome = rHome + (neutralSite ? 0 : ELO_HOME_ADVANTAGE)</code>.</li>
+      <li>Expected: <code>eHome = 1 / (1 + 10^((rAway - effHome)/400))</code>; <code>eAway = 1 - eHome</code>.</li>
+      <li>Result: home win <code>sHome=1</code>, draw <code>0.5</code>, loss <code>0</code> (soccer regular-season ties are real — handle equality).</li>
+      <li><code>mult = goalDiffMultiplier(homeScore - awayScore)</code>.</li>
+      <li><code>delta = ELO_K * mult * (sHome - eHome)</code>. Apply <code>+delta</code> to home, <code>-delta</code> to away (zero-sum).</li>
+      <li>Emit a <code>RatingRow</code> for <em>each</em> team with <code>asOf = contestDate</code>, the new value, incremented <code>gamesPlayed</code>, and <code>meta</code> capturing <code>{ k: ELO_K, mult, opp, delta }</code>.</li>
+    </ul>
+  </li>
+  <li>Return all emitted rows. (Final rating per team = its last row; Phase 4's read function derives "current" via max <code>as_of</code>.)</li>
+</ol>
+
+<div class="note"><strong>Same-day multiple games:</strong> a team can play more than one game on a date. Each game emits a row with the same <code>as_of</code>. Because Phase 1's unique key is <code>(team_season_id, system, as_of)</code>, the pipeline must keep only the <em>last</em> row per <code>(team, as_of)</code> before upserting — note this here so Phase 3 handles it. The intermediate same-day values are still computed correctly in sequence; only the stored snapshot is the day's final value.</div>
+
+<h2>Implementation Notes</h2>
+<ul>
+  <li>Runes mode is irrelevant here (plain <code>.ts</code>), but the project is strict TypeScript — type everything, no <code>any</code>.</li>
+  <li>No imports from <code>$env</code>, <code>@supabase/*</code>, or <code>$app/*</code>. This module must be unit-testable in isolation.</li>
+  <li>Carryover matches teams across seasons by <code>team_season_id</code> only as a key — the actual prior-to-current mapping (same <code>team_id</code>, prior season) is resolved in Phase 3 where DB access exists, then passed in as <code>priorFinalByTeamSeasonId</code>. The engine stays ignorant of season boundaries.</li>
+  <li>Keep numbers as <code>double precision</code>-compatible floats; do not round mid-computation. Rounding (if any) is a display concern for Phase 4.</li>
+</ul>
+
+<h3>Key files to read before starting</h3>
+<ul>
+  <li><code>src/lib/server/ncaa-api.ts</code> — house style for a pure-ish server helper module (types + exported functions).</li>
+  <li>Phase 1 doc — the <code>team_ratings</code> column meanings that <code>RatingRow</code> maps onto.</li>
+</ul>
+
+<h2>Completion Criteria</h2>
+<ul class="checklist">
+  <li class="done"><code>src/lib/server/ratings/{types,config,elo}.ts</code> exist and export the signatures above.</li>
+  <li class="done"><code>computeElo</code> is deterministic: same input array (in any order) yields identical output.</li>
+  <li class="done">A draw produces equal-and-opposite zero movement only when ratings (incl. home advantage) are already equal; otherwise the favorite loses points. Verified by a hand example.</li>
+  <li class="done"><code>buildEloSeeds</code> returns <code>BASE + 0.70*(prior - BASE)</code> for seeded teams and <code>ELO_BASE</code> for unseeded.</li>
+  <li class="done"><code>npm run check</code> passes with no type errors.</li>
+</ul>
+
+<h2>How to Validate</h2>
+<p>There is no test runner in the repo yet. Validate with a throwaway script run via <code>npx tsx</code> (do not commit it), or a temporary <code>+server.ts</code> you delete after:</p>
+<ol>
+  <li>Two teams both seeded 1500, neutral site, home wins 1&ndash;0. Expect home &asymp; 1512, away &asymp; 1488 with <code>K=24</code> (<code>delta = 24*1*(1-0.5) = 12</code>).</li>
+  <li>Same but a 3&ndash;0 home win: <code>mult = 1.75</code>, <code>delta = 21</code>; home &asymp; 1521, away &asymp; 1479.</li>
+  <li>Home win 1&ndash;0 <em>with</em> home advantage (non-neutral): home was already favored, so <code>delta &lt; 12</code> (it earned the expected result).</li>
+  <li><code>buildEloSeeds([1], new Map([[1, 1700]]))</code> &rarr; <code>1500 + 0.7*200 = 1640</code>.</li>
+</ol>
+
+</body>
+</html>
