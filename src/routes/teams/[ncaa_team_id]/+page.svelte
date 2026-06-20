@@ -70,6 +70,11 @@
 	const oppConfName = (g: ScheduleGame) => (isHome(g) ? g.away_team_season?.conference?.name : g.home_team_season?.conference?.name) ?? null;
 	const oppConfShort= (g: ScheduleGame) => (isHome(g) ? g.away_team_season?.conference?.short_name : g.home_team_season?.conference?.short_name) ?? null;
 	const isFinal     = (g: ScheduleGame) => g.status === 'final' && g.home_score != null && g.away_score != null;
+	// A game counts toward the division record only when the opponent is a
+	// division member, mirroring get_standings. The per-division NCAA feed
+	// includes non-D1 opponents; those games show in the schedule but aren't counted.
+	const oppTeamSeason = (g: ScheduleGame) => (isHome(g) ? g.away_team_season : g.home_team_season);
+	const oppIsMember   = (g: ScheduleGame) => oppTeamSeason(g)?.division_member !== false;
 
 	function myScore(g: ScheduleGame) {
 		if (g.home_score == null || g.away_score == null) return null;
@@ -109,11 +114,14 @@
 		return out;
 	});
 
-	// Season-record summary derived from completed games.
+	// Season-record summary derived from completed games. Only games against
+	// fellow division members count toward the record/goals/form, matching the
+	// standings page; non-division (e.g. non-D1) games still appear below.
 	const finals = $derived(data.schedule.filter(isFinal));
+	const countedFinals = $derived(finals.filter(oppIsMember));
 	const summary = $derived.by(() => {
 		let w = 0, l = 0, t = 0, cw = 0, cl = 0, ct = 0, gf = 0, ga = 0;
-		for (const g of finals) {
+		for (const g of countedFinals) {
 			const r = result(g)!;
 			gf += myScore(g)!;
 			ga += oppScore(g)!;
@@ -123,13 +131,13 @@
 			}
 		}
 		let streak: { type: 'W' | 'L' | 'T' | null; n: number } = { type: null, n: 0 };
-		for (let i = finals.length - 1; i >= 0; i--) {
-			const r = result(finals[i])!;
+		for (let i = countedFinals.length - 1; i >= 0; i--) {
+			const r = result(countedFinals[i])!;
 			if (streak.type == null) streak = { type: r, n: 1 };
 			else if (r === streak.type) streak.n++;
 			else break;
 		}
-		const form = finals.slice(-10).map((g) => result(g)!);
+		const form = countedFinals.slice(-10).map((g) => result(g)!);
 		return { w, l, t, cw, cl, ct, gf, ga, gd: gf - ga, streak, form };
 	});
 
@@ -314,6 +322,7 @@
 						{@const opp = opponent(g)}
 						{@const r = result(g)}
 						{@const final = isFinal(g)}
+						{@const counted = oppIsMember(g)}
 						{@const p = dateParts(g.contest_date)}
 						{@const confShort = oppConfShort(g)}
 						<a
@@ -337,7 +346,15 @@
 									</span>
 								{/if}
 								<div class="min-w-0">
-									<div class="truncate text-sm text-gray-900 dark:text-white">{opp?.name ?? '—'}</div>
+									<div class="flex items-center gap-1.5">
+										<span class="truncate text-sm text-gray-900 dark:text-white">{opp?.name ?? '—'}</span>
+										{#if final && !counted}
+											<span
+												title="Non-division opponent — not counted in the record"
+												class="shrink-0 rounded-sm bg-amber-500/15 px-1 py-px text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400"
+											>non-{divLabel}</span>
+										{/if}
+									</div>
 									<div class="mt-px text-[10px] text-gray-400 dark:text-gray-500">
 										{confShort ?? ''}{isHome(g) ? '' : confShort ? ' · Away' : 'Away'}
 									</div>

@@ -34,8 +34,8 @@ export type ScheduleGame = {
 	status: string;
 	home_team_season_id: number;
 	away_team_season_id: number;
-	home_team_season: { team: { ncaa_team_id: string; name: string; logo_url_dark: string | null; logo_url_light: string | null }; conference: { name: string; short_name: string } | null } | null;
-	away_team_season: { team: { ncaa_team_id: string; name: string; logo_url_dark: string | null; logo_url_light: string | null }; conference: { name: string; short_name: string } | null } | null;
+	home_team_season: { division_member: boolean; team: { ncaa_team_id: string; name: string; logo_url_dark: string | null; logo_url_light: string | null }; conference: { name: string; short_name: string } | null } | null;
+	away_team_season: { division_member: boolean; team: { ncaa_team_id: string; name: string; logo_url_dark: string | null; logo_url_light: string | null }; conference: { name: string; short_name: string } | null } | null;
 };
 
 export const load: PageServerLoad = async ({ params, url }) => {
@@ -91,10 +91,12 @@ export const load: PageServerLoad = async ({ params, url }) => {
 				home_team_season_id,
 				away_team_season_id,
 				home_team_season:team_seasons!home_team_season_id(
+						division_member,
 					team:teams(ncaa_team_id, name, logo_url_dark, logo_url_light),
 					conference:conferences(name, short_name)
 				),
 				away_team_season:team_seasons!away_team_season_id(
+						division_member,
 					team:teams(ncaa_team_id, name, logo_url_dark, logo_url_light),
 					conference:conferences(name, short_name)
 				)
