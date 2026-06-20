@@ -1,12 +1,14 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
+	import { onMount } from 'svelte';
 	import { Dropdown, DropdownItem } from 'flowbite-svelte';
 	import { ChevronDownOutline } from 'flowbite-svelte-icons';
 	import TeamLogo from '$lib/components/TeamLogo.svelte';
 	import TeamRoster from '$lib/components/TeamRoster.svelte';
 	import type { PageData } from './$types';
 	import type { ScheduleGame } from './+page.server';
+	import posthog from 'posthog-js';
 
 	let { data }: { data: PageData } = $props();
 
@@ -46,8 +48,27 @@
 		return `hsl(${Math.round(hue * 360)}, ${Math.round(sat * 85)}%, ${Math.round(l * 70 * 100) / 100}%)`;
 	}
 
+	onMount(() => {
+		posthog.capture('team_viewed', {
+			team_id: team.ncaa_team_id,
+			team_name: team.name,
+			sport,
+			division,
+			season: seasonLabel,
+			conference: conferenceName
+		});
+	});
+
 	let seasonDropdownOpen = $state(false);
 	function navigateSeason(label: string) {
+		posthog.capture('team_season_changed', {
+			team_id: team.ncaa_team_id,
+			team_name: team.name,
+			old_season: seasonLabel,
+			new_season: label,
+			sport,
+			division
+		});
 		const sp = new URLSearchParams({ sport, division: String(division), season: label });
 		goto(`/teams/${team.ncaa_team_id}?${sp}`);
 		seasonDropdownOpen = false;
@@ -180,12 +201,12 @@
 {#snippet statCell(label: string, value: string)}
 	{#if tc}
 		<div class="min-w-19.5 flex-1 rounded px-3 py-2.5" style="background:rgba(255,255,255,.12)">
-			<div class="font-mono text-xl font-bold leading-tight text-white">{value}</div>
+			<div class="font-mono text-xl font-bold leading-tight whitespace-nowrap text-white">{value}</div>
 			<div class="mt-1 text-[10px] uppercase tracking-wider" style="color:rgba(255,255,255,.72)">{label}</div>
 		</div>
 	{:else}
 		<div class="min-w-19.5 flex-1 rounded border border-gray-200 bg-gray-50 px-3 py-2.5 dark:border-gray-700 dark:bg-gray-900">
-			<div class="font-mono text-xl font-bold leading-tight text-gray-900 dark:text-white">{value}</div>
+			<div class="font-mono text-xl font-bold leading-tight whitespace-nowrap text-gray-900 dark:text-white">{value}</div>
 			<div class="mt-1 text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">{label}</div>
 		</div>
 	{/if}
@@ -282,7 +303,17 @@
 							? 'bg-gray-700 text-white dark:bg-gray-600'
 							: 'bg-white text-gray-500 hover:bg-gray-700 hover:text-white dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-600'}"
 				style={tc ? (isActive ? `background-color: ${tc};` : `background-color: ${shadowColor(tc)};`) : ''}
-				onclick={() => (activeTab = tab.key)}
+				onclick={() => {
+					posthog.capture('team_tab_switched', {
+						tab: tab.key,
+						team_id: team.ncaa_team_id,
+						team_name: team.name,
+						sport,
+						division,
+						season: seasonLabel
+					});
+					activeTab = tab.key;
+				}}
 			>
 				<span>{tab.label}</span>
 			</button>

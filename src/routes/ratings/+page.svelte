@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
+	import { onMount } from 'svelte';
 	import { Table, TableHead, TableHeadCell, TableBody, TableBodyRow, TableBodyCell, Dropdown, DropdownItem } from 'flowbite-svelte';
 	import TeamLogo from '$lib/components/TeamLogo.svelte';
 	import type { PageData } from './$types';
+	import posthog from 'posthog-js';
 
 	let { data }: { data: PageData } = $props();
 
@@ -28,6 +30,15 @@
 		return (v >= 0 ? '+' : '') + v.toFixed(2);
 	}
 
+	onMount(() => {
+		posthog.capture('ratings_viewed', {
+			system,
+			season: seasonLabel,
+			sport,
+			division
+		});
+	});
+
 	function navigate(overrides: Record<string, string | number> = {}) {
 		const sp = new URLSearchParams({
 			sport,
@@ -41,6 +52,19 @@
 
 	function navigateSeason(label: string) {
 		navigate({ season: label });
+	}
+
+	function navigateSystem(newSystem: string) {
+		if (newSystem !== system) {
+			posthog.capture('rating_system_changed', {
+				from_system: system,
+				to_system: newSystem,
+				season: seasonLabel,
+				sport,
+				division
+			});
+		}
+		navigate({ system: newSystem });
 	}
 
 	function teamHref(ncaaTeamId: string) {
@@ -89,7 +113,7 @@
 			<div class="flex gap-1">
 				{#each systems as sys}
 					<button
-						onclick={() => navigate({ system: sys.value })}
+						onclick={() => navigateSystem(sys.value)}
 						class="px-2 py-1 text-xs rounded font-semibold transition-colors
 							{system === sys.value ? 'bg-primary-500 text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}"
 					>{sys.label}</button>
@@ -125,7 +149,7 @@
 			<div class="border-b border-gray-200 dark:border-gray-700 p-2 flex gap-1">
 				{#each systems as sys}
 					<button
-						onclick={() => navigate({ system: sys.value })}
+						onclick={() => navigateSystem(sys.value)}
 						class="flex-1 text-xs py-1 rounded font-semibold transition-colors
 							{system === sys.value ? 'bg-primary-500 text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}"
 					>{sys.label}</button>

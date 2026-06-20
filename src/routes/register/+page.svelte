@@ -3,8 +3,18 @@
 	import { Button, Input, Label, Alert } from 'flowbite-svelte';
 	import PasswordInput from '$lib/components/PasswordInput.svelte';
 	import type { ActionData } from './$types';
+	import posthog from 'posthog-js';
 
 	let { form }: { form: ActionData } = $props();
+
+	function handleSubmit() {
+		return async ({ result, update }: { result: import('@sveltejs/kit').ActionResult; update: () => Promise<void> }) => {
+			if (result.type === 'success') {
+				posthog.capture('user_registered');
+			}
+			await update();
+		};
+	}
 </script>
 
 <svelte:head>
@@ -24,7 +34,7 @@
 			<Alert color="green" class="text-xs py-2">{form.message}</Alert>
 		{/if}
 
-		<form method="POST" use:enhance class="flex flex-col gap-4">
+		<form method="POST" use:enhance={handleSubmit} class="flex flex-col gap-4">
 			<div>
 				<Label for="email" class="mb-1 text-[11px] uppercase tracking-wider font-semibold text-gray-500 dark:text-gray-400">
 					Email

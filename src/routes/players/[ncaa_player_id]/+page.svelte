@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import { onMount } from 'svelte';
 	import TeamLogo from '$lib/components/TeamLogo.svelte';
 	import PlayerFormChart from '$lib/components/PlayerFormChart.svelte';
 	import MinutesBarChart from '$lib/components/MinutesBarChart.svelte';
 	import type { PageData } from './$types';
+	import posthog from 'posthog-js';
 
 	let { data }: { data: PageData } = $props();
 
@@ -244,6 +246,18 @@
 	function teamHref(ncaaTeamId: string, season?: string) {
 		return `/teams/${ncaaTeamId}?sport=${sport}&division=${division}&season=${season ?? seasonLabel}`;
 	}
+
+	onMount(() => {
+		posthog.capture('player_viewed', {
+			player_id: player.ncaa_player_id,
+			player_name: player.name,
+			position,
+			team: mostRecentTeam?.name,
+			sport,
+			division,
+			season: seasonLabel
+		});
+	});
 
 	// --- SEO ------------------------------------------------------------------
 	const canonicalUrl = $derived(`${page.url.origin}${page.url.pathname}`);

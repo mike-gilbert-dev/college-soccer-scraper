@@ -1,8 +1,10 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import { onMount } from 'svelte';
 	import TeamLogo from '$lib/components/TeamLogo.svelte';
 	import GameBoxscore from '$lib/components/GameBoxscore.svelte';
 	import type { PageData } from './$types';
+	import posthog from 'posthog-js';
 
 	let { data }: { data: PageData } = $props();
 
@@ -45,6 +47,20 @@
 		: game.status === 'in_progress' ? 'In Progress'
 		: 'Scheduled'
 	);
+	onMount(() => {
+		posthog.capture('game_viewed', {
+			contest_id: game.ncaa_contest_id,
+			home_team: homeTeam?.name,
+			away_team: awayTeam?.name,
+			home_score: game.home_score,
+			away_score: game.away_score,
+			status: game.status,
+			sport,
+			division,
+			season: seasonLabel
+		});
+	});
+
 	const canonicalUrl = $derived(`${page.url.origin}${page.url.pathname}`);
 	const pageTitle = $derived(
 		game.home_score != null && game.away_score != null

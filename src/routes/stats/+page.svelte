@@ -1,11 +1,13 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
+	import { onMount } from 'svelte';
 	import { Dropdown, DropdownItem } from 'flowbite-svelte';
 	import TeamLogo from '$lib/components/TeamLogo.svelte';
 	import StatLeaders from '$lib/components/StatLeaders.svelte';
 	import type { PageData } from './$types';
 	import type { TeamStat, Leader } from './+page.server';
+	import posthog from 'posthog-js';
 
 	let { data }: { data: PageData } = $props();
 
@@ -18,6 +20,14 @@
 	const conferences      = $derived(data.conferences as string[]);
 
 	let selectedConf = $state('');
+
+	onMount(() => {
+		posthog.capture('stats_viewed', {
+			sport: data.sport,
+			division,
+			season: seasonLabel
+		});
+	});
 
 	// Reset conference filter when sport/season changes
 	$effect(() => { data.sport; data.seasonLabel; selectedConf = ''; });
