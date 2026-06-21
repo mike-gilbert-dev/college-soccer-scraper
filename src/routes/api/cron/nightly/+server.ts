@@ -54,23 +54,28 @@ export const GET: RequestHandler = async ({ request, url }) => {
 			: DEFAULT_TARGETS;
 
 	const today = isoDay(new Date());
+	// For a normal nightly run we anchor on today; a forced ?date= anchors on that date
+	// so manual backfills resolve the season that contains the target date, year-round.
+	const anchor = forcedDate ?? today;
 
-	// ── Resolve the active season (the one whose range contains today) ──
+	// ── Resolve the season whose range contains the anchor date ──
 	const { data: activeSeason } = await supabaseAdmin
 		.from('seasons')
 		.select('id, year, label, start_date, end_date')
-		.lte('start_date', today)
-		.gte('end_date', today)
+		.lte('start_date', anchor)
+		.gte('end_date', anchor)
 		.order('start_date', { ascending: false })
 		.limit(1)
 		.maybeSingle();
 
 	if (!activeSeason) {
-		// Off-season (or no season row covers today) — nothing to do, but report it.
+		// Off-season (or no season row covers the anchor) — nothing to do, but report it.
 		return json({
 			ran: false,
-			reason: 'No active season covers today',
-			today
+			reason: forcedDate
+				? `No season covers ${forcedDate}`
+				: 'No active season covers today',
+			anchor
 		});
 	}
 
