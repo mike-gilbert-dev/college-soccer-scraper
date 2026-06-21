@@ -82,7 +82,17 @@ timed out. The edge function fixes the root cause with **batched bulk upserts**
 - **Targets / knobs:** `DEFAULT_TARGETS` = MSO + WSO D1, 2-day window. Query overrides: `?days=`, `?date=YYYY-MM-DD` (anchors season resolution for backfills), `?sport=&division=`.
 - **Manual trigger:** `curl -H "Authorization: Bearer <service_role_key>" "https://<project>.supabase.co/functions/v1/nightly-ingest?date=2025-10-11"`
 - **Player stats:** not in the nightly run. Pull on demand via the admin "Ingest Archives" UI (which shares [`src/lib/server/ingest.ts`](src/lib/server/ingest.ts)).
-- **Ratings recompute:** not yet automated — still run from the admin "Recompute Ratings" panel (or `/api/ratings/recompute`).
 
-### Retired: Vercel cron
-[`src/routes/api/cron/nightly/+server.ts`](src/routes/api/cron/nightly/+server.ts) + [`src/lib/server/cron-auth.ts`](src/lib/server/cron-auth.ts) (`CRON_SECRET` auth) were the first cut. The schedule is removed (`vercel.json` `crons: []`) because the chatty ingest exceeded Hobby's 60s. The route still works as a manual fallback over a narrow window.
+## Nightly ratings recompute (pg_cron → Vercel)
+
+A second pg_cron job `nightly-ratings` runs at `08:15 UTC` — 15 min after the
+ingest — and recomputes Elo/RPI/Power. Recompute is *non-chatty* (bulk reads,
+chunked writes; ~4s for both sports) so it fits Vercel's 60s budget, and reusing
+the Vercel endpoint avoids a duplicate rating engine in Deno.
+
+- The job calls [`src/routes/api/cron/nightly/+server.ts`](src/routes/api/cron/nightly/+server.ts) with `?phase=ratings` (skips ingest, recomputes for `DEFAULT_TARGETS`). Migration: [`20260621000002_schedule_nightly_ratings.sql`](supabase/migrations/20260621000002_schedule_nightly_ratings.sql).
+- **Auth:** `Authorization: Bearer $CRON_SECRET` ([`src/lib/server/cron-auth.ts`](src/lib/server/cron-auth.ts)); the secret is in Vault (`vercel_cron_secret`) for pg_net and in Vercel's env for the endpoint.
+- `?phase` on that route: `both` (default) | `ingest` (skip ratings) | `ratings` (skip ingest).
+
+### Retired: Vercel cron schedule
+The Vercel cron in [`src/routes/api/cron/nightly/+server.ts`](src/routes/api/cron/nightly/+server.ts) was the first cut at the *ingest*. Its schedule is removed (`vercel.json` `crons: []`) because the chatty ingest exceeded Hobby's 60s — that moved to the Supabase edge function. The route itself still serves `?phase=ratings` (used above) and works as a manual ingest fallback over a narrow window.
