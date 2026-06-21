@@ -149,11 +149,12 @@ export async function ingestDate(params: {
 				const ncaaPlayerId = syntheticPlayerId(teamDetail.teamId, pl.firstName, pl.lastName);
 				const fullName = `${pl.firstName} ${pl.lastName}`;
 
-				const { data: playerRow } = await supabaseAdmin
-					.from('players')
-					.upsert({ ncaa_player_id: ncaaPlayerId, name: fullName }, { onConflict: 'ncaa_player_id' })
-					.select('id')
-					.single();
+				// Insert new players only — never overwrite an existing (possibly
+				// externally-normalized) name. Returns the id either way.
+				const { data: gp } = await supabaseAdmin.rpc('get_or_create_players', {
+					p_players: [{ ncaa_player_id: ncaaPlayerId, name: fullName }]
+				});
+				const playerRow = (gp as { id: number }[] | null)?.[0];
 				if (!playerRow) continue;
 				playersUpserted++;
 

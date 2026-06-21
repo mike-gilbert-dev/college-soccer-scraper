@@ -91,6 +91,7 @@ timed out. The edge function fixes the root cause with **batched bulk upserts**
 3. Writes a `reconciliation_log` row incl. season-wide finals-missing-stats **before/after** (computed via `get_games_missing_player_stats`), surfaced in `/admin` → Data → **Reconciliation**.
 
 - **Bounded:** ≤`cap` box scores per run, so a large initial backfill self-heals over successive nights (`capped` flag signals a residual). Player stats are not part of nightly-ingest by design (box-score fetch is one NCAA call per game).
+- **Player names are never overwritten.** Both this function and [`ingest.ts`](src/lib/server/ingest.ts) create players via the [`get_or_create_players`](supabase/migrations/20260621000005_get_or_create_players.sql) RPC (`insert ... on conflict do nothing`), so externally-normalized `players.name` formatting survives every run. New players arrive with the raw NCAA name — re-run name normalization periodically to catch newcomers, but it never has to *undo* a clobber. (Jersey number / position on `player_seasons` are still kept current.)
 - **Forced run / backfill:** `?date=YYYY-MM-DD` reconciles *all* finals on that date (any sport via `?sport=&division=`). Manual: `curl -H "Authorization: Bearer <service_role_key>" "https://<project>.supabase.co/functions/v1/nightly-reconcile?date=2025-10-11&sport=MSO&division=1"`
 - **Schedule migration:** [`20260621000004_schedule_nightly_reconcile.sql`](supabase/migrations/20260621000004_schedule_nightly_reconcile.sql). Same Vault secret (`edge_service_key`) as nightly-ingest.
 

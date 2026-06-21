@@ -315,15 +315,17 @@ Deno.serve(async (req) => {
 				}
 			}
 
-			// Phase A: players
+			// Phase A: players — insert new only; never overwrite an existing name,
+			// so externally-normalized name formatting is preserved.
 			const playerIdByNcaa = new Map<string, number>();
 			if (playerRows.size) {
-				const { data, error } = await supabase
-					.from('players')
-					.upsert([...playerRows.values()], { onConflict: 'ncaa_player_id' })
-					.select('id, ncaa_player_id');
-				if (error) throw new Error(`players upsert: ${error.message}`);
-				for (const p of data ?? []) playerIdByNcaa.set(p.ncaa_player_id, p.id);
+				const { data, error } = await supabase.rpc('get_or_create_players', {
+					p_players: [...playerRows.values()]
+				});
+				if (error) throw new Error(`get_or_create_players: ${error.message}`);
+				for (const p of (data ?? []) as { id: number; ncaa_player_id: string }[]) {
+					playerIdByNcaa.set(p.ncaa_player_id, p.id);
+				}
 			}
 
 			// Phase B: player_seasons
