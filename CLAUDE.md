@@ -65,3 +65,16 @@ Key points:
 - The primary endpoint is `GetContests_web` (sport code `MSO`, division `1`)
 - `contestDate` is formatted `MM/DD/YYYY`
 - No authentication required for any of the 5 endpoints
+
+`GetContests_web` returns **every contest for a date regardless of state** (`scheduled` / `live` / `final` / `cancelled`), so schedules and final scores come from the same call — the pipeline only differs by the game's `status`.
+
+## Nightly ingest cron
+
+[`src/routes/api/cron/nightly/+server.ts`](src/routes/api/cron/nightly/+server.ts) runs the full pipeline (archive games → archive box scores → ingest → recompute ratings) over a rolling window, unattended. Scheduled via [`vercel.json`](vercel.json) (`0 8 * * *` UTC). The shared ingest logic lives in [`src/lib/server/ingest.ts`](src/lib/server/ingest.ts), reused by the admin "Ingest Archives" route.
+
+- **Auth:** requires `CRON_SECRET` env var; Vercel auto-sends it as `Authorization: Bearer $CRON_SECRET`. Unlike the `/admin` routes it does **not** use a Supabase session ([`src/lib/server/cron-auth.ts`](src/lib/server/cron-auth.ts)).
+- **Season:** auto-selects the `seasons` row whose `start_date`/`end_date` range contains today; no-ops in the off-season.
+- **Targets:** `DEFAULT_TARGETS` in the route (MSO + WSO, D1). Query overrides: `?days=`, `?boxscores=1`, `?bsDelay=`, `?date=YYYY-MM-DD`, `?sport=&division=`.
+- **Box scores / player stats:** off by default (`boxScores` only true with `?boxscores=1`) to fit Hobby's 60s budget — the nightly run is **scores-only**. Pull player stats on demand via the admin UI or `?boxscores=1` over a narrow window.
+- **Timeout:** `export const config = { maxDuration: 60 }` for Hobby. Bump to 300 (Pro) if you enable box scores nightly.
+- **Manual trigger:** `curl -H "Authorization: Bearer $CRON_SECRET" "https://<host>/api/cron/nightly?date=2026-09-01"` (add `&boxscores=1` for player stats)
