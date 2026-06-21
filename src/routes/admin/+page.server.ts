@@ -1,6 +1,22 @@
 import type { PageServerLoad } from './$types';
 import { supabaseAdmin } from '$lib/server/supabase-admin';
 
+export type ReconciliationLogRow = {
+	id: number;
+	run_at: string;
+	sport_code: string;
+	division: number;
+	targets_considered: number;
+	boxscores_fetched: number;
+	games_with_stats: number;
+	stats_upserted: number;
+	finals_missing_before: number;
+	finals_missing_after: number;
+	capped: boolean;
+	duration_ms: number | null;
+	errors: { contestId: string; message: string }[];
+};
+
 export const load: PageServerLoad = async () => {
 	const [
 		{ count: gameCount },
@@ -8,6 +24,7 @@ export const load: PageServerLoad = async () => {
 		{ count: finalCount },
 		{ count: liveCount },
 		{ data: recentLog },
+		{ data: reconciliationLog },
 		{ data: allTeams },
 		{ data: seasons }
 	] = await Promise.all([
@@ -19,6 +36,11 @@ export const load: PageServerLoad = async () => {
 			.from('scrape_log')
 			.select('*')
 			.order('fetched_at', { ascending: false })
+			.limit(50),
+		supabaseAdmin
+			.from('reconciliation_log')
+			.select('*')
+			.order('run_at', { ascending: false })
 			.limit(50),
 		supabaseAdmin
 			.from('teams')
@@ -38,6 +60,7 @@ export const load: PageServerLoad = async () => {
 			liveGames: liveCount ?? 0
 		},
 		recentLog: recentLog ?? [],
+		reconciliationLog: (reconciliationLog ?? []) as ReconciliationLogRow[],
 		seasons: (seasons ?? []) as { id: number; label: string; start_date: string; end_date: string }[],
 		allTeams: (allTeams ?? []) as {
 			id: number;

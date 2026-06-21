@@ -81,7 +81,18 @@ timed out. The edge function fixes the root cause with **batched bulk upserts**
 - **Season:** the function resolves the `seasons` row covering today (or a forced `?date=`) and **no-ops in the off-season**, so the job is safe year-round.
 - **Targets / knobs:** `DEFAULT_TARGETS` = MSO + WSO D1, 2-day window. Query overrides: `?days=`, `?date=YYYY-MM-DD` (anchors season resolution for backfills), `?sport=&division=`.
 - **Manual trigger:** `curl -H "Authorization: Bearer <service_role_key>" "https://<project>.supabase.co/functions/v1/nightly-ingest?date=2025-10-11"`
-- **Player stats:** not in the nightly run. Pull on demand via the admin "Ingest Archives" UI (which shares [`src/lib/server/ingest.ts`](src/lib/server/ingest.ts)).
+- **Player stats:** handled by the separate nightly-reconcile pass (below), not this function.
+
+## Nightly reconcile / player stats (Supabase Edge Function + pg_cron)
+
+[`supabase/functions/nightly-reconcile/index.ts`](supabase/functions/nightly-reconcile/index.ts) runs at `08:05 UTC` (5 min after ingest) and is the **player-stats automation + accuracy pass**. Per target it:
+1. Selects box-score targets via [`get_reconcile_targets`](supabase/migrations/20260621000003_reconciliation_log_and_targets.sql) — recently-final games (catch corrections / new) **or** any season final still missing `player_game_stats` (gap fill), recent-first, capped (`?cap=`, default 200).
+2. Fetches each box score (bounded concurrency, `?concurrency=`, default 8), archives raw JSON to the `boxscores/` Storage path, and **batch-upserts** players → player_seasons → player_game_stats.
+3. Writes a `reconciliation_log` row incl. season-wide finals-missing-stats **before/after** (computed via `get_games_missing_player_stats`), surfaced in `/admin` → Data → **Reconciliation**.
+
+- **Bounded:** ≤`cap` box scores per run, so a large initial backfill self-heals over successive nights (`capped` flag signals a residual). Player stats are not part of nightly-ingest by design (box-score fetch is one NCAA call per game).
+- **Forced run / backfill:** `?date=YYYY-MM-DD` reconciles *all* finals on that date (any sport via `?sport=&division=`). Manual: `curl -H "Authorization: Bearer <service_role_key>" "https://<project>.supabase.co/functions/v1/nightly-reconcile?date=2025-10-11&sport=MSO&division=1"`
+- **Schedule migration:** [`20260621000004_schedule_nightly_reconcile.sql`](supabase/migrations/20260621000004_schedule_nightly_reconcile.sql). Same Vault secret (`edge_service_key`) as nightly-ingest.
 
 ## Nightly ratings recompute (pg_cron → Vercel)
 

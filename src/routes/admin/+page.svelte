@@ -7,7 +7,7 @@
 	let { data }: { data: PageData } = $props();
 
 	// ── Sidebar navigation ──────────────────────────────────────
-	type ViewId = 'archive' | 'archive-boxscores' | 'ingest-archives' | 'api-test' | 'logos' | 'data-overview' | 'scrape-log' | 'manage-seasons' | 'ratings-recompute';
+	type ViewId = 'archive' | 'archive-boxscores' | 'ingest-archives' | 'api-test' | 'logos' | 'data-overview' | 'scrape-log' | 'reconciliation' | 'manage-seasons' | 'ratings-recompute';
 
 	let activeView = $state<ViewId>('archive');
 	let collapsed: Record<string, boolean> = $state({});
@@ -46,6 +46,7 @@
 			tools: [
 				{ id: 'data-overview', label: 'Overview' },
 				{ id: 'scrape-log', label: 'Scrape Log' },
+					{ id: 'reconciliation', label: 'Reconciliation' },
 			]
 		},
 		{
@@ -483,6 +484,7 @@
 	// ── Stat card helper ────────────────────────────────────────
 	const stats    = $derived(data.stats);
 	const recentLog = $derived(data.recentLog);
+	const reconciliationLog = $derived(data.reconciliationLog);
 
 	function statusColor(s: string) {
 		if (s === 'success') return 'green';
@@ -1258,6 +1260,59 @@
 										</TableBodyCell>
 										<TableBodyCell class="py-1.5 text-red-500 max-w-xs truncate">
 											{row.error_message ?? ''}
+										</TableBodyCell>
+									</TableBodyRow>
+								{/each}
+							</TableBody>
+						</Table>
+					{/if}
+				</div>
+
+			{:else if activeView === 'reconciliation'}
+				<!-- Reconciliation -->
+				<div>
+					<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Nightly Reconciliation</h2>
+					<p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
+						The <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">nightly-reconcile</code> job (08:05 UTC) re-fetches box scores for
+						recent finals and any season finals missing player stats, then upserts player stats from the stored files.
+						<span class="font-medium">Missing after</span> is the count of final games still without stats — it should trend to 0.
+						<span class="font-medium">Capped</span> means the per-run limit was hit and the remainder catches up on following nights.
+					</p>
+
+					{#if reconciliationLog.length === 0}
+						<p class="text-xs text-gray-500 dark:text-gray-400">No reconciliation runs yet.</p>
+					{:else}
+						<Table hoverable={true} striped={true} class="text-xs">
+							<TableHead>
+								<TableHeadCell class="py-2 text-[11px]">Run</TableHeadCell>
+								<TableHeadCell class="py-2 text-[11px]">Sport</TableHeadCell>
+								<TableHeadCell class="py-2 text-[11px]">Box scores</TableHeadCell>
+								<TableHeadCell class="py-2 text-[11px]">Stats</TableHeadCell>
+								<TableHeadCell class="py-2 text-[11px]">Missing →</TableHeadCell>
+								<TableHeadCell class="py-2 text-[11px]">Capped</TableHeadCell>
+								<TableHeadCell class="py-2 text-[11px]">Time</TableHeadCell>
+								<TableHeadCell class="py-2 text-[11px]">Errors</TableHeadCell>
+							</TableHead>
+							<TableBody>
+								{#each reconciliationLog as row}
+									<TableBodyRow>
+										<TableBodyCell class="py-1.5 text-gray-500">{new Date(row.run_at).toLocaleString()}</TableBodyCell>
+										<TableBodyCell class="py-1.5 font-mono">{row.sport_code} D{row.division}</TableBodyCell>
+										<TableBodyCell class="py-1.5 tabular-nums">{row.boxscores_fetched} / {row.targets_considered}</TableBodyCell>
+										<TableBodyCell class="py-1.5 tabular-nums">{row.stats_upserted}</TableBodyCell>
+										<TableBodyCell class="py-1.5 tabular-nums">
+											{row.finals_missing_before}<span class="text-gray-400"> → </span><span class={row.finals_missing_after === 0 ? 'text-green-600 dark:text-green-400' : 'text-amber-600 dark:text-amber-400'}>{row.finals_missing_after}</span>
+										</TableBodyCell>
+										<TableBodyCell class="py-1.5">
+											{#if row.capped}<Badge color="yellow" class="text-[10px] px-1.5 py-0.5">capped</Badge>{:else}<span class="text-gray-300 dark:text-gray-600">—</span>{/if}
+										</TableBodyCell>
+										<TableBodyCell class="py-1.5 text-gray-500 tabular-nums">{row.duration_ms != null ? (row.duration_ms / 1000).toFixed(1) + 's' : '—'}</TableBodyCell>
+										<TableBodyCell class="py-1.5">
+											{#if row.errors && row.errors.length > 0}
+												<span class="text-red-500" title={row.errors.map((e) => `${e.contestId}: ${e.message}`).join('\n')}>{row.errors.length}</span>
+											{:else}
+												<span class="text-gray-300 dark:text-gray-600">0</span>
+											{/if}
 										</TableBodyCell>
 									</TableBodyRow>
 								{/each}
