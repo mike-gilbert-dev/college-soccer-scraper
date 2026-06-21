@@ -44,6 +44,7 @@ export const GET: RequestHandler = async ({ request, url }) => {
 	// Default OFF for Hobby's 60s budget — scores-only. Pass ?boxscores=1 to include player stats.
 	const boxScores = url.searchParams.get('boxscores') === '1';
 	const bsDelay = Math.max(0, parseInt(url.searchParams.get('bsDelay') ?? '400', 10) || 0);
+	const doRatings = url.searchParams.get('ratings') !== '0'; // ?ratings=0 to skip recompute
 	const forcedDate = url.searchParams.get('date'); // YYYY-MM-DD, overrides the window
 	const sportParam = url.searchParams.get('sport');
 	const divisionParam = url.searchParams.get('division');
@@ -167,6 +168,7 @@ export const GET: RequestHandler = async ({ request, url }) => {
 					}
 
 					// 3. Ingest stored files into the database
+					const ingestStart = Date.now();
 					const ingest = await ingestDate({
 						sportCode,
 						division,
@@ -176,6 +178,7 @@ export const GET: RequestHandler = async ({ request, url }) => {
 					});
 					dateResult.gamesUpserted = ingest.gamesUpserted;
 					dateResult.playerStatsUpserted = ingest.playerStatsUpserted;
+					dateResult.ingestMs = Date.now() - ingestStart;
 					if (ingest.errors.length) dateResult.ingestErrors = ingest.errors.length;
 				} catch (e) {
 					const msg = e instanceof Error ? e.message : String(e);
@@ -191,12 +194,16 @@ export const GET: RequestHandler = async ({ request, url }) => {
 			}
 
 			// 4. Recompute ratings for the season (also refreshes division membership)
-			targetResult.ratings = await recomputeRatings({
-				sportCode,
-				division,
-				seasonId: activeSeason.id,
-				systems: RATING_SYSTEMS
-			});
+			if (doRatings) {
+				const ratingsStart = Date.now();
+				const ratings = await recomputeRatings({
+					sportCode,
+					division,
+					seasonId: activeSeason.id,
+					systems: RATING_SYSTEMS
+				});
+				targetResult.ratings = { ...ratings, ms: Date.now() - ratingsStart };
+			}
 		} catch (e) {
 			targetResult.error = e instanceof Error ? e.message : String(e);
 		}
