@@ -44,7 +44,12 @@ export const GET: RequestHandler = async ({ request, url }) => {
 	// Default OFF for Hobby's 60s budget — scores-only. Pass ?boxscores=1 to include player stats.
 	const boxScores = url.searchParams.get('boxscores') === '1';
 	const bsDelay = Math.max(0, parseInt(url.searchParams.get('bsDelay') ?? '400', 10) || 0);
-	const doRatings = url.searchParams.get('ratings') !== '0'; // ?ratings=0 to skip recompute
+	// phase: 'both' (default) | 'ingest' (skip ratings) | 'ratings' (skip ingest).
+	// Ingest now runs on Supabase (nightly-ingest edge function); this route is used
+	// with ?phase=ratings by a pg_cron job to recompute ratings after that ingest.
+	const phase = url.searchParams.get('phase') ?? 'both';
+	const doIngest = phase !== 'ratings';
+	const doRatings = phase !== 'ingest' && url.searchParams.get('ratings') !== '0';
 	const forcedDate = url.searchParams.get('date'); // YYYY-MM-DD, overrides the window
 	const sportParam = url.searchParams.get('sport');
 	const divisionParam = url.searchParams.get('division');
@@ -115,7 +120,7 @@ export const GET: RequestHandler = async ({ request, url }) => {
 		};
 
 		try {
-			for (const contestDate of dates) {
+			for (const contestDate of doIngest ? dates : []) {
 				const dateResult: Record<string, unknown> = { date: contestDate };
 				try {
 					// 1. Archive raw games (captures both schedules and final scores)
