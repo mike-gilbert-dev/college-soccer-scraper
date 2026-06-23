@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 2: Roster Fetch & Raw Archive — Roster</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1.25rem; line-height: 1.65; color: #111; }
+    h1 { font-size: 1.6rem; border-bottom: 3px solid #e8463a; padding-bottom: .5rem; margin-bottom: .5rem; }
+    h2 { font-size: 1.1rem; color: #333; margin-top: 2rem; border-bottom: 1px solid #e5e5e5; padding-bottom: .25rem; }
+    h3 { font-size: 1rem; color: #444; }
+    .meta { display: flex; flex-wrap: wrap; gap: 1.5rem; background: #f7f7f7; padding: .75rem 1rem; border-radius: 6px; font-size: .875rem; margin-bottom: 1.75rem; color: #444; }
+    .meta strong { color: #111; }
+    .checklist { list-style: none; padding: 0; margin: 0; }
+    .checklist li { padding: .4rem 0 .4rem .25rem; border-bottom: 1px solid #f0f0f0; display: flex; gap: .75rem; align-items: flex-start; font-size: .95rem; }
+    .checklist li::before { content: "\2610"; font-size: 1.1rem; color: #aaa; flex-shrink: 0; margin-top: .05rem; }
+    .ref { background: #fffbeb; border-left: 3px solid #f59e0b; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    .ref a { color: #92400e; font-weight: 500; }
+    .dep { background: #eff6ff; border-left: 3px solid #60a5fa; padding: .5rem .85rem; margin-bottom: 1.25rem; border-radius: 0 5px 5px 0; font-size: .875rem; color: #1e40af; }
+    .note { background: #f0fdf4; border-left: 3px solid #4ade80; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    code { background: #f3f4f6; padding: .15rem .4rem; border-radius: 3px; font-size: .875em; font-family: ui-monospace, monospace; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem 1.25rem; border-radius: 7px; overflow-x: auto; font-size: .875rem; }
+    pre code { background: none; padding: 0; font-size: inherit; }
+    a { color: #e8463a; }
+  </style>
+</head>
+<body>
+
+<div style="background:#f0fdf4;border:1.5px solid #4ade80;border-radius:7px;padding:.65rem 1.1rem;margin-bottom:1.5rem;font-size:.9rem;color:#166534;font-weight:500;">
+  ✅ Phase complete — all criteria satisfied.
+</div>
+<h1>Phase 2: Roster Fetch & Raw Archive</h1>
+
+<div class="meta">
+  <span><strong>Project:</strong> Roster</span>
+  <span><strong>Phase:</strong> 2 of 7</span>
+  <span><strong>Depends on:</strong> Phase 1 complete</span>
+</div>
+
+<div class="dep">
+  ⚠️ <strong>Prerequisite:</strong> Phase 1 (Schema & Storage Foundation) must be complete — this phase writes to the <code>sidearm-raw-rosters</code> bucket and reads <code>roster_sources</code>.
+</div>
+
+<h2>Overview</h2>
+<p>This phase implements the "collection" step of the project — and only that step. Scraping (fetch + archive raw JSON) and ingestion (parse + match + enrich) are intentionally two separate functions; this phase builds the scraper. It fetches the external roster JSON for a verified source, archives the raw response to Storage as the immutable source of truth, and exposes typed parse/read helpers so the separate ingest function (Phase 3) and any re-runs can derive structured roster entries from Storage without re-fetching. No matching or writes to player tables happen here. This mirrors the fetch→archive split already used by <code>nightly-ingest</code> and <code>ncaa-archive.ts</code>.</p>
+
+<h2>What Will Be Built</h2>
+
+<h3>1. Archive helpers — <code>src/lib/server/roster-archive.ts</code></h3>
+<p>A sibling of <code>src/lib/server/ncaa-archive.ts</code>, providing:</p>
+<ul>
+  <li><code>rosterPath(sportCode, seasonYear, teamId)</code> → <code>'MSO/2026/&lt;teamId&gt;.json'</code> (pure function).</li>
+  <li><code>saveRosterJson(...)</code> — upload raw JSON to <code>sidearm-raw-rosters</code> with <code>{ upsert: true }</code>.</li>
+  <li><code>readStoredRoster(...)</code> — download + JSON.parse a stored roster, returning the raw object or <code>null</code> if not found (copy the 404/Not-Found handling from <code>ncaa-archive.ts</code>).</li>
+  <li><code>listArchivedRosters(...)</code> — list archived team IDs for a sport/season.</li>
+</ul>
+
+<h3>2. Sidearm types + parser — <code>src/lib/server/sidearm.ts</code></h3>
+<p>Type definitions for the subset of the Sidearm <code>/api/v2/Rosters/{id}</code> response we use, plus a pure <code>parseRoster(raw)</code> that maps it to a normalized intermediate the matcher (Phase 3) consumes:</p>
+<pre><code>interface ParsedRosterPlayer {
+  firstName: string;
+  lastName: string;
+  jerseyNumber: number | null;   // from jerseyNumber (string) -> int
+  position: string | null;       // positionShort
+  classYear: string | null;      // normalized from academicYearShort, see below
+  height: string | null;         // `${heightFeet}-${heightInches}` or null
+  hometown: string | null;
+  headshotUrl: string | null;    // image.absoluteUrl
+  externalRef: string | null;    // Sidearm player id if present
+}</code></pre>
+<p><strong>Class-year normalization</strong> maps Sidearm <code>academicYearShort</code> to the existing <code>player_seasons.class_year</code> vocabulary (<code>FR/SO/JR/SR/GR</code>): <code>Fr.→FR, So.→SO, Jr.→JR, Sr.→SR, Gr./Grad→GR</code>; redshirt prefixes (<code>R-Sr.</code>) strip to the base year (<code>SR</code>). Unknown values map to <code>null</code> and are logged, never guessed.</p>
+<p>Skip players where the raw record's <code>hide</code> flag is true.</p>
+
+<h3>3. Fetch function</h3>
+<p>A function that, given a verified <code>roster_sources</code> row, builds the URL <code>https://{domain}/api/v2/Rosters/{sidearm_roster_id}</code>, GETs it with the project's standard <code>User-Agent</code> (<code>Mozilla/5.0 (compatible; college-soccer-scraper/1.0)</code>) and <code>Accept: application/json</code>, and returns the raw JSON. On non-2xx, throw with the status (logged by the caller).</p>
+
+<h3>4. On-demand trigger — edge function <code>supabase/functions/roster-scrape/index.ts</code></h3>
+<p>Per the scheduling decision, this runs on demand (no cron). It accepts <code>?team=&lt;ncaa_team_id&gt;</code> or <code>?source=&lt;roster_source_id&gt;</code> to target a single source (default: all <code>status='verified'</code> sources for the active season, capped). For each target it does exactly three things: fetches → archives raw JSON to Storage → writes a <code>roster_scrape_log</code> row. Auth and structure copy <code>nightly-ingest</code>: <code>verify_jwt:false</code>, checks <code>Authorization: Bearer &lt;service role key&gt;</code> itself, resolves the active season from <code>seasons</code>, returns a JSON summary.</p>
+
+<div class="note">📌 <strong>Scrape and ingest are two separate steps.</strong> This phase builds <strong>only the scrape half</strong> — <code>roster-scrape</code> never parses into, matches against, or writes to <code>players</code> / <code>player_seasons</code> / <code>roster_entry_queue</code>. Parsing + matching + enrichment is a distinct function (<code>roster-ingest</code>) built in Phase 3 that reads the archived JSON back from Storage via <code>readStoredRoster</code> — it does not re-hit the external site. This mirrors how the NCAA pipeline splits <code>nightly-ingest</code> (fetch/archive) from <code>nightly-reconcile</code> (parse/match/upsert), so a matcher change can be re-run against already-scraped files without re-scraping, and a matching bug never costs a re-fetch.</div>
+
+<div class="note">📝 <strong>Edge vs. SvelteKit:</strong> Build the fetch/archive/parse logic in <code>src/lib/server/</code> so it is unit-testable in the SvelteKit app, but the unattended runner is the edge function (Deno) — as with the NCAA pipeline. The edge function may inline a copy of the small pure helpers (the NCAA edge functions do this rather than importing app code).</div>
+
+<h2>Implementation Notes</h2>
+<ul>
+  <li>Storage is the source of truth: always archive the raw response <em>before</em> any parsing, and <code>upsert:true</code> so re-runs overwrite.</li>
+  <li><code>parseRoster</code> must be pure and total — never throw on a missing optional field; map to <code>null</code>.</li>
+  <li>Be polite: this hits a third-party site. Single request per source; if batching all sources, add a small delay/bounded concurrency (reuse the <code>pool()</code> helper pattern from <code>nightly-reconcile</code>, low limit e.g. 3).</li>
+  <li>Honor the existing <code>scrape_log</code> philosophy — every run, success or failure, writes a log row.</li>
+</ul>
+
+<h3>Key files to read before starting</h3>
+<ul>
+  <li><code>src/lib/server/ncaa-archive.ts</code> — the archive/read-helper pattern to mirror (path builder, upload, download-with-404-handling, list).</li>
+  <li><code>supabase/functions/nightly-ingest/index.ts</code> — edge-function skeleton: auth check, season resolution, <code>storage.upload</code>, <code>scrape_log</code> insert, JSON summary response.</li>
+  <li><code>supabase/functions/nightly-reconcile/index.ts</code> — the <code>pool()</code> bounded-concurrency helper and <code>User-Agent</code>/fetch conventions.</li>
+</ul>
+
+<h2>Completion Criteria</h2>
+<ul class="checklist">
+  <li class="done"><code>roster-archive.ts</code> and <code>sidearm.ts</code> exist with the helpers and parser above; <code>npm run check</code> passes.</li>
+  <li class="done"><code>parseRoster</code> correctly maps a real NC State response: 20+ players, each with firstName/lastName, and headshotUrl/classYear/height/hometown populated where present.</li>
+  <li class="done">Class-year normalization produces only <code>FR/SO/JR/SR/GR</code> or <code>null</code> (verified against the NC State roster, including any <code>R-Sr.</code> case).</li>
+  <li class="done">The <code>roster-scrape</code> edge function fetches NC State and writes the raw JSON to <code>sidearm-raw-rosters/MSO/&lt;year&gt;/&lt;teamId&gt;.json</code>.</li>
+  <li class="done">A <code>roster_scrape_log</code> row is written with <code>status='success'</code> and <code>entries_seen</code> &gt; 0.</li>
+  <li class="done">No writes occur to <code>players</code>, <code>player_seasons</code>, or <code>roster_entry_queue</code> in this phase (scrape is strictly separate from ingest).</li>
+</ul>
+
+<h2>How to Validate</h2>
+<ol>
+  <li>Invoke the scraper for NC State: <code>curl -H "Authorization: Bearer &lt;service_role_key&gt;" "https://&lt;project&gt;.supabase.co/functions/v1/roster-scrape?team=nc-state"</code> (use the correct seoname).</li>
+  <li>In the Supabase dashboard → Storage → <code>sidearm-raw-rosters</code>, confirm the archived JSON file exists at the expected path and contains the full roster.</li>
+  <li>Run <code>select * from roster_scrape_log order by created_at desc limit 1</code> — confirm success and a sane <code>entries_seen</code>.</li>
+  <li>Re-run readStoredRoster + parseRoster against the stored file (a quick script or app route) and confirm the parsed array matches the live roster, including headshot URLs that resolve in a browser.</li>
+</ol>
+
+</body>
+</html>

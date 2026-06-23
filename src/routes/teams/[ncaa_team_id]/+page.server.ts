@@ -24,6 +24,7 @@ export type PlayerSeasonStat = {
 	gk_saves: number | null;
 	gk_goals_against: number | null;
 	gk_shutouts: number;
+	headshot_path: string | null;
 };
 
 export type ScheduleGame = {

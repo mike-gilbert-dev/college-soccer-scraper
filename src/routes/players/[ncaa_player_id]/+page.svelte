@@ -5,6 +5,7 @@
 	import PlayerFormChart from '$lib/components/PlayerFormChart.svelte';
 	import MinutesBarChart from '$lib/components/MinutesBarChart.svelte';
 	import type { PageData } from './$types';
+	import { PUBLIC_SUPABASE_URL } from '$env/static/public';
 	import posthog from 'posthog-js';
 
 	let { data }: { data: PageData } = $props();
@@ -26,6 +27,14 @@
 		)
 	);
 	const currentPs = $derived(sortedPlayerSeasons[0] ?? null);
+	// Headshot from the most-recent season that has one (downloaded copy in Storage);
+	// shown in place of the team logo. Falls back to the logo when none exists.
+	const headshotPath = $derived(sortedPlayerSeasons.find((ps) => ps.headshot_path)?.headshot_path ?? null);
+	const headshotUrl = $derived(
+		headshotPath
+			? `${PUBLIC_SUPABASE_URL}/storage/v1/object/public/player-headshots/${headshotPath}`
+			: null
+	);
 	const position  = $derived(currentPs?.position ?? null);
 	const isGk      = $derived(position === 'GK');
 
@@ -314,7 +323,7 @@
 			class="hover:text-primary-500 dark:hover:text-primary-400">Teams</a>
 		{#if mostRecentTeam}
 			<span>/</span>
-			<a href={teamHref(mostRecentTeam.ncaa_team_id)}
+			<a href="{teamHref(mostRecentTeam.ncaa_team_id)}&tab=roster"
 				class="hover:text-primary-500 dark:hover:text-primary-400">{mostRecentTeam.name}</a>
 		{/if}
 		<span>/</span>
@@ -324,7 +333,11 @@
 	<!-- Identity hero -->
 	<section class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
 		<div class="flex flex-wrap items-center gap-4">
-			{#if currentPs && (currentPs.team_season.team.logo_url_dark || currentPs.team_season.team.logo_url_light)}
+			{#if headshotUrl}
+				<div class="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-md bg-gray-100 dark:bg-gray-700">
+					<img src={headshotUrl} alt={player.name} class="h-24 w-24 object-cover" loading="lazy" />
+				</div>
+			{:else if currentPs && (currentPs.team_season.team.logo_url_dark || currentPs.team_season.team.logo_url_light)}
 				<div class="flex h-12 w-12 shrink-0 items-center justify-center">
 					<TeamLogo
 						lightUrl={currentPs.team_season.team.logo_url_light}

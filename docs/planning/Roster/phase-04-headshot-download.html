@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 4: Headshot Download & Storage — Roster</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1.25rem; line-height: 1.65; color: #111; }
+    h1 { font-size: 1.6rem; border-bottom: 3px solid #e8463a; padding-bottom: .5rem; margin-bottom: .5rem; }
+    h2 { font-size: 1.1rem; color: #333; margin-top: 2rem; border-bottom: 1px solid #e5e5e5; padding-bottom: .25rem; }
+    h3 { font-size: 1rem; color: #444; }
+    .meta { display: flex; flex-wrap: wrap; gap: 1.5rem; background: #f7f7f7; padding: .75rem 1rem; border-radius: 6px; font-size: .875rem; margin-bottom: 1.75rem; color: #444; }
+    .meta strong { color: #111; }
+    .checklist { list-style: none; padding: 0; margin: 0; }
+    .checklist li { padding: .4rem 0 .4rem .25rem; border-bottom: 1px solid #f0f0f0; display: flex; gap: .75rem; align-items: flex-start; font-size: .95rem; }
+    .checklist li::before { content: "\2610"; font-size: 1.1rem; color: #aaa; flex-shrink: 0; margin-top: .05rem; }
+    .ref { background: #fffbeb; border-left: 3px solid #f59e0b; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    .ref a { color: #92400e; font-weight: 500; }
+    .dep { background: #eff6ff; border-left: 3px solid #60a5fa; padding: .5rem .85rem; margin-bottom: 1.25rem; border-radius: 0 5px 5px 0; font-size: .875rem; color: #1e40af; }
+    .note { background: #f0fdf4; border-left: 3px solid #4ade80; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    code { background: #f3f4f6; padding: .15rem .4rem; border-radius: 3px; font-size: .875em; font-family: ui-monospace, monospace; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem 1.25rem; border-radius: 7px; overflow-x: auto; font-size: .875rem; }
+    pre code { background: none; padding: 0; font-size: inherit; }
+    a { color: #e8463a; }
+  </style>
+</head>
+<body>
+
+<div style="background:#f0fdf4;border:1.5px solid #4ade80;border-radius:7px;padding:.65rem 1.1rem;margin-bottom:1.5rem;font-size:.9rem;color:#166534;font-weight:500;">
+  ✅ Phase complete — all criteria satisfied.
+</div>
+<h1>Phase 4: Headshot Download & Storage</h1>
+
+<div class="meta">
+  <span><strong>Project:</strong> Roster</span>
+  <span><strong>Phase:</strong> 4 of 7</span>
+  <span><strong>Depends on:</strong> Phase 3 complete</span>
+</div>
+
+<div class="dep">
+  ⚠️ <strong>Prerequisite:</strong> Phase 3 (Matching Engine) must be complete — headshots can only be downloaded for <code>player_seasons</code> that have a matched <code>player_id</code> and a non-null external <code>headshot_url</code>.
+</div>
+
+<h2>Overview</h2>
+<p>Phases 2–3 capture the external headshot <em>URL</em> on <code>player_seasons</code> but never fetch the image itself. This phase downloads the actual headshot bytes and stores a durable, season-scoped copy in Supabase Storage so the app serves images from our own infrastructure (no hot-linking, no link rot). It is built as a <strong>third on-demand step</strong> after scrape and ingest — <code>scrape</code> (fetch JSON) → <code>ingest</code> (Storage→match, no external HTTP) → <code>headshots</code> (fetch images for matched players) — keeping each step single-purpose and independently re-runnable.</p>
+
+<div class="note">📌 <strong>Why a separate step, not part of ingest:</strong> ingest is defined as "no external HTTP" (it reads archived JSON from Storage). Downloading images <em>is</em> external HTTP, but it also requires the <code>player_id</code> that only exists after matching. A dedicated <code>roster-headshots</code> step satisfies both: it runs after ingest, makes the only external image calls, and can be re-run on its own (e.g. to backfill newly-approved players or retry failed downloads) without re-scraping or re-matching.</p></div>
+
+<h2>What Will Be Built</h2>
+
+<h3>1. Migration — bucket + columns</h3>
+<ul>
+  <li>A <strong>public</strong> Storage bucket <code>player-headshots</code> (public-read so the site can serve images directly; created with the same idempotent <code>INSERT ... ON CONFLICT DO NOTHING</code> pattern as the existing bucket migration, but <code>public = true</code>). Note this differs from the private <code>ncaa-raw-games</code> / <code>sidearm-raw-rosters</code> buckets — headshots are public-facing.</li>
+  <li>New columns on <code>player_seasons</code> (season-scoped, alongside the existing <code>headshot_url</code>):
+    <pre><code>alter table player_seasons
+  add column headshot_path           text,        -- object key in player-headshots bucket
+  add column headshot_downloaded_at  timestamptz,
+  add column headshot_downloaded_from text;       -- the source URL we last fetched (change detection)</code></pre>
+  </li>
+</ul>
+
+<h3>2. Storage path convention — extend <code>roster-archive.ts</code> (or a new <code>headshot-storage.ts</code>)</h3>
+<p>A pure path builder following the requested season-scoped hierarchy:</p>
+<pre><code>headshotPath(sportCode, season, division, teamId, playerId, ext)
+  => `${sportCode}/${season}/${division}/${teamId}/${playerId}.${ext}`
+  // e.g. 'MSO/2026/1/&lt;teamId&gt;/&lt;playerId&gt;.jpg'</code></pre>
+<p>Because the leaf filename is the <code>player_id</code> within a season/team folder, re-running produces the same key and overwrites in place — one headshot per player <strong>per season</strong>, latest ingest wins, trivially findable. The extension is derived from the downloaded image's content-type (<code>image/jpeg→jpg</code>, <code>image/png→png</code>, <code>image/webp→webp</code>); before writing, delete any existing <code>&lt;playerId&gt;.*</code> in that folder so a content-type change never leaves a stale duplicate.</p>
+
+<h3>3. The headshot runner — edge function <code>supabase/functions/roster-headshots/index.ts</code></h3>
+<p>A new on-demand edge function (same auth/structure as <code>roster-scrape</code> / <code>roster-ingest</code>: <code>verify_jwt:false</code>, Bearer service-key check, season resolution, JSON summary). Same targeting params (<code>?team=</code> / <code>?source=</code>; default all verified sources for the active season). For each target it:</p>
+<ol>
+  <li>Selects <code>player_seasons</code> for the team-season that have a non-null <code>headshot_url</code> and need a download — i.e. <code>headshot_path</code> is null, OR <code>headshot_downloaded_from</code> ≠ current <code>headshot_url</code> (source changed), OR a <code>?force=true</code> override.</li>
+  <li>Resolves <code>sportCode</code>, <code>season</code>, <code>division</code>, <code>team_id</code>, and <code>player_id</code> for the path.</li>
+  <li>Downloads each image with bounded concurrency (reuse the <code>pool()</code> helper) and the standard <code>User-Agent</code>; validates the response is an image content-type.</li>
+  <li>Uploads to <code>player-headshots</code> at <code>headshotPath(...)</code> with <code>upsert:true</code>; sets <code>headshot_path</code>, <code>headshot_downloaded_at = now()</code>, <code>headshot_downloaded_from = headshot_url</code>.</li>
+  <li>Writes a <code>roster_scrape_log</code> row (reuse the table; populate counts — e.g. <code>enriched</code> = images stored — and <code>error_message</code> on failure).</li>
+</ol>
+
+<h3>4. Connect images back to players</h3>
+<p>After this step a matched player's season row carries both the source URL (<code>headshot_url</code>) and our durable copy (<code>headshot_path</code>). The app builds the public URL as <code>{SUPABASE_URL}/storage/v1/object/public/player-headshots/{headshot_path}</code>. Storing the object key (not a full URL) keeps it portable across environments.</p>
+
+<h2>Implementation Notes</h2>
+<ul>
+  <li><strong>Politeness / scale:</strong> this fetches one image per matched player (thousands at full scale). Keep concurrency modest, add a small delay, and prefer the change-detection skip so routine re-runs only fetch new/changed images.</li>
+  <li><strong>Fault isolation:</strong> a single image 404 / hotlink block / non-image response must be logged and skipped, never abort the batch; leave the prior <code>headshot_path</code> intact on failure.</li>
+  <li><strong>Idempotent:</strong> re-running with no source changes downloads nothing and changes no rows.</li>
+  <li><strong>Newly-approved players:</strong> queue entries approved in the admin surface (Phase 5) gain a <code>player_season</code> + <code>headshot_url</code>; the next <code>roster-headshots</code> run picks them up automatically via the selection in step 1.</li>
+  <li><strong>Copyright/likeness:</strong> these are third-party photos stored on our infrastructure — keep the source URL as provenance; out of scope to adjudicate rights here, but flagged for awareness.</li>
+</ul>
+
+<h3>Key files to read before starting</h3>
+<ul>
+  <li><code>src/lib/server/roster-archive.ts</code> (Phase 2) — path-builder + Storage upload pattern to extend.</li>
+  <li><code>supabase/migrations/20260610000000_ncaa_raw_bucket.sql</code> — bucket-creation pattern (set <code>public = true</code> here).</li>
+  <li><code>supabase/functions/nightly-reconcile/index.ts</code> — <code>pool()</code> bounded concurrency and edge-function structure.</li>
+  <li><code>supabase/functions/roster-ingest/index.ts</code> (Phase 3) — sibling runner whose auth/targeting/season-resolution this copies.</li>
+</ul>
+
+<h2>Completion Criteria</h2>
+<p>Every item below must be satisfied before proceeding to Phase 5.</p>
+<ul class="checklist">
+  <li class="done">Migration applies: public bucket <code>player-headshots</code> exists; <code>player_seasons</code> has <code>headshot_path</code>, <code>headshot_downloaded_at</code>, <code>headshot_downloaded_from</code>.</li>
+  <li class="done"><code>roster-headshots</code> is a separate function from scrape/ingest and is the only step that downloads images.</li>
+  <li class="done">Running it for NC State (after ingest) downloads each matched player's headshot to <code>MSO/&lt;season&gt;/&lt;division&gt;/&lt;teamId&gt;/&lt;playerId&gt;.&lt;ext&gt;</code> and sets <code>headshot_path</code>.</li>
+  <li class="done">The stored image renders via its public URL in a browser.</li>
+  <li class="done">Re-running with no source change downloads nothing (idempotent); changing a source URL (or <code>?force=true</code>) re-downloads and overwrites the same key.</li>
+  <li class="done">A failed image (e.g. 404) is logged and skipped without aborting the batch or wiping the existing <code>headshot_path</code>.</li>
+  <li class="done"><code>npm run check</code> passes.</li>
+</ul>
+
+<h2>How to Validate</h2>
+<ol>
+  <li>Ensure NC State has been scraped (Phase 2) and ingested (Phase 3). Then invoke: <code>curl -H "Authorization: Bearer &lt;service_role_key&gt;" "https://&lt;project&gt;.supabase.co/functions/v1/roster-headshots?team=nc-state"</code>.</li>
+  <li>In Storage → <code>player-headshots</code>, confirm files exist under <code>MSO/&lt;season&gt;/1/&lt;teamId&gt;/</code> named by <code>player_id</code>.</li>
+  <li>Run <code>select player_id, headshot_path, headshot_downloaded_at from player_seasons where headshot_path is not null and team_season_id = &lt;ncstate ts id&gt;</code>; open 2–3 public URLs in a browser and confirm the right player's photo.</li>
+  <li>Re-run the function; confirm the summary reports zero new downloads (idempotent).</li>
+  <li>Temporarily point one row's <code>headshot_url</code> at a 404 and run with <code>?force=true</code>; confirm an isolated error row in <code>roster_scrape_log</code> and that other downloads still succeed.</li>
+</ol>
+
+</body>
+</html>

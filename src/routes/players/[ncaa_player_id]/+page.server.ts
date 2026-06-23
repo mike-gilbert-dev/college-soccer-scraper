@@ -24,6 +24,7 @@ export const load: PageServerLoad = async ({ params, url }) => {
 			jersey_number,
 			position,
 			class_year,
+			headshot_path,
 			team_season:team_seasons (
 				id,
 				sport_code,
@@ -117,6 +118,7 @@ export const load: PageServerLoad = async ({ params, url }) => {
 			jersey_number: number | null;
 			position: string | null;
 			class_year: string | null;
+			headshot_path: string | null;
 			team_season: {
 				id: number;
 				sport_code: string;

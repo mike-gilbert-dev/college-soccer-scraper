@@ -117,7 +117,11 @@
 	<!-- Selected player -->
 	{#if p}
 		<div class="flex items-center gap-3 border-t border-gray-200 bg-gray-50 px-3.5 py-3 dark:border-gray-700 dark:bg-gray-900">
-			<TeamLogo lightUrl={p.logo_url_light} darkUrl={p.logo_url_dark} name={p.team} size={40} />
+			{#if p.headshot_url}
+				<img src={p.headshot_url} alt={p.name} class="h-10 w-10 shrink-0 rounded object-cover" loading="lazy" />
+			{:else}
+				<TeamLogo lightUrl={p.logo_url_light} darkUrl={p.logo_url_dark} name={p.team} size={40} />
+			{/if}
 			<div class="min-w-0 flex-1">
 				<div class="flex items-center gap-2">
 					<a href={href(p)} class="text-sm font-bold text-gray-900 hover:underline dark:text-white">{p.name}</a>
@@ -148,7 +152,11 @@
 						: 'border-l-transparent hover:bg-gray-50 dark:hover:bg-gray-700/40'}"
 			>
 				<span class="w-4 text-right font-mono text-xs font-bold tabular-nums {active ? 'text-primary-600 dark:text-primary-400' : 'text-gray-400 dark:text-gray-500'}">{i + 1}</span>
-				<TeamLogo lightUrl={l.logo_url_light} darkUrl={l.logo_url_dark} name={l.team} size={22} />
+				{#if l.headshot_url}
+					<img src={l.headshot_url} alt={l.name} class="h-5.5 w-5.5 shrink-0 rounded object-cover" loading="lazy" />
+				{:else}
+					<TeamLogo lightUrl={l.logo_url_light} darkUrl={l.logo_url_dark} name={l.team} size={22} />
+				{/if}
 				<span class="min-w-0 flex-1">
 					<span class="block truncate text-sm text-gray-900 dark:text-white {active ? 'font-semibold' : 'font-medium'}">{l.name}</span>
 					<span class="block text-[10px] text-gray-400 dark:text-gray-500">{l.team}</span>

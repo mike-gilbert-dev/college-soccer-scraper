@@ -1,5 +1,9 @@
 import type { PageServerLoad } from './$types';
 import { supabaseAdmin } from '$lib/server/supabase-admin';
+import { PUBLIC_SUPABASE_URL } from '$env/static/public';
+
+const headshotUrl = (path: string | null | undefined): string | null =>
+	path ? `${PUBLIC_SUPABASE_URL}/storage/v1/object/public/player-headshots/${path}` : null;
 
 export type PlayerStat = {
 	player_season_id: number;
@@ -11,6 +15,7 @@ export type PlayerStat = {
 	team_name: string;
 	team_ncaa_id: string;
 	conference: string;
+	headshot_path: string | null;
 	games_played: number;
 	minutes_played: number;
 	goals: number;
@@ -57,6 +62,7 @@ export type Leader = {
 	value: number;
 	logo_url_light: string | null;
 	logo_url_dark: string | null;
+	headshot_url: string | null;
 	/** Cumulative season-to-date total after each game, resampled to length `n`. */
 	series: number[];
 };
@@ -152,6 +158,7 @@ export const load: PageServerLoad = async ({ url }) => {
 		team_name:      teamMap[Number(p.team_season_id)]?.name ?? '',
 		team_ncaa_id:   teamMap[Number(p.team_season_id)]?.ncaa_team_id ?? '',
 		conference:     teamMap[Number(p.team_season_id)]?.conference ?? '',
+		headshot_path:  p.headshot_path as string | null,
 		games_played:   Number(p.games_played   ?? 0),
 		minutes_played: Number(p.minutes_played ?? 0),
 		goals:          Number(p.goals          ?? 0),
@@ -349,6 +356,7 @@ export const load: PageServerLoad = async ({ url }) => {
 				value:          total,
 				logo_url_light: tm?.logo_url_light ?? null,
 				logo_url_dark:  tm?.logo_url_dark ?? null,
+				headshot_url:   headshotUrl(p.headshot_path),
 				series
 			};
 		});

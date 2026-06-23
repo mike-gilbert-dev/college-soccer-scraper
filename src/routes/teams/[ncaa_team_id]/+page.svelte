@@ -21,7 +21,10 @@
 	const seasons        = $derived(data.seasons);
 	const tc             = $derived(team.team_color);
 
-	let activeTab = $state<'roster' | 'schedule'>('schedule');
+	// Honor ?tab=roster (e.g. linked from a player page breadcrumb); default to schedule.
+	let activeTab = $state<'roster' | 'schedule'>(
+		page.url.searchParams.get('tab') === 'roster' ? 'roster' : 'schedule'
+	);
 
 	const gender      = $derived(sport === 'WSO' ? 'W' : 'M');
 	const genderLabel = $derived(gender === 'W' ? "Women's" : "Men's");

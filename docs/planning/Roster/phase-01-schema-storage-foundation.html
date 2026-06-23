@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 1: Schema & Storage Foundation — Roster</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1.25rem; line-height: 1.65; color: #111; }
+    h1 { font-size: 1.6rem; border-bottom: 3px solid #e8463a; padding-bottom: .5rem; margin-bottom: .5rem; }
+    h2 { font-size: 1.1rem; color: #333; margin-top: 2rem; border-bottom: 1px solid #e5e5e5; padding-bottom: .25rem; }
+    h3 { font-size: 1rem; color: #444; }
+    .meta { display: flex; flex-wrap: wrap; gap: 1.5rem; background: #f7f7f7; padding: .75rem 1rem; border-radius: 6px; font-size: .875rem; margin-bottom: 1.75rem; color: #444; }
+    .meta strong { color: #111; }
+    .checklist { list-style: none; padding: 0; margin: 0; }
+    .checklist li { padding: .4rem 0 .4rem .25rem; border-bottom: 1px solid #f0f0f0; display: flex; gap: .75rem; align-items: flex-start; font-size: .95rem; }
+    .checklist li::before { content: "\2610"; font-size: 1.1rem; color: #aaa; flex-shrink: 0; margin-top: .05rem; }
+    .ref { background: #fffbeb; border-left: 3px solid #f59e0b; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    .ref a { color: #92400e; font-weight: 500; }
+    .dep { background: #eff6ff; border-left: 3px solid #60a5fa; padding: .5rem .85rem; margin-bottom: 1.25rem; border-radius: 0 5px 5px 0; font-size: .875rem; color: #1e40af; }
+    .note { background: #f0fdf4; border-left: 3px solid #4ade80; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    code { background: #f3f4f6; padding: .15rem .4rem; border-radius: 3px; font-size: .875em; font-family: ui-monospace, monospace; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem 1.25rem; border-radius: 7px; overflow-x: auto; font-size: .875rem; }
+    pre code { background: none; padding: 0; font-size: inherit; }
+    a { color: #e8463a; }
+  </style>
+</head>
+<body>
+
+<div style="background:#f0fdf4;border:1.5px solid #4ade80;border-radius:7px;padding:.65rem 1.1rem;margin-bottom:1.5rem;font-size:.9rem;color:#166534;font-weight:500;">
+  ✅ Phase complete — all criteria satisfied.
+</div>
+<h1>Phase 1: Schema & Storage Foundation</h1>
+
+<div class="meta">
+  <span><strong>Project:</strong> Roster</span>
+  <span><strong>Phase:</strong> 1 of 7</span>
+  <span><strong>Depends on:</strong> None (first phase)</span>
+</div>
+
+<h2>Overview</h2>
+<p>This phase lays the database and storage groundwork for everything that follows: the table that maps each team to its external athletics roster source, new season-scoped columns on <code>player_seasons</code> for the data we'll collect, the staging table for roster entries that need human review, a run log, and the private Storage bucket that will hold raw roster JSON as the source of truth. It also seeds one verified source (NC State Men's Soccer) by hand so the fetch and matching phases that follow are immediately testable without waiting on bulk auto-discovery (Phase 5).</p>
+
+<h2>What Will Be Built</h2>
+<p>A single forward-only SQL migration under <code>supabase/migrations/</code> (timestamped to sort after the latest existing migration), plus a Storage bucket migration following the existing pattern. Specifically:</p>
+
+<h3>1. <code>roster_sources</code> table</h3>
+<p>One row per <code>(team_id, sport_code, season_id)</code>, mapping an internal team-season to its external athletics roster.</p>
+<pre><code>roster_sources (
+  id                bigserial primary key,
+  team_id           bigint   not null references teams(id),
+  sport_code        text     not null,          -- 'MSO' for this project
+  season_id         bigint   not null references seasons(id),
+  domain            text,                         -- e.g. 'gopack.com'
+  platform          text     not null default 'unknown', -- 'sidearm' | 'presto' | 'custom' | 'unknown'
+  sidearm_roster_id text,                         -- e.g. '426'
+  status            text     not null default 'unverified', -- 'verified' | 'unverified' | 'failed'
+  last_verified_at  timestamptz,
+  notes             text,
+  created_at        timestamptz default now(),
+  unique (team_id, sport_code, season_id)
+)</code></pre>
+
+<h3>2. New columns on <code>player_seasons</code></h3>
+<p>Add the season-scoped roster fields. <code>class_year</code> already exists and must NOT be re-created.</p>
+<pre><code>alter table player_seasons
+  add column headshot_url text,
+  add column height       text,   -- store raw e.g. "5-8" or "6-1"; do not parse now
+  add column hometown     text,
+  add column roster_source_id bigint references roster_sources(id),
+  add column roster_synced_at  timestamptz;</code></pre>
+<div class="note">📝 <strong>Why on <code>player_seasons</code>, not <code>players</code>:</strong> headshot, height, hometown, and class year are all properties of a player on a specific team in a specific season (they change with transfers and years). This mirrors how <code>class_year</code>, <code>jersey_number</code>, and <code>position</code> already live on <code>player_seasons</code>.</div>
+
+<h3>3. <code>roster_entry_queue</code> staging table</h3>
+<p>Holds external roster entries that could NOT be confidently matched to an existing <code>player_season</code> (unmatched or ambiguous), for human review in Phase 4. Stores the raw external fields verbatim plus the matcher's suggestion.</p>
+<pre><code>roster_entry_queue (
+  id               bigserial primary key,
+  roster_source_id bigint not null references roster_sources(id),
+  team_season_id   bigint not null references team_seasons(id),
+  -- raw external fields (verbatim from Sidearm)
+  first_name       text,
+  last_name        text,
+  jersey_number    smallint,
+  position         text,
+  class_year       text,
+  height           text,
+  hometown         text,
+  headshot_url     text,
+  external_ref     text,            -- Sidearm player id if present, else null
+  -- matcher output
+  match_status     text not null,   -- 'unmatched' | 'ambiguous'
+  suggested_player_season_id bigint references player_seasons(id),
+  suggestion_reason text,
+  review_status    text not null default 'pending', -- 'pending' | 'approved' | 'rejected'
+  reviewed_at      timestamptz,
+  created_at       timestamptz default now(),
+  unique (roster_source_id, first_name, last_name, jersey_number)
+)</code></pre>
+
+<h3>4. <code>roster_scrape_log</code> table</h3>
+<p>One row per source per run (mirrors <code>scrape_log</code> / <code>reconciliation_log</code>): records fetch/match outcomes so runs are auditable and surfaced in /admin (Phase 4).</p>
+<pre><code>roster_scrape_log (
+  id                bigserial primary key,
+  roster_source_id  bigint references roster_sources(id),
+  status            text not null,   -- 'success' | 'error'
+  http_status       int,
+  entries_seen      int default 0,
+  matched           int default 0,
+  enriched          int default 0,
+  queued            int default 0,   -- unmatched/ambiguous staged
+  error_message     text,
+  duration_ms       int,
+  created_at        timestamptz default now()
+)</code></pre>
+
+<h3>5. Storage bucket</h3>
+<p>A private bucket <code>sidearm-raw-rosters</code>, created with the same idempotent <code>INSERT ... ON CONFLICT DO NOTHING</code> pattern as the existing bucket migration.</p>
+
+<h3>6. Grants / RLS</h3>
+<p>Match the established convention: <code>GRANT ALL</code> on the new tables and their sequences to <code>service_role</code>; <code>GRANT SELECT</code> to <code>anon, authenticated</code>; enable RLS with public-read policies. (The review/queue tables are written only by the service role; reads can stay admin-gated at the app layer.)</p>
+
+<h3>7. Seed NC State</h3>
+<p>Insert one verified <code>roster_sources</code> row for NC State Men's Soccer in the current season: <code>domain='gopack.com'</code>, <code>platform='sidearm'</code>, <code>sidearm_roster_id='426'</code>, <code>status='verified'</code>. Look up <code>team_id</code> via the existing <code>teams.ncaa_team_id</code> (seoname) and the active season via the <code>seasons</code> table. This unblocks Phases 2–4.</p>
+
+<h2>Implementation Notes</h2>
+<ul>
+  <li>Follow the existing migration conventions exactly — see the files in <code>supabase/migrations/</code> for naming (<code>YYYYMMDDHHMMSS_description.sql</code>), grant style, and RLS policy style.</li>
+  <li>The <code>height</code> column stays raw text on purpose — parsing (and nationality) are explicitly out of scope for this project.</li>
+  <li>Do not add a <code>headshot</code> download/storage step — we store the external URL only.</li>
+  <li>The seed must resolve <code>team_id</code> and <code>season_id</code> dynamically (subselects), not hardcode IDs, so it is portable across environments.</li>
+</ul>
+
+<h3>Key files to read before starting</h3>
+<ul>
+  <li><code>supabase/migrations/20260606000006_players.sql</code> — current <code>player_seasons</code> definition (confirms <code>class_year</code> already exists) and the grant/RLS/policy style to copy.</li>
+  <li><code>supabase/migrations/20260610000000_ncaa_raw_bucket.sql</code> — the exact bucket-creation pattern to mirror for <code>sidearm-raw-rosters</code>.</li>
+  <li><code>supabase/migrations/20260621000003_reconciliation_log_and_targets.sql</code> — log-table conventions to mirror for <code>roster_scrape_log</code>.</li>
+</ul>
+
+<h2>Completion Criteria</h2>
+<p>Every item below must be satisfied before proceeding to Phase 2.</p>
+<ul class="checklist">
+  <li class="done">Migration applies cleanly (local <code>supabase db reset</code> or remote <code>apply_migration</code>) with no errors.</li>
+  <li class="done"><code>roster_sources</code>, <code>roster_entry_queue</code>, and <code>roster_scrape_log</code> tables exist with the columns above.</li>
+  <li class="done"><code>player_seasons</code> has new columns <code>headshot_url</code>, <code>height</code>, <code>hometown</code>, <code>roster_source_id</code>, <code>roster_synced_at</code>; <code>class_year</code> is unchanged.</li>
+  <li class="done">Private bucket <code>sidearm-raw-rosters</code> exists.</li>
+  <li class="done">Grants and RLS policies match the existing convention (service_role full; anon/authenticated select; RLS enabled).</li>
+  <li class="done">Exactly one <code>roster_sources</code> row exists for NC State MSO, current season, <code>status='verified'</code>, <code>sidearm_roster_id='426'</code>, with a non-null <code>team_id</code>.</li>
+</ul>
+
+<h2>How to Validate</h2>
+<ol>
+  <li>Apply the migration. Confirm success with no errors.</li>
+  <li>Run <code>select table_name, column_name from information_schema.columns where table_name in ('roster_sources','roster_entry_queue','roster_scrape_log')</code> and confirm the schema.</li>
+  <li>Run <code>select column_name from information_schema.columns where table_name='player_seasons'</code> and confirm the five new columns plus the pre-existing <code>class_year</code>.</li>
+  <li>Run <code>select id, name from storage.buckets where id='sidearm-raw-rosters'</code> — expect one row.</li>
+  <li>Run <code>select rs.*, t.name from roster_sources rs join teams t on t.id=rs.team_id</code> — expect exactly the NC State row, correctly joined to the teams table, status <code>verified</code>.</li>
+</ol>
+
+</body>
+</html>

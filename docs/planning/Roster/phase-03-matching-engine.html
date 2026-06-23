@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 3: Matching Engine — Roster</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1.25rem; line-height: 1.65; color: #111; }
+    h1 { font-size: 1.6rem; border-bottom: 3px solid #e8463a; padding-bottom: .5rem; margin-bottom: .5rem; }
+    h2 { font-size: 1.1rem; color: #333; margin-top: 2rem; border-bottom: 1px solid #e5e5e5; padding-bottom: .25rem; }
+    h3 { font-size: 1rem; color: #444; }
+    .meta { display: flex; flex-wrap: wrap; gap: 1.5rem; background: #f7f7f7; padding: .75rem 1rem; border-radius: 6px; font-size: .875rem; margin-bottom: 1.75rem; color: #444; }
+    .meta strong { color: #111; }
+    .checklist { list-style: none; padding: 0; margin: 0; }
+    .checklist li { padding: .4rem 0 .4rem .25rem; border-bottom: 1px solid #f0f0f0; display: flex; gap: .75rem; align-items: flex-start; font-size: .95rem; }
+    .checklist li::before { content: "\2610"; font-size: 1.1rem; color: #aaa; flex-shrink: 0; margin-top: .05rem; }
+    .ref { background: #fffbeb; border-left: 3px solid #f59e0b; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    .ref a { color: #92400e; font-weight: 500; }
+    .dep { background: #eff6ff; border-left: 3px solid #60a5fa; padding: .5rem .85rem; margin-bottom: 1.25rem; border-radius: 0 5px 5px 0; font-size: .875rem; color: #1e40af; }
+    .note { background: #f0fdf4; border-left: 3px solid #4ade80; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    code { background: #f3f4f6; padding: .15rem .4rem; border-radius: 3px; font-size: .875em; font-family: ui-monospace, monospace; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem 1.25rem; border-radius: 7px; overflow-x: auto; font-size: .875rem; }
+    pre code { background: none; padding: 0; font-size: inherit; }
+    a { color: #e8463a; }
+  </style>
+</head>
+<body>
+
+<div style="background:#f0fdf4;border:1.5px solid #4ade80;border-radius:7px;padding:.65rem 1.1rem;margin-bottom:1.5rem;font-size:.9rem;color:#166534;font-weight:500;">
+  ✅ Phase complete — all criteria satisfied.
+</div>
+<h1>Phase 3: Matching Engine (External → player_seasons)</h1>
+
+<div class="meta">
+  <span><strong>Project:</strong> Roster</span>
+  <span><strong>Phase:</strong> 3 of 7</span>
+  <span><strong>Depends on:</strong> Phase 2 complete</span>
+</div>
+
+<div class="dep">
+  ⚠️ <strong>Prerequisite:</strong> Phase 2 (Roster Scrape & Archive) must be complete — this phase reads the archived raw JSON back from Storage; it never re-fetches the external site.
+</div>
+
+<h2>Overview</h2>
+<p>This is the core of the project, and it is built as a <strong>separate function from the scraper</strong> (Phase 2). Scraping wrote raw JSON to Storage; this phase's <code>roster-ingest</code> function reads that JSON back via <code>readStoredRoster</code>, then connects each external roster entry to the correct internal <code>player_season</code>, enriches confident matches with the collected fields, and stages everything uncertain for human review. Keeping ingest separate from scrape means the matcher can be re-run against already-scraped files without touching the external site. The key enabling insight is that internal <code>players</code> are themselves created from <code>firstName</code>/<code>lastName</code> scoped to a <code>team_season</code> (from NCAA box scores), with a <code>jersey_number</code> on <code>player_seasons</code> — the exact shape Sidearm provides. So matching is a normalized-name join within a single <code>team_season</code>, with jersey number as a confirmer/disambiguator.</p>
+
+<h2>What Will Be Built</h2>
+
+<h3>1. Name normalization + matcher — <code>src/lib/server/roster-match.ts</code></h3>
+<p>A pure matching module:</p>
+<ul>
+  <li><code>normalizeName(s)</code> — lowercase, strip diacritics (NFD + remove combining marks), drop punctuation, collapse whitespace. Reuse/extend the normalization idea from <code>syntheticPlayerId()</code> in <code>nightly-reconcile</code> so it is consistent with how internal names were keyed.</li>
+  <li><code>matchRoster(parsed, existingPlayerSeasons)</code> — given the parsed external entries and the existing <code>player_seasons</code> for the team-season (joined to <code>players.name</code>, <code>jersey_number</code>), classify each external entry.</li>
+</ul>
+
+<h3>2. Match classification rules</h3>
+<p>For each external entry, against the team-season's existing player_seasons:</p>
+<table style="width:100%; border-collapse:collapse; font-size:.9rem;">
+  <tr style="text-align:left; border-bottom:1px solid #ddd;"><th>Condition</th><th>Result</th><th>Action</th></tr>
+  <tr style="border-bottom:1px solid #f0f0f0;"><td>Exactly one normalized full-name match</td><td><strong>matched</strong> (confident)</td><td>Enrich that player_season</td></tr>
+  <tr style="border-bottom:1px solid #f0f0f0;"><td>Name match + jersey number also matches</td><td><strong>matched</strong> (confirmed)</td><td>Enrich that player_season</td></tr>
+  <tr style="border-bottom:1px solid #f0f0f0;"><td>Multiple internal players share the normalized name</td><td><strong>ambiguous</strong></td><td>Stage; if jersey resolves to one, record it as <code>suggested_player_season_id</code></td></tr>
+  <tr style="border-bottom:1px solid #f0f0f0;"><td>No full-name match, but a unique last-name + jersey match</td><td><strong>ambiguous</strong></td><td>Stage with suggestion + reason (likely nickname/first-name variant)</td></tr>
+  <tr><td>No plausible match at all</td><td><strong>unmatched</strong></td><td>Stage with no suggestion (likely roster-only player, e.g. freshman)</td></tr>
+</table>
+<div class="note">📝 <strong>Jersey is a confirmer, not a primary key.</strong> A confident name match still applies even if the jersey differs (jerseys change between/within seasons) — but a jersey mismatch on an otherwise-confident match is recorded in the log for visibility.</div>
+
+<h3>3. Enrichment writes (confident matches only)</h3>
+<p>For confident matches, update the matched <code>player_seasons</code> row, setting <code>headshot_url</code> (the external source URL only — the actual image is downloaded later in Phase 4), <code>height</code>, <code>hometown</code>, <code>class_year</code>, <code>roster_source_id</code>, and <code>roster_synced_at = now()</code>. <strong>Never</strong> touch <code>players.name</code> (preserve externally-normalized names, consistent with the <code>get_or_create_players</code> philosophy). Do not overwrite an existing non-null <code>jersey_number</code>/<code>position</code> from box scores unless null — roster and box-score sources should reconcile, not clobber; when in doubt, leave existing values and only fill nulls.</p>
+
+<h3>4. Staging writes (unmatched / ambiguous)</h3>
+<p>Upsert each non-confident entry into <code>roster_entry_queue</code> (verbatim raw fields + <code>match_status</code> + suggestion). The <code>UNIQUE(roster_source_id, first_name, last_name, jersey_number)</code> constraint makes re-runs idempotent — a queued entry is updated, not duplicated. Do not re-queue an entry whose <code>review_status</code> is already <code>approved</code>/<code>rejected</code>.</p>
+
+<h3>5. The ingest runner — edge function <code>supabase/functions/roster-ingest/index.ts</code></h3>
+<p>A <strong>new, separate</strong> on-demand edge function (distinct from Phase 2's <code>roster-scrape</code>). It accepts the same targeting params (<code>?team=</code> / <code>?source=</code>, default all verified sources for the active season) and for each target: reads the archived roster JSON from Storage via <code>readStoredRoster</code> (<strong>no external fetch</strong>), runs <code>parseRoster</code>, loads the team-season's existing player_seasons, runs the matcher, applies enrichment, stages the remainder, and records counts (<code>matched</code>, <code>enriched</code>, <code>queued</code>) in <code>roster_scrape_log</code>. If no archived file exists for a target, it logs and skips (the source must be scraped first). Use batched upserts (follow the Phase A/B/C batching in <code>nightly-reconcile</code>) and copy the <code>nightly-ingest</code> auth/structure (<code>verify_jwt:false</code>, Bearer service-key check, season resolution, JSON summary).</p>
+
+<h2>Implementation Notes</h2>
+<ul>
+  <li>Resolve the correct <code>team_season_id</code> from the source's <code>team_id</code> + <code>season_id</code> + <code>sport_code</code> (the <code>team_seasons</code> unique key).</li>
+  <li>The matcher must be a pure function over inputs (parsed entries + existing rows) so it can be unit-tested without a DB.</li>
+  <li>Idempotency is required: running the same roster twice yields the same enrichments and the same queue, with no duplicates.</li>
+  <li>Keep all matching within a single team-season — never match across teams.</li>
+</ul>
+
+<h3>Key files to read before starting</h3>
+<ul>
+  <li><code>src/lib/server/roster-archive.ts</code> (Phase 2) — <code>readStoredRoster</code>, the Storage-read helper this function's input comes from instead of a live fetch.</li>
+  <li><code>supabase/functions/nightly-reconcile/index.ts</code> — the precedent for a separate parse/match/upsert function; <code>syntheticPlayerId()</code> normalization, and the batched players→player_seasons upsert pattern to mirror.</li>
+  <li><code>supabase/migrations/20260606000006_players.sql</code> — <code>players</code> / <code>player_seasons</code> shape and the <code>UNIQUE(player_id, team_season_id)</code> contract.</li>
+  <li><code>supabase/migrations/20260621000005_get_or_create_players.sql</code> — the never-clobber-names philosophy enrichment must respect.</li>
+</ul>
+
+<h2>Completion Criteria</h2>
+<ul class="checklist">
+  <li class="done"><code>roster-match.ts</code> exists with a pure, unit-tested matcher; <code>npm run check</code> passes.</li>
+  <li class="done"><code>roster-ingest</code> is a separate function from <code>roster-scrape</code> and reads its input from Storage (<code>readStoredRoster</code>) — it performs no external HTTP fetch.</li>
+  <li class="done">Running <code>roster-ingest</code> for NC State (after a prior <code>roster-scrape</code>) enriches the matched player_seasons: <code>headshot_url</code>, <code>height</code>, <code>hometown</code>, <code>class_year</code> populated for players who already existed from box scores.</li>
+  <li class="done">Roster-only players (no internal player_season) land in <code>roster_entry_queue</code> with <code>match_status='unmatched'</code>, <code>review_status='pending'</code>.</li>
+  <li class="done">Any ambiguous entries are staged with a <code>suggested_player_season_id</code> and a human-readable <code>suggestion_reason</code>.</li>
+  <li class="done"><code>players.name</code> values are unchanged after the run.</li>
+  <li class="done">Re-running the same roster produces zero new queue rows and identical enrichment (idempotent).</li>
+  <li class="done"><code>roster_scrape_log</code> records accurate <code>matched</code>/<code>enriched</code>/<code>queued</code> counts.</li>
+</ul>
+
+<h2>How to Validate</h2>
+<ol>
+  <li>Ensure NC State has been scraped (Phase 2). Then run <code>roster-ingest?team=nc-state</code> — it reads the archived file from Storage, not the live site. Note the summary counts.</li>
+  <li><code>select p.name, ps.class_year, ps.height, ps.hometown, ps.headshot_url from player_seasons ps join players p on p.id=ps.player_id where ps.team_season_id = &lt;ncstate ts id&gt; and ps.headshot_url is not null</code> — spot-check 3–4 names against the live roster page; open a headshot URL in a browser.</li>
+  <li><code>select first_name, last_name, match_status, suggestion_reason from roster_entry_queue where roster_source_id = &lt;id&gt;</code> — confirm unmatched/ambiguous entries look right (e.g., freshmen who haven't played).</li>
+  <li>Run the function a second time; confirm queue row count is unchanged and no duplicate enrichment side effects.</li>
+  <li>Confirm <code>players.name</code> is byte-for-byte unchanged (compare a snapshot before/after).</li>
+</ol>
+
+</body>
+</html>

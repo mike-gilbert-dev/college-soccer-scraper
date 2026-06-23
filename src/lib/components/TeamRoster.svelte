@@ -4,6 +4,10 @@
 	// goalkeepers split into their own panel with keeper columns. Ported from the
 	// CollegeSoccer.IO design system (RosterScreen).
 	import type { PlayerSeasonStat } from '../../routes/teams/[ncaa_team_id]/+page.server';
+	import { PUBLIC_SUPABASE_URL } from '$env/static/public';
+
+	const hs = (path: string | null): string | null =>
+		path ? `${PUBLIC_SUPABASE_URL}/storage/v1/object/public/player-headshots/${path}` : null;
 
 	let {
 		players,
@@ -14,11 +18,11 @@
 	} = $props();
 
 	type Field = {
-		no: number | null; name: string; ncaaId: string; pos: 'FWD' | 'MID' | 'DEF' | '—';
+		no: number | null; name: string; ncaaId: string; pos: 'FWD' | 'MID' | 'DEF' | '—'; headshot: string | null;
 		gp: number; min: number; g: number; a: number; pts: number; sh: number; sog: number;
 	};
 	type Keeper = {
-		no: number | null; name: string; ncaaId: string;
+		no: number | null; name: string; ncaaId: string; headshot: string | null;
 		gp: number; min: number; sv: number; ga: number; sho: number; gaa: number | null; svpct: number | null;
 	};
 
@@ -40,6 +44,7 @@
 				name: p.player_name,
 				ncaaId: p.ncaa_player_id,
 				pos: posCode(p.position) as Field['pos'],
+				headshot: hs(p.headshot_path),
 				gp: p.games_played,
 				min: p.minutes_played,
 				g: p.goals,
@@ -60,6 +65,7 @@
 					no: p.jersey_number,
 					name: p.player_name,
 					ncaaId: p.ncaa_player_id,
+					headshot: hs(p.headshot_path),
 					gp: p.games_played,
 					min: p.minutes_played,
 					sv, ga,
@@ -252,7 +258,14 @@
 							style="grid-template-columns:{FIELD_GRID}"
 						>
 							<div class="justify-self-center font-mono text-sm font-bold tabular-nums text-gray-900 dark:text-white">{p.no ?? '—'}</div>
-							<div class="min-w-0 truncate text-sm text-gray-900 dark:text-white">{p.name}</div>
+							<div class="flex min-w-0 items-center gap-2">
+								{#if p.headshot}
+									<img src={p.headshot} alt={p.name} class="h-7 w-7 shrink-0 rounded object-cover" loading="lazy" />
+								{:else}
+									<div class="h-7 w-7 shrink-0 rounded bg-gray-100 dark:bg-gray-700"></div>
+								{/if}
+								<span class="min-w-0 truncate text-sm text-gray-900 dark:text-white">{p.name}</span>
+							</div>
 							<div class="justify-self-center font-mono text-[10px] font-semibold tracking-wide text-gray-400 dark:text-gray-500">{p.pos}</div>
 							{#each FIELD_COLS as c (c.key)}
 								{#if c.key === 'min'}
@@ -306,7 +319,14 @@
 							style="grid-template-columns:{GK_GRID}"
 						>
 							<div class="justify-self-center font-mono text-sm font-bold tabular-nums text-gray-900 dark:text-white">{k.no ?? '—'}</div>
-							<div class="min-w-0 truncate text-sm text-gray-900 dark:text-white">{k.name}</div>
+							<div class="flex min-w-0 items-center gap-2">
+								{#if k.headshot}
+									<img src={k.headshot} alt={k.name} class="h-7 w-7 shrink-0 rounded object-cover" loading="lazy" />
+								{:else}
+									<div class="h-7 w-7 shrink-0 rounded bg-gray-100 dark:bg-gray-700"></div>
+								{/if}
+								<span class="min-w-0 truncate text-sm text-gray-900 dark:text-white">{k.name}</span>
+							</div>
 							<div class="justify-self-center font-mono text-[10px] font-semibold tracking-wide text-gray-400 dark:text-gray-500">GK</div>
 							{#each GK_COLS as c (c.key)}
 								{#if c.key === 'min'}

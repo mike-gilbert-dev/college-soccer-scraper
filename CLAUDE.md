@@ -108,3 +108,63 @@ the Vercel endpoint avoids a duplicate rating engine in Deno.
 
 ### Retired: Vercel cron schedule
 The Vercel cron in [`src/routes/api/cron/nightly/+server.ts`](src/routes/api/cron/nightly/+server.ts) was the first cut at the *ingest*. Its schedule is removed (`vercel.json` `crons: []`) because the chatty ingest exceeded Hobby's 60s — that moved to the Supabase edge function. The route itself still serves `?phase=ratings` (used above) and works as a manual ingest fallback over a narrow window.
+
+## Roster pipeline (headshots, class year, hometown + player matching)
+
+Collects player roster data (headshot, class year, height, hometown, position, jersey)
+from external NCAA team athletics sites (Sidearm Sports JSON API) and connects those
+external players to internal `player_seasons`. Built as **three separate on-demand
+edge functions** (no cron — rosters change rarely; invoke manually). Each authenticates
+with `Authorization: Bearer <service role key>` and is deployed `verify_jwt:false`.
+
+Pipeline (run in order):
+1. **`roster-scrape`** — fetch `https://{domain}/api/v2/Rosters/{id}` and archive raw JSON
+   to the `sidearm-raw-rosters` bucket (source of truth). No DB writes to player tables.
+2. **`roster-ingest`** — read the archived JSON back from Storage (no external fetch),
+   parse, match each entry to the team-season's existing `player_seasons` by normalized
+   name (+ jersey confirmer), **enrich** confident matches (headshot_url/height/hometown/
+   class_year; fill-null jersey/position; never clobbers `players.name`), and **stage**
+   unmatched/ambiguous in `roster_entry_queue` for review.
+3. **`roster-headshots`** — the only step that downloads images. For matched players with a
+   new/changed `headshot_url`, download the image to the public `player-headshots` bucket
+   at `MSO/<seasonYear>/<division>/<teamId>/<playerId>.<ext>` and set `player_seasons.headshot_path`.
+   Idempotent (skips unchanged via `headshot_downloaded_from`); `?force=true` re-downloads.
+
+Targeting on all three: `?source=<id>` | `?team=<ncaa_team_id>` | default = all
+`roster_sources.status='verified'`. Season is resolved from the `roster_sources` row
+(not "today"), so it works year-round. Manual example:
+`curl -H "Authorization: Bearer <service_role_key>" "https://<project>.supabase.co/functions/v1/roster-scrape?team=north-carolina-st"`
+
+### Source discovery
+- `roster_sources` maps `(team_id, sport_code, season_id)` -> external `domain` + `sidearm_roster_id` + `status`.
+- Bootstrap domains via `scripts/import-roster-sources.mjs` (imports `supabase/seed-data/roster_urls_2025.json`, matching keys to teams by `ncaa_team_id` or slugified name).
+- **`roster-discovery`** resolves each `sidearm_roster_id` from the Sidearm list endpoint
+  (`/api/v2/Rosters/list?sport=msoc`, matching `seasonTitle` to the season's year) and verifies
+  by fetching the roster (sane player count). Sets `status='verified'|'failed'`. Knobs: `?limit`, `?concurrency`, `?source`, `?team`, `?force`.
+- **Two Sidearm platforms.** `roster-discovery` tries the NextGen JSON list endpoint first
+  (`platform='sidearm'`); if absent it falls back to fetching the roster page and counting
+  `.sidearm-roster-player` card links (the **older ASP.NET/Knockout Sidearm**, `platform='sidearm-html'`).
+  Both verify to `status='verified'`. Truly non-Sidearm / dead domains end `failed` (manual tail).
+- **Platform-aware scrape/ingest.** `roster-scrape` archives `.json` (sidearm) or `.html` (sidearm-html);
+  `roster-ingest` parses with `parseRoster` (JSON) or `parseSidearmHtmlRoster` (HTML, via
+  `node-html-parser` — `src/lib/server/sidearm-html.ts`, inlined in the edge fn). `roster-headshots`
+  is platform-agnostic and strips `?width=` thumbnail params to fetch full-resolution old-Sidearm images.
+
+### Admin surfaces
+- [`/admin/roster`](src/routes/admin/roster) — review queue: approve→link (enrich an existing
+  player_season), approve→create (mint a new player — **avoid for in-progress seasons**, see
+  duplicate caveat), reject; plus run history + coverage summary.
+- [`/admin/roster/sources`](src/routes/admin/roster/sources) — manage `roster_sources`: status
+  filter, manual domain/roster-id/status edit, per-row Re-verify, and per-team + overall coverage
+  (backed by the `roster_coverage` view).
+
+### Resolution RPCs
+`roster_queue_reject`, `roster_queue_approve_link`, `roster_queue_approve_create` — players are
+created **only** on explicit human approval, never by the matcher.
+
+### Duplicate-player caveat
+`approve_create` mints a player with a roster-origin synthetic `ncaa_player_id` (`rs{source}_{name}`),
+which does NOT share a namespace with box-score players (`{ncaaTeamId}_{name}`). If such a player
+later appears in a box score, `nightly-reconcile` creates a *separate* player + player_season ->
+duplicate. Safe for completed seasons (box scores final); risky as a preseason bootstrap. Prefer
+**link-only** until a merge tool exists.

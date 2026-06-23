@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 5: Admin Review Surface — Roster</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1.25rem; line-height: 1.65; color: #111; }
+    h1 { font-size: 1.6rem; border-bottom: 3px solid #e8463a; padding-bottom: .5rem; margin-bottom: .5rem; }
+    h2 { font-size: 1.1rem; color: #333; margin-top: 2rem; border-bottom: 1px solid #e5e5e5; padding-bottom: .25rem; }
+    h3 { font-size: 1rem; color: #444; }
+    .meta { display: flex; flex-wrap: wrap; gap: 1.5rem; background: #f7f7f7; padding: .75rem 1rem; border-radius: 6px; font-size: .875rem; margin-bottom: 1.75rem; color: #444; }
+    .meta strong { color: #111; }
+    .checklist { list-style: none; padding: 0; margin: 0; }
+    .checklist li { padding: .4rem 0 .4rem .25rem; border-bottom: 1px solid #f0f0f0; display: flex; gap: .75rem; align-items: flex-start; font-size: .95rem; }
+    .checklist li::before { content: "\2610"; font-size: 1.1rem; color: #aaa; flex-shrink: 0; margin-top: .05rem; }
+    .ref { background: #fffbeb; border-left: 3px solid #f59e0b; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    .ref a { color: #92400e; font-weight: 500; }
+    .dep { background: #eff6ff; border-left: 3px solid #60a5fa; padding: .5rem .85rem; margin-bottom: 1.25rem; border-radius: 0 5px 5px 0; font-size: .875rem; color: #1e40af; }
+    .note { background: #f0fdf4; border-left: 3px solid #4ade80; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    code { background: #f3f4f6; padding: .15rem .4rem; border-radius: 3px; font-size: .875em; font-family: ui-monospace, monospace; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem 1.25rem; border-radius: 7px; overflow-x: auto; font-size: .875rem; }
+    pre code { background: none; padding: 0; font-size: inherit; }
+    a { color: #e8463a; }
+  </style>
+</head>
+<body>
+
+<div style="background:#f0fdf4;border:1.5px solid #4ade80;border-radius:7px;padding:.65rem 1.1rem;margin-bottom:1.5rem;font-size:.9rem;color:#166534;font-weight:500;">
+  ✅ Phase complete — all criteria satisfied.
+</div>
+<h1>Phase 5: Admin Review Surface</h1>
+
+<div class="meta">
+  <span><strong>Project:</strong> Roster</span>
+  <span><strong>Phase:</strong> 5 of 7</span>
+  <span><strong>Depends on:</strong> Phase 3 complete (independent of Phase 4)</span>
+</div>
+
+<div class="dep">
+  ⚠️ <strong>Prerequisite:</strong> Phase 3 (Matching Engine) must be complete — this phase resolves the entries it stages in <code>roster_entry_queue</code>.
+</div>
+
+<h2>Overview</h2>
+<p>The matcher deliberately stages anything uncertain instead of guessing. This phase gives a human the tools to clear that queue: a <code>/admin</code> section that lists unmatched and ambiguous roster entries, shows the matcher's suggestion alongside the candidate internal players, and lets the reviewer approve (link or create) or reject each one. It also surfaces per-source run history so the operator can see coverage at a glance. This mirrors the existing <code>/admin → Data → Reconciliation</code> surface.</p>
+
+<h2>What Will Be Built</h2>
+
+<h3>1. Resolution RPCs / server actions</h3>
+<p>Server-side handlers (SvelteKit form actions or <code>+server.ts</code>, admin-gated) that resolve a queued entry:</p>
+<ul>
+  <li><strong>Approve → link existing:</strong> attach the queue entry to a chosen existing <code>player_season</code> (the suggestion or a manually picked one); apply the same enrichment Phase 3 applies to confident matches; set <code>review_status='approved'</code>, <code>reviewed_at=now()</code>.</li>
+  <li><strong>Approve → create new:</strong> for a genuine roster-only player, mint a <code>players</code> row (synthetic <code>ncaa_player_id</code> in the same <code>{teamId}_{first}_{last}</code> format via <code>get_or_create_players</code>), create the <code>player_season</code> for the team-season, enrich it, and mark the queue entry approved.</li>
+  <li><strong>Reject:</strong> set <code>review_status='rejected'</code> (e.g., duplicate, staff, or bad data); excluded from future re-queueing.</li>
+</ul>
+<div class="note">📝 Creating players happens <em>only</em> on explicit human approval — this is the safety guarantee behind the "stage for review" decision. The matcher itself never auto-creates.</div>
+
+<h3>2. Admin UI — roster review page</h3>
+<p>A new page under the existing admin area (e.g. <code>src/routes/admin/.../roster/+page.svelte</code> + <code>+page.server.ts</code>), Svelte 5 runes mode. It shows:</p>
+<ul>
+  <li>A queue list filtered to <code>review_status='pending'</code>, grouped by team, showing the external entry (name, jersey, position, class, hometown, headshot thumbnail) and <code>match_status</code>.</li>
+  <li>For ambiguous entries: the suggested internal player plus other same-team candidates, each with an Approve action.</li>
+  <li>For unmatched entries: a "Create new player" action and a search/typeahead to link to an existing player_season instead.</li>
+  <li>A Reject action on every row.</li>
+</ul>
+
+<h3>3. Run history / coverage panel</h3>
+<p>A read-only view of recent <code>roster_scrape_log</code> rows (per source: entries_seen / matched / enriched / queued / status / time), so the operator can see which teams have been ingested and how clean the match was — analogous to the Reconciliation panel.</p>
+
+<h2>Implementation Notes</h2>
+<ul>
+  <li>Reuse the existing admin auth gating and layout — do not invent a new auth path. Read the current admin Data pages first and match their structure, component usage (Flowbite Svelte tables), and form-action conventions.</li>
+  <li>All files outside <code>node_modules</code> must use runes (<code>$props</code>, <code>$state</code>, <code>$derived</code>) per <code>CLAUDE.md</code>.</li>
+  <li>Resolution actions are mutations — run them server-side with the admin/secret client, never from the browser client.</li>
+  <li>Approve/Reject must be idempotent and safe against double-submits (check current <code>review_status</code> before acting).</li>
+</ul>
+
+<h3>Key files to read before starting</h3>
+<ul>
+  <li>The existing <code>/admin</code> Data + Reconciliation routes (under <code>src/routes/admin/</code>) — structure, auth gating, and the <code>reconciliation_log</code> display to mirror.</li>
+  <li><code>src/lib/server/supabase-admin.ts</code> — the admin client used for privileged writes.</li>
+  <li><code>docs/flowbite-svelte.md</code> — component usage/quirks for the table and form UI.</li>
+  <li><code>supabase/migrations/20260621000005_get_or_create_players.sql</code> — used by the "create new" path.</li>
+</ul>
+
+<h2>Completion Criteria</h2>
+<ul class="checklist">
+  <li class="done">An admin-gated roster review page lists pending <code>roster_entry_queue</code> entries grouped by team.</li>
+  <li class="done">Approve→link attaches the entry to an existing player_season and enriches it; the queue row becomes <code>approved</code>.</li>
+  <li class="done">Approve→create mints a player + player_season (via <code>get_or_create_players</code>) and enriches it; the queue row becomes <code>approved</code>.</li>
+  <li class="done">Reject marks the entry <code>rejected</code> and it no longer appears in the pending list (and is not re-queued on the next ingest).</li>
+  <li class="done">A run-history/coverage panel shows recent <code>roster_scrape_log</code> rows.</li>
+  <li class="done">All new Svelte files use runes mode; <code>npm run check</code> passes.</li>
+  <li class="done">Non-admin users cannot reach the page or trigger the actions.</li>
+</ul>
+
+<h2>How to Validate</h2>
+<ol>
+  <li>After a Phase 3 NC State run, open the admin roster review page; confirm the pending NC State entries appear with thumbnails and suggestions.</li>
+  <li>Approve→create on a genuine freshman: confirm a new <code>players</code> + <code>player_seasons</code> row appears, enriched, and the queue entry flips to approved.</li>
+  <li>Approve→link on an ambiguous entry: confirm it attaches to the chosen player_season and enriches it.</li>
+  <li>Reject one entry; re-run <code>roster-ingest</code> for NC State and confirm the rejected entry is not re-queued.</li>
+  <li>Log out / use a non-admin session and confirm the page and actions are inaccessible.</li>
+</ol>
+
+</body>
+</html>

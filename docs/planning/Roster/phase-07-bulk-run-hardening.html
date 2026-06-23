@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 7: Bulk Run, Coverage & Hardening — Roster</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1.25rem; line-height: 1.65; color: #111; }
+    h1 { font-size: 1.6rem; border-bottom: 3px solid #e8463a; padding-bottom: .5rem; margin-bottom: .5rem; }
+    h2 { font-size: 1.1rem; color: #333; margin-top: 2rem; border-bottom: 1px solid #e5e5e5; padding-bottom: .25rem; }
+    h3 { font-size: 1rem; color: #444; }
+    .meta { display: flex; flex-wrap: wrap; gap: 1.5rem; background: #f7f7f7; padding: .75rem 1rem; border-radius: 6px; font-size: .875rem; margin-bottom: 1.75rem; color: #444; }
+    .meta strong { color: #111; }
+    .checklist { list-style: none; padding: 0; margin: 0; }
+    .checklist li { padding: .4rem 0 .4rem .25rem; border-bottom: 1px solid #f0f0f0; display: flex; gap: .75rem; align-items: flex-start; font-size: .95rem; }
+    .checklist li::before { content: "\2610"; font-size: 1.1rem; color: #aaa; flex-shrink: 0; margin-top: .05rem; }
+    .ref { background: #fffbeb; border-left: 3px solid #f59e0b; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    .ref a { color: #92400e; font-weight: 500; }
+    .dep { background: #eff6ff; border-left: 3px solid #60a5fa; padding: .5rem .85rem; margin-bottom: 1.25rem; border-radius: 0 5px 5px 0; font-size: .875rem; color: #1e40af; }
+    .note { background: #f0fdf4; border-left: 3px solid #4ade80; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    code { background: #f3f4f6; padding: .15rem .4rem; border-radius: 3px; font-size: .875em; font-family: ui-monospace, monospace; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem 1.25rem; border-radius: 7px; overflow-x: auto; font-size: .875rem; }
+    pre code { background: none; padding: 0; font-size: inherit; }
+    a { color: #e8463a; }
+  </style>
+</head>
+<body>
+
+<h1>Phase 7: Bulk Run, Coverage & Hardening</h1>
+
+<div class="meta">
+  <span><strong>Project:</strong> Roster</span>
+  <span><strong>Phase:</strong> 7 of 7</span>
+  <span><strong>Depends on:</strong> Phase 6 complete</span>
+</div>
+
+<div class="dep">
+  ⚠️ <strong>Prerequisite:</strong> Phase 6 (Source Auto-Discovery) must be complete — the bulk run executes against the verified sources it produced.
+</div>
+
+<h2>Overview</h2>
+<p>With discovery done, this phase runs the full pipeline across all verified D1 Men's Soccer sources, adds the coverage reporting needed to operate it, and hardens the edge cases that only surface at scale. It turns the proven NC State pipeline into a repeatable, observable bulk operation and is the final polish pass before the project is considered shippable.</p>
+
+<h2>What Will Be Built</h2>
+
+<h3>1. Bulk run (three steps)</h3>
+<p>Confirm the full pipeline runs cleanly across all <code>status='verified'</code> sources for the active season, as the three separate steps the project is built around:</p>
+<ol>
+  <li><strong>Bulk scrape</strong> — <code>roster-scrape</code> default mode fetches and archives raw JSON for every verified source, with bounded concurrency and politeness delays.</li>
+  <li><strong>Bulk ingest</strong> — <code>roster-ingest</code> default mode reads each archived file back from Storage, matches, enriches, and stages the remainder for every team (no external HTTP).</li>
+  <li><strong>Bulk headshots</strong> — <code>roster-headshots</code> default mode downloads images for matched players whose source URL is new/changed and stores them by season-scoped path.</li>
+</ol>
+<p>All three steps must be resumable/idempotent so a re-run only updates. Because ingest reads from Storage, the matching pass can be re-run across all teams without re-scraping; and headshot download skips unchanged images so routine re-runs only fetch new/changed photos.</p>
+
+<h3>2. Coverage reporting</h3>
+<p>An admin coverage view answering: per team and overall — how many player_seasons have an enriched headshot URL, a <em>downloaded</em> headshot (<code>headshot_path</code>), class, and hometown; how many roster entries are still pending review; which verified sources failed their last run. A read view or SQL function (mirror the <code>get_games_missing_player_stats</code> style) backs the panel.</p>
+
+<h3>3. Edge-case hardening</h3>
+<ul>
+  <li><strong>Duplicate names on one team</strong> (two players, same normalized name): ensure they route to ambiguous/review rather than enriching the wrong row.</li>
+  <li><strong>Jersey conflicts</strong>: roster jersey differs from box-score jersey — log, don't clobber.</li>
+  <li><strong>Missing/partial fields</strong>: players with no headshot/height/hometown enrich the fields that exist; nulls don't overwrite existing non-null data.</li>
+  <li><strong>Schema drift / non-2xx / empty roster</strong>: fail that source gracefully with a <code>roster_scrape_log</code> error row; one bad source never aborts the batch.</li>
+  <li><strong>Off-season / no active season</strong>: no-op safely, consistent with the NCAA pipeline.</li>
+  <li><strong>Stale sources</strong>: a previously verified source that now 404s is logged and surfaced, not silently skipped.</li>
+</ul>
+
+<h3>4. Operator documentation</h3>
+<p>Add a section to <code>CLAUDE.md</code> (matching the existing pipeline docs) covering: the roster pipeline architecture and its three-step scrape→ingest→headshots split, the <code>roster-scrape</code> / <code>roster-ingest</code> / <code>roster-headshots</code> manual triggers and their query params, the discovery pass, the admin review/coverage surfaces, and the non-Sidearm fallback list.</p>
+
+<h2>Implementation Notes</h2>
+<ul>
+  <li>Politeness at scale matters most here — keep concurrency modest and add per-request delay; this hits ~200 external sites in one run.</li>
+  <li>Every source's outcome must be independently logged; the batch is fault-isolated.</li>
+  <li>Reconciliation philosophy holds throughout: never clobber <code>players.name</code>; only fill null season fields from box scores; roster is authoritative for headshot/height/hometown/class_year.</li>
+  <li>No new scheduling is added (on-demand decision stands); document how to invoke instead.</li>
+</ul>
+
+<h3>Key files to read before starting</h3>
+<ul>
+  <li><code>supabase/functions/roster-scrape/index.ts</code> (Phase 2), <code>supabase/functions/roster-ingest/index.ts</code> (Phase 3), and <code>supabase/functions/roster-headshots/index.ts</code> (Phase 4) — the three runners being scaled.</li>
+  <li><code>supabase/migrations/20260606000008_missing_stats_fn.sql</code> / <code>20260608000002_games_missing_stats_fn.sql</code> — coverage-function style to mirror.</li>
+  <li><code>CLAUDE.md</code> — the documentation conventions to match for the new pipeline section.</li>
+</ul>
+
+<h2>Completion Criteria</h2>
+<ul class="checklist">
+  <li class="done">A full bulk run completes across all verified sources without aborting; per-source outcomes are all logged.</li>
+  <li>Coverage view reports headshot/class/hometown fill rates per team and overall, plus pending-review and failed-source counts.</li>
+  <li class="done">Each hardening edge case has a defined, tested behavior (duplicate names → review; jersey conflict → logged; partial fields → partial enrich; bad source → isolated error).</li>
+  <li class="done">A second full run is idempotent (no duplicate queue rows, stable enrichment).</li>
+  <li class="done"><code>CLAUDE.md</code> documents the roster pipeline, triggers, and admin surfaces.</li>
+  <li class="done"><code>npm run check</code> passes.</li>
+</ul>
+
+<h2>How to Validate</h2>
+<ol>
+  <li>Run the bulk scrape, then the bulk ingest, then the bulk headshots. Confirm <code>roster_scrape_log</code> has rows covering every verified source and that no unhandled exception aborted any batch.</li>
+  <li>Open the coverage view; confirm fill-rate numbers look plausible and match spot SQL checks.</li>
+  <li>Find a team with two same-named players (or simulate one) and confirm both route to review, not mis-enrichment.</li>
+  <li>Temporarily point a verified source at a 404 URL and re-run; confirm an isolated error row and the rest of the batch still completes.</li>
+  <li>Run the batch twice; confirm idempotency (queue + enrichment stable).</li>
+  <li>Review the new <code>CLAUDE.md</code> section for accuracy against what was built.</li>
+</ol>
+
+</body>
+</html>

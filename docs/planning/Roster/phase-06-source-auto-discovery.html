@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 6: Source Auto-Discovery & Verification — Roster</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1.25rem; line-height: 1.65; color: #111; }
+    h1 { font-size: 1.6rem; border-bottom: 3px solid #e8463a; padding-bottom: .5rem; margin-bottom: .5rem; }
+    h2 { font-size: 1.1rem; color: #333; margin-top: 2rem; border-bottom: 1px solid #e5e5e5; padding-bottom: .25rem; }
+    h3 { font-size: 1rem; color: #444; }
+    .meta { display: flex; flex-wrap: wrap; gap: 1.5rem; background: #f7f7f7; padding: .75rem 1rem; border-radius: 6px; font-size: .875rem; margin-bottom: 1.75rem; color: #444; }
+    .meta strong { color: #111; }
+    .checklist { list-style: none; padding: 0; margin: 0; }
+    .checklist li { padding: .4rem 0 .4rem .25rem; border-bottom: 1px solid #f0f0f0; display: flex; gap: .75rem; align-items: flex-start; font-size: .95rem; }
+    .checklist li::before { content: "\2610"; font-size: 1.1rem; color: #aaa; flex-shrink: 0; margin-top: .05rem; }
+    .ref { background: #fffbeb; border-left: 3px solid #f59e0b; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    .ref a { color: #92400e; font-weight: 500; }
+    .dep { background: #eff6ff; border-left: 3px solid #60a5fa; padding: .5rem .85rem; margin-bottom: 1.25rem; border-radius: 0 5px 5px 0; font-size: .875rem; color: #1e40af; }
+    .note { background: #f0fdf4; border-left: 3px solid #4ade80; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    code { background: #f3f4f6; padding: .15rem .4rem; border-radius: 3px; font-size: .875em; font-family: ui-monospace, monospace; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem 1.25rem; border-radius: 7px; overflow-x: auto; font-size: .875rem; }
+    pre code { background: none; padding: 0; font-size: inherit; }
+    a { color: #e8463a; }
+  </style>
+</head>
+<body>
+
+<h1>Phase 6: Source Auto-Discovery & Verification</h1>
+
+<div class="meta">
+  <span><strong>Project:</strong> Roster</span>
+  <span><strong>Phase:</strong> 6 of 7</span>
+  <span><strong>Depends on:</strong> Phase 5 complete</span>
+</div>
+
+<div class="dep">
+  ⚠️ <strong>Prerequisite:</strong> Phases 1–5 complete — discovery populates <code>roster_sources</code>, which the scrape/ingest pipeline already consumes, and the unresolved tail is corrected in the admin surface (Phase 5).
+</div>
+
+<h2>Overview</h2>
+<p>Phases 1–4 work against hand-seeded sources. This phase scales the team→website mapping out across all D1 Men's Soccer teams: bootstrap candidate athletics domains from a structured source, auto-resolve each team's Sidearm roster ID, verify the mapping against live data, and leave the unresolved tail for manual fix. There is no clean rule from team name to domain, so this is treated as populating slowly-changing reference data, not runtime resolution.</p>
+
+<h2>What Will Be Built</h2>
+
+<h3>1. Domain bootstrap</h3>
+<p>A one-time discovery pass that proposes a candidate <code>domain</code> for each <code>teams</code> row (D1 MSO) from a structured external source. Choose the most reliable available source at build time — candidates, in rough order of preference:</p>
+<ul>
+  <li><strong>Wikidata</strong> (SPARQL): university/athletics program → "official website".</li>
+  <li><strong>Learfield/Sidearm client directory</strong>: most target schools on one vendor list.</li>
+  <li><strong>NCAA team pages</strong> (the API the pipeline already speaks) if they expose an official-site link.</li>
+</ul>
+<p>Join candidates to internal teams on <code>teams.ncaa_team_id</code> (seoname) — the stable key — not display name. Write candidates into <code>roster_sources</code> with <code>status='unverified'</code>.</p>
+
+<h3>2. Roster-ID resolution</h3>
+<p>For each candidate domain, fetch the public roster page <code>https://{domain}/sports/mens-soccer/roster</code> and extract the <code>/api/v2/Rosters/{id}</code> reference the page uses (the same call confirmed via DevTools for gopack.com). Set <code>sidearm_roster_id</code> and <code>platform='sidearm'</code> on success. If no such reference is found, set <code>platform</code> to <code>'presto'</code>/<code>'custom'</code>/<code>'unknown'</code> as detectable and leave <code>status='failed'</code> — these become the non-Sidearm fallback list (out of scope to scrape, in scope to flag).</p>
+
+<h3>3. Auto-verification</h3>
+<p>For each resolved <code>(domain, roster_id)</code>, fetch the Sidearm JSON and assert the mapping is correct before trusting it: the response's <code>displayTitle</code>/school fuzzy-matches the internal team name, and the player count is sane (≈15–40). On pass, set <code>status='verified'</code> and <code>last_verified_at</code>. On mismatch, set <code>status='failed'</code> with a <code>notes</code> explanation. This is what prevents a wrong-domain match from polluting player data downstream.</p>
+
+<h3>4. Discovery runner + admin tail</h3>
+<ul>
+  <li>An admin-triggered runner (edge function or admin <code>+server.ts</code>) that executes bootstrap → resolve → verify across all teams with bounded concurrency and politeness delays, writing progress/outcomes.</li>
+  <li>Extend the Phase 5 admin surface with a <code>roster_sources</code> management view: filter by <code>status</code>, see verified/failed/unverified counts, and manually set/correct <code>domain</code>, <code>sidearm_roster_id</code>, <code>platform</code>, and <code>status</code> for the tail.</li>
+</ul>
+
+<div class="note">📝 Target outcome is ~80–90% auto-verified; the remainder is a short manual session in the admin tail view. Domains rarely change, so this is mostly a one-time cost per season.</div>
+
+<h2>Implementation Notes</h2>
+<ul>
+  <li>Be polite to third-party sites: bounded concurrency (reuse <code>pool()</code>), a real User-Agent, and a small delay; this pass touches ~200 external sites.</li>
+  <li>Roster IDs are per-sport-per-season — store them on the season-scoped <code>roster_sources</code> row and expect to re-resolve each new season.</li>
+  <li>Verification must be conservative: prefer marking <code>failed</code> (human reviews) over a false <code>verified</code>.</li>
+  <li>If using Wikidata/SPARQL or HTML extraction, keep the bootstrap source pluggable so it can be swapped without touching the resolve/verify steps.</li>
+  <li>The fetch+match pipeline already only consumes <code>status='verified'</code> rows, so a bad candidate cannot reach player data until verified.</li>
+</ul>
+
+<h3>Key files to read before starting</h3>
+<ul>
+  <li><code>src/lib/server/sidearm.ts</code> (Phase 2) — reuse the fetch + <code>parseRoster</code> for verification.</li>
+  <li><code>supabase/functions/nightly-reconcile/index.ts</code> — <code>pool()</code> bounded concurrency for the multi-site pass.</li>
+  <li>The Phase 5 admin pages — extend them with the sources-management view.</li>
+</ul>
+
+<h2>Completion Criteria</h2>
+<ul class="checklist">
+  <li>The discovery runner populates <code>roster_sources</code> for all D1 MSO teams with a <code>status</code> on each.</li>
+  <li class="done">A clear majority (target ≥80%) reach <code>status='verified'</code> with a resolved <code>domain</code> + <code>sidearm_roster_id</code>.</li>
+  <li class="done">Verification rejects deliberately wrong mappings (test: point a row at the wrong domain → it ends <code>failed</code>, not <code>verified</code>).</li>
+  <li class="done">Non-Sidearm schools are flagged (<code>platform</code> ≠ <code>sidearm</code>, <code>status='failed'</code>) rather than silently dropped.</li>
+  <li>The admin sources view lists statuses and allows manual correction of the tail.</li>
+  <li class="done"><code>npm run check</code> passes.</li>
+</ul>
+
+<h2>How to Validate</h2>
+<ol>
+  <li>Run the discovery pass. Inspect <code>select status, count(*) from roster_sources group by status</code> — confirm the verified share meets target.</li>
+  <li>Spot-check 10 verified rows: open <code>https://{domain}/api/v2/Rosters/{id}</code> and confirm it returns the correct school's roster.</li>
+  <li>Confirm the pre-existing NC State seed remains verified and is not duplicated.</li>
+  <li>Manually corrupt one row's domain and re-verify — confirm it flips to <code>failed</code>.</li>
+  <li>In the admin sources view, correct a failed row's domain/ID and confirm it can be re-verified to <code>verified</code>.</li>
+</ol>
+
+</body>
+</html>
