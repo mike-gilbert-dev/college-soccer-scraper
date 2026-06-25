@@ -141,14 +141,31 @@ Targeting on all three: `?source=<id>` | `?team=<ncaa_team_id>` | default = all
 - **`roster-discovery`** resolves each `sidearm_roster_id` from the Sidearm list endpoint
   (`/api/v2/Rosters/list?sport=msoc`, matching `seasonTitle` to the season's year) and verifies
   by fetching the roster (sane player count). Sets `status='verified'|'failed'`. Knobs: `?limit`, `?concurrency`, `?source`, `?team`, `?force`.
-- **Two Sidearm platforms.** `roster-discovery` tries the NextGen JSON list endpoint first
+- **Three platforms.** `roster-discovery` tries the NextGen JSON list endpoint first
   (`platform='sidearm'`); if absent it falls back to fetching the roster page and counting
   `.sidearm-roster-player` card links (the **older ASP.NET/Knockout Sidearm**, `platform='sidearm-html'`).
-  Both verify to `status='verified'`. Truly non-Sidearm / dead domains end `failed` (manual tail).
-- **Platform-aware scrape/ingest.** `roster-scrape` archives `.json` (sidearm) or `.html` (sidearm-html);
-  `roster-ingest` parses with `parseRoster` (JSON) or `parseSidearmHtmlRoster` (HTML, via
-  `node-html-parser` — `src/lib/server/sidearm-html.ts`, inlined in the edge fn). `roster-headshots`
-  is platform-agnostic and strips `?width=` thumbnail params to fetch full-resolution old-Sidearm images.
+  Both verify to `status='verified'`. The third is **WMT Digital** (`platform='wmt'`) — a Nuxt SPA
+  used by many big programs (Stanford, Virginia, Clemson, Penn St, Va Tech, SDSU, UCF, ODU, SJSU,
+  Seattle). Discovery does *not* auto-detect WMT; set `platform='wmt'` manually then run the pipeline.
+  Truly non-Sidearm/WMT or dead domains end `failed` (manual tail — see source `notes`).
+- **Sidearm sport-slug gotcha.** The NextGen list endpoint's `?sport=` param varies per site:
+  `msoc` (most), `msoccer`, or `mens-soccer` (e.g. Syracuse/cuse.com only answers `msoccer`).
+  Discovery uses `msoc`; sites that only answer another slug land in the failed tail until their
+  `sidearm_roster_id` is set manually.
+- **WMT specifics.** WMT roster pages server-render their data into a single
+  `<script id="__NUXT_DATA__">` block as a **devalue flat array** (object property values are
+  integer indices into the same array). `src/lib/server/wmt.ts` (`parseWmtRoster`, inlined into
+  roster-ingest) resolves that graph. Two traps: (1) the *live default* roster is the **upcoming**
+  season — request `/sports/{slug}/roster/season/{year}` to pin a past season (roster-scrape's
+  `buildWmtRosterUrls` tries season paths, both `mens-soccer`+`msoc` slugs, then the default, and
+  archives whichever yields the most players); (2) some WMT sites (South Carolina, Kentucky) are
+  pure SPAs with **no SSR data** (XHR-only) and can't be scraped from HTML. Headshots are
+  full-resolution absolute imgproxy URLs (no `?width=` param).
+- **Platform-aware scrape/ingest.** `roster-scrape` archives `.json` (sidearm) or `.html`
+  (sidearm-html, wmt); `roster-ingest` parses with `parseRoster` (JSON), `parseSidearmHtmlRoster`
+  (HTML cards, `src/lib/server/sidearm-html.ts`), or `parseWmtRoster` (`src/lib/server/wmt.ts`) —
+  all via `node-html-parser`, inlined in the edge fns. `roster-headshots` is platform-agnostic and
+  strips `?width=` thumbnail params to fetch full-resolution old-Sidearm images.
 
 ### Admin surfaces
 - [`/admin/roster`](src/routes/admin/roster) — review queue: approve→link (enrich an existing

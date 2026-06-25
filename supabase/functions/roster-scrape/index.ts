@@ -3,8 +3,9 @@
 // Step 1 of the roster pipeline (scrape -> ingest -> headshots). Archives the raw
 // roster to the `sidearm-raw-rosters` bucket (source of truth) and logs. Branches
 // by platform:
-//   - sidearm       -> fetch /api/v2/Rosters/{id} JSON  -> archive .json
-//   - sidearm-html  -> fetch /sports/{slug}/roster/{yr} -> archive .html
+//   - sidearm       -> fetch /api/v2/Rosters/{id} JSON       -> archive .json
+//   - sidearm-html  -> fetch /sports/{slug}/roster/{yr}      -> archive .html
+//   - wmt           -> fetch /sports/{slug}/roster/season/{yr} (WMT Nuxt) -> archive .html
 // No DB writes to player tables (that is roster-ingest).
 //
 // Targeting: ?source=<id> | ?team=<ncaa_team_id> | default = all verified.
@@ -27,6 +28,46 @@ function htmlPath(sportCode: string, y: number, teamId: number | string): string
 interface RawPlayer { firstName?: string | null; lastName?: string | null; hide?: boolean | null; }
 function visibleCount(raw: { players?: RawPlayer[] }): number {
 	return (raw?.players ?? []).filter((p) => p?.hide !== true && ((p.firstName ?? '').trim() || (p.lastName ?? '').trim())).length;
+}
+
+// ── WMT (Nuxt SPA) helpers — count players from the __NUXT_DATA__ devalue graph.
+// Full parser lives in roster-ingest / src/lib/server/wmt.ts; here we only count
+// to pick the best candidate URL to archive.
+function buildWmtRosterUrls(domain: string, sportPath: string, year: number): string[] {
+	const slugs = sportPath === 'mens-soccer' ? ['mens-soccer', 'msoc'] : [sportPath, 'mens-soccer'];
+	const urls: string[] = [];
+	for (const s of slugs) urls.push(`https://${domain}/sports/${s}/roster/season/${year}`);
+	for (const s of slugs) urls.push(`https://${domain}/sports/${s}/roster`);
+	return urls;
+}
+function countWmtPlayers(html: string): number {
+	const m = html.match(/<script[^>]*id="__NUXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+	if (!m) return 0;
+	// deno-lint-ignore no-explicit-any
+	let flat: any[];
+	try { flat = JSON.parse(m[1]); } catch { return 0; }
+	if (!Array.isArray(flat)) return 0;
+	const cache = new Map<number, unknown>();
+	// deno-lint-ignore no-explicit-any
+	const R = (i: unknown): any => {
+		if (typeof i !== 'number') return i;
+		if (cache.has(i)) return cache.get(i);
+		const v = flat[i];
+		if (v === null || typeof v !== 'object') { cache.set(i, v); return v; }
+		if (Array.isArray(v)) { const a: unknown[] = []; cache.set(i, a); for (const x of v) a.push(R(x)); return a; }
+		const o: Record<string, unknown> = {}; cache.set(i, o);
+		for (const k in v) o[k] = R((v as Record<string, unknown>)[k]);
+		return o;
+	};
+	let n = 0;
+	flat.forEach((v, i) => {
+		if (!v || typeof v !== 'object' || Array.isArray(v)) return;
+		if (!('player' in v) || !('jersey_number' in v) || !('photo' in v)) return;
+		const e = R(i); const p = e.player;
+		if (!p || typeof p !== 'object') return;
+		if ((p.first_name ?? p.last_name ?? p.full_name ?? '').toString().trim()) n++;
+	});
+	return n;
 }
 
 interface Target { id: number; team_id: number; sport_code: string; domain: string | null; sidearm_roster_id: string | null; platform: string; season_year: number; }
@@ -65,7 +106,30 @@ Deno.serve(async (req) => {
 			if (!t.domain) throw new Error('source missing domain');
 			let path: string, entriesSeen: number, httpStatus: number;
 
-			if (t.platform === 'sidearm-html') {
+			if (t.platform === 'wmt') {
+				// WMT Nuxt SPA: try season-specific paths first (the live default is the
+				// upcoming season), then the default; pick the first with a real roster.
+				const slug = SPORT_URL_SLUG[t.sport_code] ?? 'mens-soccer';
+				const urls = buildWmtRosterUrls(t.domain, slug, t.season_year);
+				let best: { html: string; count: number; url: string; status: number } | null = null;
+				let lastStatus = 0;
+				for (const u of urls) {
+					const res = await fetch(u, { headers: { 'User-Agent': USER_AGENT } });
+					lastStatus = res.status;
+					if (!res.ok) continue;
+					const html = await res.text();
+					const count = countWmtPlayers(html);
+					if (count >= 10) { best = { html, count, url: u, status: res.status }; break; }
+					if (!best || count > best.count) best = { html, count, url: u, status: res.status };
+				}
+				if (!best) throw new Error(`no WMT roster page reachable (last HTTP ${lastStatus})`);
+				if (best.count === 0) throw new Error(`WMT page had 0 players (${best.url})`);
+				httpStatus = best.status;
+				path = htmlPath(t.sport_code, t.season_year, t.team_id);
+				const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, best.html, { contentType: 'text/html', upsert: true });
+				if (upErr) throw new Error(`storage upload: ${upErr.message}`);
+				entriesSeen = best.count;
+			} else if (t.platform === 'sidearm-html') {
 				const slug = SPORT_URL_SLUG[t.sport_code] ?? 'mens-soccer';
 				const res = await fetch(`https://${t.domain}/sports/${slug}/roster/${t.season_year}`, { headers: { 'User-Agent': USER_AGENT } });
 				httpStatus = res.status;

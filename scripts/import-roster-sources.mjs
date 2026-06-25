@@ -1,8 +1,10 @@
 // One-time bootstrap: import athletics roster-page URLs -> roster_sources rows.
 // Matches each JSON key to a team by ncaa_team_id, else by slugified team name.
 // Dry-run by default; pass --apply to insert. Skips teams already present.
-//   node scripts/import-roster-sources.mjs            (dry run)
-//   node scripts/import-roster-sources.mjs --apply    (insert missing)
+//   node scripts/import-roster-sources.mjs                                 (dry run, MSO)
+//   node scripts/import-roster-sources.mjs --apply                         (insert missing, MSO)
+//   node scripts/import-roster-sources.mjs file.json --sport=WSO --apply   (women's)
+// --sport=MSO|WSO selects the sport_code (default MSO).
 import { readFileSync } from 'node:fs';
 import { createClient } from '@supabase/supabase-js';
 
@@ -18,6 +20,12 @@ const env = Object.fromEntries(
 const supabase = createClient(env.PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
 
 const file = process.argv.find((a) => a.endsWith('.json')) ?? 'supabase/seed-data/roster_urls_2025.json';
+const sportArg = process.argv.find((a) => a.startsWith('--sport='))?.split('=')[1]?.toUpperCase();
+const sportCode = sportArg ?? 'MSO';
+if (!['MSO', 'WSO'].includes(sportCode)) {
+	console.error(`Invalid --sport=${sportCode}; expected MSO or WSO.`);
+	process.exit(1);
+}
 const urls = JSON.parse(readFileSync(file, 'utf8'));
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
@@ -39,7 +47,7 @@ const seasonId = seasons[0].id;
 const { data: existing } = await supabase
 	.from('roster_sources')
 	.select('team_id')
-	.eq('sport_code', 'MSO')
+	.eq('sport_code', sportCode)
 	.eq('season_id', seasonId);
 const existingTeamIds = new Set((existing ?? []).map((r) => r.team_id));
 
@@ -63,14 +71,14 @@ const toInsert = matched
 	.filter((m) => !existingTeamIds.has(m.team.id))
 	.map((m) => ({
 		team_id: m.team.id,
-		sport_code: 'MSO',
+		sport_code: sportCode,
 		season_id: seasonId,
 		domain: m.domain,
 		platform: 'sidearm',
 		status: 'unverified'
 	}));
 
-console.log(`season_id=${seasonId}`);
+console.log(`sport_code=${sportCode} season_id=${seasonId}`);
 console.log(`total=${Object.keys(urls).length} matched=${matched.length} unmatched=${unmatched.length} toInsert=${toInsert.length} alreadyPresent=${matched.length - toInsert.length}`);
 console.log(`matched via name-slug (not ncaa_id): ${matched.filter((m) => m.via === 'name-slug').map((m) => m.key).join(', ') || '(none)'}`);
 console.log(`UNMATCHED: ${unmatched.join(', ') || '(none)'}`);

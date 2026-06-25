@@ -129,6 +129,72 @@ function parseSidearmHtmlRoster(html: string, domain: string): ParsedRosterPlaye
 	return out;
 }
 
+// WMT Digital (Nuxt SPA) roster parser. Mirrors src/lib/server/wmt.ts. The roster
+// page server-renders its data into <script id="__NUXT_DATA__"> as a devalue flat
+// array (object property values are integer indices into the same array); we
+// resolve that graph, then pull every roster-entry object (player/jersey/photo).
+function wmtClassYear(name: unknown): string | null {
+	const s = (name == null ? '' : String(name)).toLowerCase();
+	if (!s) return null;
+	if (/fresh/.test(s)) return 'FR';
+	if (/soph/.test(s)) return 'SO';
+	if (/jun/.test(s)) return 'JR';
+	if (/sen/.test(s)) return 'SR';
+	if (/grad/.test(s)) return 'GR';
+	return null;
+}
+function parseWmtRoster(html: string): ParsedRosterPlayer[] {
+	const m = html.match(/<script[^>]*id="__NUXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+	if (!m) return [];
+	// deno-lint-ignore no-explicit-any
+	let flat: any[];
+	try { flat = JSON.parse(m[1]); } catch { return []; }
+	if (!Array.isArray(flat)) return [];
+	const cache = new Map<number, unknown>();
+	// deno-lint-ignore no-explicit-any
+	const R = (i: unknown): any => {
+		if (typeof i !== 'number') return i;
+		if (cache.has(i)) return cache.get(i);
+		const v = flat[i];
+		if (v === null || typeof v !== 'object') { cache.set(i, v); return v; }
+		if (Array.isArray(v)) { const a: unknown[] = []; cache.set(i, a); for (const x of v) a.push(R(x)); return a; }
+		const o: Record<string, unknown> = {}; cache.set(i, o);
+		for (const k in v) o[k] = R((v as Record<string, unknown>)[k]);
+		return o;
+	};
+	const out: ParsedRosterPlayer[] = [];
+	const seen = new Set<string>();
+	flat.forEach((v, i) => {
+		if (!v || typeof v !== 'object' || Array.isArray(v)) return;
+		if (!('player' in v) || !('jersey_number' in v) || !('photo' in v)) return;
+		const e = R(i); const p = e.player;
+		if (!p || typeof p !== 'object') return;
+		const first = clean(p.first_name) ?? '';
+		const last = clean(p.last_name) ?? '';
+		const full = clean(p.full_name) ?? '';
+		if (!first && !last && !full) return;
+		const ref = e.player_id != null ? String(e.player_id) : p.id != null ? String(p.id) : clean(p.slug);
+		if (ref && seen.has(ref)) return;
+		if (ref) seen.add(ref);
+		const pos = e.player_position && typeof e.player_position === 'object'
+			? (clean(e.player_position.abbreviation) ?? clean(e.player_position.name)) : null;
+		const ft = e.height_feet ?? p.height_feet;
+		const inch = e.height_inches ?? p.height_inches;
+		out.push({
+			firstName: first || full.split(/\s+/)[0] || '',
+			lastName: last || full.split(/\s+/).slice(1).join(' '),
+			jerseyNumber: parseJersey(e.jersey_number ?? p.jersey_number),
+			position: pos,
+			classYear: wmtClassYear(e.class_level && e.class_level.name),
+			height: buildHeight(ft, inch),
+			hometown: clean(p.hometown),
+			headshotUrl: e.photo && typeof e.photo === 'object' ? clean(e.photo.url) : null,
+			externalRef: ref
+		});
+	});
+	return out;
+}
+
 interface ExistingPS { id: number; player_id: number; name: string; jerseyNumber: number | null; position: string | null; }
 type MatchStatus = 'matched' | 'ambiguous' | 'unmatched';
 interface MatchResult {
@@ -232,7 +298,7 @@ Deno.serve(async (req) => {
 			const teamSeasonId = ts.id as number;
 
 			// Read archived roster from Storage (no external fetch). Path + parser by platform.
-			const isHtml = t.platform === 'sidearm-html';
+			const isHtml = t.platform === 'sidearm-html' || t.platform === 'wmt';
 			const path = isHtml ? htmlPath(t.sport_code, t.season_year, t.team_id) : jsonPath(t.sport_code, t.season_year, t.team_id);
 			const { data: blob, error: dlErr } = await supabase.storage.from(BUCKET).download(path);
 			if (dlErr) {
@@ -246,7 +312,12 @@ Deno.serve(async (req) => {
 				throw new Error(`download ${path}: ${dlErr.message}`);
 			}
 			const text = await blob.text();
-			const parsed = isHtml ? parseSidearmHtmlRoster(text, t.domain ?? '') : parseRoster(JSON.parse(text));
+			const parsed =
+				t.platform === 'wmt'
+					? parseWmtRoster(text)
+					: t.platform === 'sidearm-html'
+						? parseSidearmHtmlRoster(text, t.domain ?? '')
+						: parseRoster(JSON.parse(text));
 
 			// Load existing player_seasons for this team-season.
 			const { data: psRows, error: psErr } = await supabase.from('player_seasons')
