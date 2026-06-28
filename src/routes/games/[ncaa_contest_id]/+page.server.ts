@@ -20,6 +20,7 @@ export type PlayerStat = {
 	jersey_number: number | null;
 	position: string | null;
 	class_year: string | null;
+	headshot_path: string | null;
 	team_season_id: number;
 	ncaa_player_id: string;
 	player_name: string;
@@ -75,6 +76,7 @@ export const load: PageServerLoad = async ({ params, url }) => {
 				jersey_number,
 				position,
 				class_year,
+				headshot_path,
 				team_season_id,
 				player:players(ncaa_player_id, name)
 			)
@@ -86,6 +88,7 @@ export const load: PageServerLoad = async ({ params, url }) => {
 			jersey_number: number | null;
 			position: string | null;
 			class_year: string | null;
+			headshot_path: string | null;
 			team_season_id: number;
 			player: { ncaa_player_id: string; name: string };
 		};
@@ -107,6 +110,7 @@ export const load: PageServerLoad = async ({ params, url }) => {
 			jersey_number: ps.jersey_number,
 			position: ps.position,
 			class_year: ps.class_year,
+			headshot_path: ps.headshot_path,
 			team_season_id: ps.team_season_id,
 			ncaa_player_id: ps.player.ncaa_player_id,
 			player_name: ps.player.name,

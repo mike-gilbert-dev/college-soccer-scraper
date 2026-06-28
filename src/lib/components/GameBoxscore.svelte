@@ -4,7 +4,11 @@
 	// goalkeepers in their own table, sortable columns, and visible discipline.
 	// Ported from the CollegeSoccer.IO design system (GameScreen).
 	import TeamLogo from '$lib/components/TeamLogo.svelte';
+	import { PUBLIC_SUPABASE_URL } from '$env/static/public';
 	import type { PlayerStat } from '../../routes/games/[ncaa_contest_id]/+page.server';
+
+	const hs = (path: string | null): string | null =>
+		path ? `${PUBLIC_SUPABASE_URL}/storage/v1/object/public/player-headshots/${path}` : null;
 
 	type GameTeam = {
 		ncaa_team_id: string; name: string;
@@ -30,8 +34,8 @@
 	const YELLOW = '#f4c430';
 	const RED = '#d62b2b';
 
-	type Field = { no: number | null; name: string; ncaaId: string; pos: string; gs: boolean; min: number; g: number; a: number; sh: number; sog: number; fc: number; yc: number; rc: number };
-	type Keeper = { no: number | null; name: string; ncaaId: string; gs: boolean; min: number; sv: number; ga: number; sho: boolean; fc: number; yc: number; rc: number };
+	type Field = { no: number | null; name: string; ncaaId: string; headshot: string | null; pos: string; gs: boolean; min: number; g: number; a: number; sh: number; sog: number; fc: number; yc: number; rc: number };
+	type Keeper = { no: number | null; name: string; ncaaId: string; headshot: string | null; gs: boolean; min: number; sv: number; ga: number; sho: boolean; fc: number; yc: number; rc: number };
 	type Build = { field: Field[]; keepers: Keeper[]; totals: Record<string, number> };
 
 	function posCode(pos: string | null): string {
@@ -50,6 +54,7 @@
 		for (const s of stats) {
 			const base = {
 				no: s.jersey_number, name: s.player_name, ncaaId: s.ncaa_player_id,
+				headshot: hs(s.headshot_path),
 				gs: s.starter, min: s.minutes_played ?? 0,
 				fc: s.fouls_committed, yc: s.yellow_cards, rc: s.red_cards
 			};
@@ -152,6 +157,14 @@
 	{/if}
 {/snippet}
 
+{#snippet avatar(src: string | null, name: string)}
+	{#if src}
+		<img {src} alt={name} class="h-7 w-7 shrink-0 rounded object-cover" loading="lazy" />
+	{:else}
+		<div class="h-7 w-7 shrink-0 rounded bg-gray-100 dark:bg-gray-700"></div>
+	{/if}
+{/snippet}
+
 {#snippet nameList(items: { name: string; n: number }[])}
 	{#if items.length === 0}
 		<span class="text-gray-400 dark:text-gray-500">—</span>
@@ -209,7 +222,10 @@
 {#snippet fieldRow(p: Field, color: string)}
 	<a href={playerHref(p.ncaaId)} class="grid h-10 items-center gap-2 border-b border-gray-200 px-3.5 transition-colors last:border-0 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700/30" style="grid-template-columns:{FIELD_GRID}">
 		<div class="justify-self-center font-mono text-sm font-bold tabular-nums text-gray-900 dark:text-white">{p.no ?? '—'}</div>
-		<div class="min-w-0 truncate text-sm text-gray-900 dark:text-white">{p.name}</div>
+		<div class="flex min-w-0 items-center gap-2">
+			{@render avatar(p.headshot, p.name)}
+			<span class="truncate text-sm text-gray-900 dark:text-white">{p.name}</span>
+		</div>
 		<div class="justify-self-center font-mono text-[10px] font-semibold tracking-wide text-gray-400 dark:text-gray-500">{p.pos}</div>
 		<div class="justify-self-center">
 			{#if p.gs}<span class="block h-1.75 w-1.75 rounded-full" style="background:{color}" title="Started"></span>{:else}<span class="block h-1.5 w-1.5 rounded-full border border-gray-400 opacity-60 dark:border-gray-500" title="Substitute"></span>{/if}
@@ -238,7 +254,10 @@
 {#snippet keeperRow(k: Keeper, color: string)}
 	<a href={playerHref(k.ncaaId)} class="grid h-10 items-center gap-2 border-b border-gray-200 px-3.5 transition-colors last:border-0 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700/30" style="grid-template-columns:{KEEPER_GRID}">
 		<div class="justify-self-center font-mono text-sm font-bold tabular-nums text-gray-900 dark:text-white">{k.no ?? '—'}</div>
-		<div class="min-w-0 truncate text-sm text-gray-900 dark:text-white">{k.name}</div>
+		<div class="flex min-w-0 items-center gap-2">
+			{@render avatar(k.headshot, k.name)}
+			<span class="truncate text-sm text-gray-900 dark:text-white">{k.name}</span>
+		</div>
 		<div class="justify-self-center font-mono text-[10px] font-semibold tracking-wide text-gray-400 dark:text-gray-500">GK</div>
 		<div class="justify-self-center">
 			{#if k.gs}<span class="block h-1.75 w-1.75 rounded-full" style="background:{color}" title="Started"></span>{:else}<span class="block h-1.5 w-1.5 rounded-full border border-gray-400 opacity-60 dark:border-gray-500" title="Substitute"></span>{/if}
