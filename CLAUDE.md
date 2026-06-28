@@ -83,6 +83,36 @@ timed out. The edge function fixes the root cause with **batched bulk upserts**
 - **Manual trigger:** `curl -H "Authorization: Bearer <service_role_key>" "https://<project>.supabase.co/functions/v1/nightly-ingest?date=2025-10-11"`
 - **Player stats:** handled by the separate nightly-reconcile pass (below), not this function.
 
+### Live in-game scores (`?mode=live`)
+The same edge function serves a **live** mode for in-game score updates, reusing the
+exact bulk-upsert path (no duplicate scraper). Differences from the nightly run:
+- **Today only**, and it **self-gates**: before any NCAA call it counts games this
+  season with `start_time` in `[now − 3h, now + 15m]` (in-progress / just-finished /
+  imminent). Zero matches → `{ran:false, reason:'no games in play window'}`, no fetch.
+  The gate is keyed purely on `start_time`, so it auto-wakes for any slate and
+  auto-sleeps afterward — no game-day babysitting, no calendar.
+- **Skips the Storage archive and per-run success `scrape_log`** (error logging stays).
+  The nightly run still captures the canonical end-of-day archive; reconcile + ratings
+  still finalize overnight. Live = scores only.
+- **Schedule:** pg_cron job `nightly-ingest-live` at `* * * * *` (every minute).
+  Migration: [`20260628000000_schedule_nightly_ingest_live.sql`](supabase/migrations/20260628000000_schedule_nightly_ingest_live.sql).
+  Same Vault secret and off-season no-op as the nightly ingest, so it's safe year-round.
+- **Manual:** `curl -H "Authorization: Bearer <service_role_key>" "https://<project>.supabase.co/functions/v1/nightly-ingest?mode=live"`
+
+#### Live delivery to the browser (Supabase Realtime)
+The scoreboard ([`src/routes/+page.svelte`](src/routes/+page.svelte)) pushes these live
+updates to clients instead of waiting for a reload:
+- `games` is in the `supabase_realtime` publication (migration
+  [`20260628000001_games_realtime.sql`](supabase/migrations/20260628000001_games_realtime.sql));
+  Realtime respects the existing "public read games" RLS policy, so anonymous visitors receive rows.
+- The page holds the SSR game list in a local `$state` (seeded from `data.games` so there's no
+  hydration flash; re-seeded on date/sport/season nav) and subscribes to `postgres_changes`
+  (UPDATE on `games`), patching the matching row by `id`. Updates for games on other dates don't
+  match and are ignored — no server-side filter needed.
+- **Live games don't link into the box score.** Player stats aren't scraped until the overnight
+  reconcile (one NCAA call *per game* — too expensive to poll live), so a live game's box score
+  would be empty. Live cards render as plain (non-link) elements; final/scheduled cards link as before.
+
 ## Nightly reconcile / player stats (Supabase Edge Function + pg_cron)
 
 [`supabase/functions/nightly-reconcile/index.ts`](supabase/functions/nightly-reconcile/index.ts) runs at `08:05 UTC` (5 min after ingest) and is the **player-stats automation + accuracy pass**. Per target it:

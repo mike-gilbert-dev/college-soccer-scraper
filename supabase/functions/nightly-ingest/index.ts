@@ -8,6 +8,12 @@
 // Scope: scores-only (no box scores / player stats — those are pulled separately).
 // Auth:  Bearer <service role key>. Invoked by pg_cron via pg_net (see migration).
 // Trigger ratings recompute separately (Phase 2) — this function does not rate.
+//
+// Modes:
+//   default     — rolling multi-day window (?days=, default 2) or a single ?date=.
+//   ?mode=live  — today only, for in-game score updates. Self-gates on whether any
+//                 game is in (or near) its play window, and skips the Storage archive
+//                 + per-run success logging so it's cheap to run every minute.
 
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 
@@ -240,8 +246,9 @@ Deno.serve(async (req) => {
 	}
 
 	const url = new URL(req.url);
+	const isLive = url.searchParams.get('mode') === 'live';
 	const days = Math.max(1, parseInt(url.searchParams.get('days') ?? '2', 10) || 2);
-	const forcedDate = url.searchParams.get('date'); // YYYY-MM-DD
+	const forcedDate = url.searchParams.get('date'); // YYYY-MM-DD (ignored in live mode)
 	const sportParam = url.searchParams.get('sport');
 	const divisionParam = url.searchParams.get('division');
 	const targets =
@@ -271,9 +278,35 @@ Deno.serve(async (req) => {
 		});
 	}
 
-	// Build date window, clamped to the season start
+	// Live mode self-gate: only hit the NCAA API when a game is in (or near) its
+	// play window. Keyed purely on start_time — never on a mutable column — so it
+	// auto-wakes for any game (weeknight or 40-game Saturday) and auto-sleeps once
+	// the slate is well over. A game qualifies if it kicked off up to 3h ago
+	// (in-progress or just-finished, to catch score corrections) or starts within
+	// the next 15m (imminent). No game-day babysitting and no calendar to maintain.
+	if (isLive) {
+		const nowMs = Date.now();
+		const windowStart = new Date(nowMs - 3 * 60 * 60 * 1000).toISOString(); // kicked off ≤3h ago
+		const windowEnd = new Date(nowMs + 15 * 60 * 1000).toISOString(); // starts ≤15m from now
+		const { count, error: gateErr } = await supabase
+			.from('games')
+			.select('id', { count: 'exact', head: true })
+			.eq('season_id', season.id)
+			.gte('start_time', windowStart)
+			.lte('start_time', windowEnd);
+		if (gateErr) {
+			return json({ ran: false, mode: 'live', reason: `gate query failed: ${gateErr.message}` }, 500);
+		}
+		if (!count) {
+			return json({ ran: false, mode: 'live', reason: 'no games in play window', anchor });
+		}
+	}
+
+	// Build date window, clamped to the season start. Live mode is today-only.
 	const dates: string[] = [];
-	if (forcedDate) {
+	if (isLive) {
+		dates.push(today);
+	} else if (forcedDate) {
 		dates.push(forcedDate);
 	} else {
 		const start = new Date(`${today}T00:00:00Z`);
@@ -290,6 +323,7 @@ Deno.serve(async (req) => {
 	const startedAt = Date.now();
 	const summary = {
 		ran: true,
+		mode: isLive ? 'live' : 'window',
 		season: season.label,
 		anchor,
 		targets: [] as unknown[]
@@ -307,24 +341,31 @@ Deno.serve(async (req) => {
 					toNcaaDate(contestDate)
 				);
 
-				// Archive raw JSON to Storage (source of truth for re-ingest)
-				await supabase.storage
-					.from(BUCKET)
-					.upload(
-						archivePath(sportCode, division, season.year, contestDate),
-						JSON.stringify(raw, null, 2),
-						{ contentType: 'application/json', upsert: true }
-					);
+				// Archive raw JSON to Storage (source of truth for re-ingest).
+				// Skipped in live mode: the per-minute intermediate states aren't worth
+				// keeping — the nightly run captures the canonical end-of-day archive.
+				if (!isLive) {
+					await supabase.storage
+						.from(BUCKET)
+						.upload(
+							archivePath(sportCode, division, season.year, contestDate),
+							JSON.stringify(raw, null, 2),
+							{ contentType: 'application/json', upsert: true }
+						);
+				}
 
 				const r = await ingestDate(supabase, sportCode, division, season, contestDate, contests);
 
-				await supabase.from('scrape_log').insert({
-					endpoint: 'GetContests_web',
-					contest_date: contestDate,
-					http_status: 200,
-					status: 'success',
-					games_upserted: r.games
-				});
+				// Skip per-run success logging in live mode (would add ~1 row/min).
+				if (!isLive) {
+					await supabase.from('scrape_log').insert({
+						endpoint: 'GetContests_web',
+						contest_date: contestDate,
+						http_status: 200,
+						status: 'success',
+						games_upserted: r.games
+					});
+				}
 
 				targetOut.dates.push({ date: contestDate, ...r, ms: Date.now() - t0 });
 			}

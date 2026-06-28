@@ -1,8 +1,10 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
+	import { onMount } from 'svelte';
 	import { Badge, Dropdown, DropdownItem } from 'flowbite-svelte';
 	import TeamLogo from '$lib/components/TeamLogo.svelte';
+	import { createSupabaseBrowserClient } from '$lib/supabase';
 	import type { PageData } from './$types';
 	import flatpickr from 'flatpickr';
 	import type { Instance } from 'flatpickr/dist/types/instance';
@@ -26,7 +28,49 @@
 		away_team_season: TeamSeason;
 	};
 
-	const games           = $derived(data.games as unknown as Game[]);
+	// Locally mutable copy of the SSR game list so live updates can patch it in
+	// place. Seeded from data.games (SSR/hydration render the real list — no flash)
+	// and re-seeded whenever we navigate to a new date / sport / season.
+	let games = $state<Game[]>((data.games as unknown as Game[]) ?? []);
+	$effect(() => {
+		games = (data.games as unknown as Game[]) ?? [];
+	});
+
+	// Live scores: subscribe to UPDATEs on `games` and patch any row currently on
+	// screen, matched by id. The list is a single day's slate, so updates for games
+	// on other dates won't match and are ignored — no server-side filter needed.
+	onMount(() => {
+		const supabase = createSupabaseBrowserClient();
+		const channel = supabase
+			.channel('scoreboard-live-scores')
+			.on(
+				'postgres_changes',
+				{ event: 'UPDATE', schema: 'public', table: 'games' },
+				(payload) => {
+					const row = payload.new as {
+						id: number;
+						home_score: number | null;
+						away_score: number | null;
+						status: string;
+						start_time: string | null;
+					};
+					const idx = games.findIndex((g) => g.id === row.id);
+					if (idx === -1) return;
+					games[idx] = {
+						...games[idx],
+						home_score: row.home_score,
+						away_score: row.away_score,
+						status: row.status,
+						start_time: row.start_time
+					};
+				}
+			)
+			.subscribe();
+		return () => {
+			supabase.removeChannel(channel);
+		};
+	});
+
 	const contestDate     = $derived(data.contestDate);
 	const gender          = $derived(data.gender);
 	const division        = $derived(data.division);
@@ -262,21 +306,15 @@
 				</p>
 			</div>
 		{:else}
-			<ul class="grid grid-cols-1 lg:grid-cols-2 gap-2 mt-2">
-				{#each games as game}
-					{@const home = game.home_team_season}
-					{@const away = game.away_team_season}
-					{@const isFinal = game.status === 'final'}
-					{@const isLive  = game.status === 'live'}
-					{@const homeWon = isFinal && game.home_score != null && game.away_score != null && game.home_score > game.away_score}
-					{@const awayWon = isFinal && game.home_score != null && game.away_score != null && game.away_score > game.home_score}
-					<li class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded overflow-hidden">
-						<div role="link" tabindex="0"
-							onclick={() => goto(gameHref(game.ncaa_contest_id))}
-							onkeydown={(e) => e.key === 'Enter' && goto(gameHref(game.ncaa_contest_id))}
-							class="px-3 py-2 h-full flex flex-col justify-between hover:bg-gray-50 dark:hover:bg-gray-700/40 cursor-pointer">
+			{#snippet cardInner(game: Game)}
+				{@const home = game.home_team_season}
+				{@const away = game.away_team_season}
+				{@const isFinal = game.status === 'final'}
+				{@const isLive  = game.status === 'live'}
+				{@const homeWon = isFinal && game.home_score != null && game.away_score != null && game.home_score > game.away_score}
+				{@const awayWon = isFinal && game.home_score != null && game.away_score != null && game.away_score > game.home_score}
 
-							<!-- Header row: round/broadcaster left, status/time right -->
+				<!-- Header row: round/broadcaster left, status/time right -->
 							<div class="flex items-center justify-between gap-2 mb-1.5">
 								<div class="flex items-center gap-1.5 min-w-0 text-[10px]">
 									{#if game.round_description}
@@ -338,7 +376,26 @@
 									</span>
 								{/if}
 							</div>
-						</div>
+			{/snippet}
+
+			<ul class="grid grid-cols-1 lg:grid-cols-2 gap-2 mt-2">
+				{#each games as game}
+					{@const isLive = game.status === 'live'}
+					<li class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded overflow-hidden">
+						{#if isLive}
+							<!-- Live games don't link into the box score — player stats aren't scraped
+							     until the overnight reconcile, so the box-score page would be empty. -->
+							<div class="px-3 py-2 h-full flex flex-col justify-between">
+								{@render cardInner(game)}
+							</div>
+						{:else}
+							<div role="link" tabindex="0"
+								onclick={() => goto(gameHref(game.ncaa_contest_id))}
+								onkeydown={(e) => e.key === 'Enter' && goto(gameHref(game.ncaa_contest_id))}
+								class="px-3 py-2 h-full flex flex-col justify-between hover:bg-gray-50 dark:hover:bg-gray-700/40 cursor-pointer">
+								{@render cardInner(game)}
+							</div>
+						{/if}
 					</li>
 				{/each}
 			</ul>
