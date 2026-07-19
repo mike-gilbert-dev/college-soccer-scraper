@@ -18,11 +18,11 @@
 	} = $props();
 
 	type Field = {
-		no: number | null; name: string; ncaaId: string; pos: 'FWD' | 'MID' | 'DEF' | '—'; headshot: string | null;
+		no: number | null; name: string; ncaaId: string; pos: 'FWD' | 'MID' | 'DEF' | '—'; year: string | null; headshot: string | null;
 		gp: number; min: number; g: number; a: number; pts: number; sh: number; sog: number;
 	};
 	type Keeper = {
-		no: number | null; name: string; ncaaId: string; headshot: string | null;
+		no: number | null; name: string; ncaaId: string; year: string | null; headshot: string | null;
 		gp: number; min: number; sv: number; ga: number; sho: number; gaa: number | null; svpct: number | null;
 	};
 
@@ -44,6 +44,7 @@
 				name: p.player_name,
 				ncaaId: p.ncaa_player_id,
 				pos: posCode(p.position) as Field['pos'],
+				year: p.class_year,
 				headshot: hs(p.headshot_path),
 				gp: p.games_played,
 				min: p.minutes_played,
@@ -65,6 +66,7 @@
 					no: p.jersey_number,
 					name: p.player_name,
 					ncaaId: p.ncaa_player_id,
+					year: p.class_year,
 					headshot: hs(p.headshot_path),
 					gp: p.games_played,
 					min: p.minutes_played,
@@ -264,7 +266,10 @@
 								{:else}
 									<div class="h-7 w-7 shrink-0 rounded bg-gray-100 dark:bg-gray-700"></div>
 								{/if}
-								<span class="min-w-0 truncate text-sm text-gray-900 dark:text-white">{p.name}</span>
+								<div class="min-w-0">
+									<span class="block truncate text-sm text-gray-900 dark:text-white">{p.name}</span>
+									{#if p.year}<span class="block font-mono text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">{p.year}</span>{/if}
+								</div>
 							</div>
 							<div class="justify-self-center font-mono text-[10px] font-semibold tracking-wide text-gray-400 dark:text-gray-500">{p.pos}</div>
 							{#each FIELD_COLS as c (c.key)}
@@ -325,7 +330,10 @@
 								{:else}
 									<div class="h-7 w-7 shrink-0 rounded bg-gray-100 dark:bg-gray-700"></div>
 								{/if}
-								<span class="min-w-0 truncate text-sm text-gray-900 dark:text-white">{k.name}</span>
+								<div class="min-w-0">
+									<span class="block truncate text-sm text-gray-900 dark:text-white">{k.name}</span>
+									{#if k.year}<span class="block font-mono text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">{k.year}</span>{/if}
+								</div>
 							</div>
 							<div class="justify-self-center font-mono text-[10px] font-semibold tracking-wide text-gray-400 dark:text-gray-500">GK</div>
 							{#each GK_COLS as c (c.key)}

@@ -230,15 +230,31 @@
 				</Table>
 			</div>
 
-			<p class="px-3 py-2 text-[11px] text-gray-400 dark:text-gray-500 border-t border-gray-100 dark:border-gray-700">
+			<div class="px-3 py-2.5 text-[11px] leading-relaxed text-gray-500 dark:text-gray-400 border-t border-gray-100 dark:border-gray-700">
+				<p class="mb-1 font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">How {systemLabel} is calculated</p>
 				{#if system === 'elo'}
-					ELO is a margin-of-victory power rating derived from every result. Ratings update when an admin recomputes, and carry over between seasons with regression toward 1500.
+					<p>
+						A margin-of-victory <span class="font-medium text-gray-700 dark:text-gray-300">Elo</span> rating. Every team starts at 1500; after
+						each game the winner takes points from the loser based on how the result compared to the expected result — which factors in
+						the rating gap between the two teams and an 85-point home-field edge. Bigger winning margins move ratings more, with diminishing
+						returns. Ratings carry over between seasons, regressed part-way back toward 1500.
+					</p>
 				{:else if system === 'rpi'}
-					RPI (Rating Percentage Index) blends a team's location-weighted winning percentage (25%) with strength of schedule — opponents' winning percentage (50%) and opponents' opponents' (25%).
+					<p>
+						<span class="font-medium text-gray-700 dark:text-gray-300">RPI</span> (Rating Percentage Index) is a strength-of-schedule measure:
+						25% a team's own location-weighted winning percentage (road wins and home losses count for more), 50% its opponents' winning
+						percentage, and 25% its opponents' opponents' winning percentage. It rewards playing — and beating — strong competition.
+					</p>
 				{:else}
-					Power rating derived from every result.
+					<p>
+						A <span class="font-medium text-gray-700 dark:text-gray-300">Massey least-squares</span> power rating. It solves for one number per
+						team so that <span class="whitespace-nowrap">home rating − away rating + home-field edge</span> best explains the goal margin of
+						every game at once (margins are capped at ±5 so blowouts don't dominate). A team's rating is its expected goal margin against an
+						average team on a neutral field; ratings are centered at 0.
+					</p>
 				{/if}
-			</p>
+				<p class="mt-1 text-gray-400 dark:text-gray-500">Computed from every result of the season and refreshed nightly.</p>
+			</div>
 		{/if}
 	</section>
 </div>
