@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 4: News Homepage &amp; Scores Relocation — News Section</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1.25rem; line-height: 1.65; color: #111; }
+    h1 { font-size: 1.6rem; border-bottom: 3px solid #e8463a; padding-bottom: .5rem; margin-bottom: .5rem; }
+    h2 { font-size: 1.1rem; color: #333; margin-top: 2rem; border-bottom: 1px solid #e5e5e5; padding-bottom: .25rem; }
+    h3 { font-size: 1rem; color: #444; }
+    .meta { display: flex; flex-wrap: wrap; gap: 1.5rem; background: #f7f7f7; padding: .75rem 1rem; border-radius: 6px; font-size: .875rem; margin-bottom: 1.75rem; color: #444; }
+    .meta strong { color: #111; }
+    .checklist { list-style: none; padding: 0; margin: 0; }
+    .checklist li { padding: .4rem 0 .4rem .25rem; border-bottom: 1px solid #f0f0f0; display: flex; gap: .75rem; align-items: flex-start; font-size: .95rem; }
+    .checklist li::before { content: "\2610"; font-size: 1.1rem; color: #aaa; flex-shrink: 0; margin-top: .05rem; }
+    .ref { background: #fffbeb; border-left: 3px solid #f59e0b; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    .ref a { color: #92400e; font-weight: 500; }
+    .dep { background: #eff6ff; border-left: 3px solid #60a5fa; padding: .5rem .85rem; margin-bottom: 1.25rem; border-radius: 0 5px 5px 0; font-size: .875rem; color: #1e40af; }
+    .note { background: #f0fdf4; border-left: 3px solid #4ade80; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    code { background: #f3f4f6; padding: .15rem .4rem; border-radius: 3px; font-size: .875em; font-family: ui-monospace, monospace; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem 1.25rem; border-radius: 7px; overflow-x: auto; font-size: .875rem; }
+    pre code { background: none; padding: 0; font-size: inherit; }
+    a { color: #e8463a; }
+  </style>
+</head>
+<body>
+
+<div style="background:#f0fdf4;border:1.5px solid #4ade80;border-radius:7px;padding:.65rem 1.1rem;margin-bottom:1.5rem;font-size:.9rem;color:#166534;font-weight:500;">
+  ✅ Phase complete — all criteria satisfied.
+</div>
+<h1>Phase 4: News Homepage &amp; Scores Relocation</h1>
+
+<div class="meta">
+  <span><strong>Project:</strong> News Section</span>
+  <span><strong>Phase:</strong> 4 of 6</span>
+  <span><strong>Depends on:</strong> Phase 3 complete</span>
+</div>
+
+<div class="dep">
+  &#9888; <strong>Prerequisite:</strong> Phase 3 (Admin Authoring) must be complete so there are real published articles to render.
+</div>
+
+<h2>Overview</h2>
+<p>This phase makes News the site's front door. It relocates the existing scoreboard from <code>/</code> to <code>/scores</code>, builds the News list at <code>/</code> (one featured article &mdash; the most recent published &mdash; with streamlined cards beneath it and a &ldquo;Load more&rdquo; control), and updates global navigation. This is the highest-visibility change in the project, so it comes after the content tooling exists and before the per-article detail polish.</p>
+
+<h2>What Will Be Built</h2>
+
+<h3>1. Relocate Scores to <code>/scores</code></h3>
+<p>The current scoreboard is <code>src/routes/+page.svelte</code> + <code>+page.server.ts</code>. Move both to <code>src/routes/scores/+page.svelte</code> and <code>src/routes/scores/+page.server.ts</code> essentially unchanged.</p>
+<ul>
+  <li>Preserve query-param behavior (<code>?date</code>, <code>?gender</code>, <code>?division</code>, <code>?season</code>) — it's copied verbatim.</li>
+  <li>The live-scores Realtime subscription and all logic move with it untouched.</li>
+  <li>Check for any hardcoded internal links to <code>/</code> that meant &ldquo;scores&rdquo; (e.g. game cards, breadcrumbs) and repoint them to <code>/scores</code>. Grep for <code>href="/"</code> and <code>goto('/')</code>.</li>
+</ul>
+
+<h3>2. News list at <code>/</code></h3>
+<p>New <code>src/routes/+page.server.ts</code> + <code>+page.svelte</code>:</p>
+<ul>
+  <li><strong>Load:</strong> call <code>listPublishedArticles(locals.supabase, { offset: 0, limit: 5 })</code>. The first row (most recent) is the <strong>featured</strong> article; the next 4 are streamlined cards. (Featured = most recent published, per intake — no manual flag.) Return <code>{ featured, cards, hasMore, nextOffset }</code>.</li>
+  <li><strong>Featured block:</strong> large hero image, category label, title (h1-ish), dek, and relative date; links to <code>/news/&lt;slug&gt;</code>.</li>
+  <li><strong>Streamlined cards:</strong> compact card — smaller image (or thumbnail), category, title, dek (truncated), date. Responsive grid (1 col mobile &rarr; 2 col &rarr; multi-col desktop), consistent with the site's <code>max-w-5xl</code> container and dense aesthetic.</li>
+  <li><strong>Empty state:</strong> if there are no published articles, show a friendly placeholder (so the homepage never looks broken pre-launch).</li>
+</ul>
+
+<h3>3. &ldquo;Load more&rdquo; pagination</h3>
+<ul>
+  <li>Endpoint <code>src/routes/api/news/+server.ts</code> (public, RLS-gated via <code>locals.supabase</code>): <code>GET ?offset=&amp;limit=</code> &rarr; returns the next page of card-shaped published articles + <code>hasMore</code>.</li>
+  <li>Client: a <code>Load more</code> button appends the next batch. Initial batch after the featured fold is <strong>4</strong>; each subsequent click loads <strong>8</strong> (per intake). Track <code>offset</code> in <code>$state</code>; hide the button when <code>hasMore</code> is false; show a loading state while fetching.</li>
+  <li>Because ordering is <code>published_at DESC</code> and offset-based, this is stable for a mostly-append-only feed. (A brand-new publish mid-scroll could shift by one; acceptable.)</li>
+</ul>
+
+<h3>4. Navigation &amp; layout updates</h3>
+<ul>
+  <li><code>src/lib/components/Navbar.svelte</code>: change the first link from <code>Scores &rarr; /</code> to <strong>News &rarr; /</strong>, and add a <strong>Scores &rarr; /scores</strong> link (both desktop and mobile menus). Keep Teams / Ratings / Stats. Update the <code>navLinkClass</code> active-state paths accordingly.</li>
+  <li>Global stats/welcome box in <code>src/routes/+layout.svelte</code>: <strong>leave as-is</strong> (intake: keep it everywhere) — it will sit above the featured article. No change required, but verify it looks acceptable above the news layout.</li>
+</ul>
+
+<h3>5. Card component</h3>
+<p><code>src/lib/components/ArticleCard.svelte</code> (runes) + optionally <code>FeaturedArticle.svelte</code>, reused by the homepage now and potentially the detail page's &ldquo;more news&rdquo; later. Props: the card-shaped article row. Handles image, category pill, title, dek clamp, and date formatting.</p>
+
+<h2>Implementation Notes</h2>
+<ul>
+  <li><strong>SEO / sitemap:</strong> the sitemap change (add <code>/scores</code>, articles) is handled in Phase 5 along with per-article SEO. But do a quick check now that moving <code>/</code>&rarr;<code>/scores</code> doesn't 404 anything referenced elsewhere.</li>
+  <li><strong>data-sveltekit-preload-data="hover"</strong> is set on <code>&lt;body&gt;</code> — card links get prefetch for free.</li>
+  <li><strong>Dates:</strong> use a small relative-time or <code>toLocaleDateString</code> helper consistent with the rest of the app.</li>
+  <li><strong>Images:</strong> use <code>hero_image_url</code> from the row; add <code>loading="lazy"</code> on card images, eager on the featured hero. Constrain with <code>object-cover</code> and fixed aspect ratios to avoid layout shift.</li>
+  <li><strong>Realtime not needed here</strong> — news isn't live-updating; don't add a subscription.</li>
+</ul>
+
+<h3>Key files to read before starting</h3>
+<ul>
+  <li><code>src/routes/+page.svelte</code> &amp; <code>src/routes/+page.server.ts</code> — the current homepage/scoreboard being relocated.</li>
+  <li><code>src/lib/components/Navbar.svelte</code> — desktop + mobile link lists to edit.</li>
+  <li><code>src/routes/+layout.svelte</code> — global chrome (stats box) that stays.</li>
+  <li><code>src/lib/server/articles.ts</code> — <code>listPublishedArticles</code> to consume.</li>
+</ul>
+
+<h2>Completion Criteria</h2>
+<ul class="checklist">
+  <li class="done">Visiting <code>/</code> shows the News homepage: one featured article (most recent published) + up to 4 streamlined cards.</li>
+  <li class="done">The scoreboard is fully functional at <code>/scores</code> with all filters and live scores intact.</li>
+  <li class="done">&ldquo;Load more&rdquo; appends 8 more published articles per click and hides when none remain.</li>
+  <li class="done">Navbar shows News (/) and Scores (/scores); active states highlight correctly; mobile menu matches.</li>
+  <li class="done">No internal link still points to <code>/</code> expecting the scoreboard.</li>
+  <li class="done">Empty state renders gracefully when no articles are published.</li>
+  <li class="done">Drafts never appear in the list or the load-more results.</li>
+  <li class="done"><code>npm run check</code> is clean; layout works in light and dark, mobile and desktop.</li>
+</ul>
+
+<h2>How to Validate</h2>
+<ol>
+  <li>Publish ~7+ articles (mix of dates) via the Phase 3 admin so pagination is exercisable.</li>
+  <li>Load <code>/</code>: confirm the newest published is featured, the next 4 are cards, and a Load more button appears.</li>
+  <li>Click Load more: confirm 8 more appear, in <code>published_at DESC</code> order, with no duplicates; button disappears at the end.</li>
+  <li>Confirm a <strong>draft</strong> article never shows up anywhere in the list.</li>
+  <li>Go to <code>/scores</code>: confirm date nav, gender/division/season filters, and live-score patching all work exactly as before.</li>
+  <li>Click News and Scores in the navbar (desktop + mobile) and confirm routing + active highlight.</li>
+  <li>Toggle dark mode and shrink to mobile width; confirm featured + cards remain readable and unbroken.</li>
+</ol>
+
+</body>
+</html>

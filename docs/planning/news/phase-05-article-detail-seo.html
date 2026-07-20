@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 5: Article Detail Page &amp; SEO — News Section</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1.25rem; line-height: 1.65; color: #111; }
+    h1 { font-size: 1.6rem; border-bottom: 3px solid #e8463a; padding-bottom: .5rem; margin-bottom: .5rem; }
+    h2 { font-size: 1.1rem; color: #333; margin-top: 2rem; border-bottom: 1px solid #e5e5e5; padding-bottom: .25rem; }
+    h3 { font-size: 1rem; color: #444; }
+    .meta { display: flex; flex-wrap: wrap; gap: 1.5rem; background: #f7f7f7; padding: .75rem 1rem; border-radius: 6px; font-size: .875rem; margin-bottom: 1.75rem; color: #444; }
+    .meta strong { color: #111; }
+    .checklist { list-style: none; padding: 0; margin: 0; }
+    .checklist li { padding: .4rem 0 .4rem .25rem; border-bottom: 1px solid #f0f0f0; display: flex; gap: .75rem; align-items: flex-start; font-size: .95rem; }
+    .checklist li::before { content: "\2610"; font-size: 1.1rem; color: #aaa; flex-shrink: 0; margin-top: .05rem; }
+    .ref { background: #fffbeb; border-left: 3px solid #f59e0b; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    .ref a { color: #92400e; font-weight: 500; }
+    .dep { background: #eff6ff; border-left: 3px solid #60a5fa; padding: .5rem .85rem; margin-bottom: 1.25rem; border-radius: 0 5px 5px 0; font-size: .875rem; color: #1e40af; }
+    .note { background: #f0fdf4; border-left: 3px solid #4ade80; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    code { background: #f3f4f6; padding: .15rem .4rem; border-radius: 3px; font-size: .875em; font-family: ui-monospace, monospace; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem 1.25rem; border-radius: 7px; overflow-x: auto; font-size: .875rem; }
+    pre code { background: none; padding: 0; font-size: inherit; }
+    a { color: #e8463a; }
+  </style>
+</head>
+<body>
+
+<div style="background:#f0fdf4;border:1.5px solid #4ade80;border-radius:7px;padding:.65rem 1.1rem;margin-bottom:1.5rem;font-size:.9rem;color:#166534;font-weight:500;">
+  ✅ Phase complete — all criteria satisfied.
+</div>
+<h1>Phase 5: Article Detail Page &amp; SEO</h1>
+
+<div class="meta">
+  <span><strong>Project:</strong> News Section</span>
+  <span><strong>Phase:</strong> 5 of 6</span>
+  <span><strong>Depends on:</strong> Phase 4 complete</span>
+</div>
+
+<div class="dep">
+  &#9888; <strong>Prerequisite:</strong> Phase 4 (News Homepage) must be complete — its cards link into the detail pages built here.
+</div>
+
+<h2>Overview</h2>
+<p>This phase builds the full article reading experience at <code>/news/[slug]</code>: rendered Markdown body, hero image, metadata, related teams/players, and the SEO surface (title/meta/Open Graph tags + sitemap inclusion). It also wires an admin-only preview so drafts can be viewed in their final layout before publishing.</p>
+
+<h2>What Will Be Built</h2>
+
+<h3>Route: <code>src/routes/news/[slug]/+page.server.ts</code> + <code>+page.svelte</code></h3>
+<ul>
+  <li><strong>Load:</strong> fetch the article by slug. For public visitors use <code>getPublishedArticleBySlug(locals.supabase, slug)</code> (RLS ensures published-only). If not found &rarr; <code>error(404)</code>.</li>
+  <li><strong>Admin preview:</strong> if <code>locals.isAdmin</code> is true, fall back to <code>getArticleForAdmin(slug)</code> so an admin can open a <em>draft</em> at its real URL and see it exactly as it will publish. Render a clear &ldquo;DRAFT — not publicly visible&rdquo; banner in that case. Non-admins still get 404 for drafts.</li>
+  <li><strong>Render body:</strong> the load (server) calls <code>renderMarkdown(body_markdown)</code> and passes sanitized HTML to the page; the component injects it with <code>{@html ...}</code>. (Safe because it's already sanitized server-side.)</li>
+  <li><strong>Layout:</strong> hero image, category pill, title, dek, publish date, then the article body in a readable measure (<code>prose</code>-like styling — Tailwind typographic classes or hand-rolled to match the site). Related teams/players render as a &ldquo;Related&rdquo; footer with links to <code>/teams/&lt;ncaa_team_id&gt;</code> and <code>/players/&lt;ncaa_player_id&gt;</code>, reusing <code>TeamLogo.svelte</code> where it fits.</li>
+  <li><strong>Back / more news:</strong> a link back to <code>/</code> and optionally a small &ldquo;More news&rdquo; strip reusing <code>ArticleCard.svelte</code>.</li>
+</ul>
+
+<h3>SEO &amp; social</h3>
+<ul>
+  <li><code>&lt;svelte:head&gt;</code>: <code>&lt;title&gt;</code> = article title + &ldquo; — CollegeSoccer.IO&rdquo;; <code>meta description</code> = dek; canonical URL.</li>
+  <li>Open Graph / Twitter card tags: <code>og:title</code>, <code>og:description</code>, <code>og:image</code> = <code>hero_image_url</code>, <code>og:type=article</code>, <code>article:published_time</code>.</li>
+  <li>For admin draft previews, emit <code>&lt;meta name="robots" content="noindex"&gt;</code>.</li>
+</ul>
+
+<h3>Sitemap: <code>src/routes/sitemap.xml/+server.ts</code></h3>
+<ul>
+  <li>Add <code>/scores</code> to the static URLs (it moved in Phase 4).</li>
+  <li>Query published articles and emit a <code>&lt;url&gt;</code> per <code>/news/&lt;slug&gt;</code> with <code>lastmod = updated_at</code>. Drafts are excluded (query <code>status='published'</code>).</li>
+  <li>Confirm <code>/</code> is still present (now News).</li>
+</ul>
+
+<div class="note"><strong>CLAUDE.md &rarr; SEO:</strong> the repo requires updating <code>sitemap.xml/+server.ts</code> when routes change. This phase satisfies that for the new <code>/scores</code> and <code>/news/[slug]</code> routes.</div>
+
+<h2>Implementation Notes</h2>
+<ul>
+  <li><strong><code>{@html}</code> safety:</strong> only ever render the output of <code>renderMarkdown</code> (sanitized). Do not <code>{@html}</code> raw <code>body_markdown</code> or any unsanitized string.</li>
+  <li><strong>Prose styling:</strong> if <code>@tailwindcss/typography</code> isn't installed, either add it or hand-style headings/paragraphs/lists/blockquote/img inside a scoped <code>.article-body</code> class. Check <code>package.json</code> before adding a dependency.</li>
+  <li><strong>Images in body</strong> are absolute public Storage URLs from Phase 2 uploads; ensure they're responsive (<code>max-width:100%; height:auto</code>).</li>
+  <li><strong>404 correctness:</strong> a non-existent slug and an unpublished slug (for non-admins) must both return a real 404 status, not a 200 with empty content.</li>
+</ul>
+
+<h3>Key files to read before starting</h3>
+<ul>
+  <li><code>src/routes/sitemap.xml/+server.ts</code> — existing static + dynamic URL pattern to extend.</li>
+  <li><code>src/routes/games/[ncaa_contest_id]/+page.svelte</code> (or <code>teams/[ncaa_team_id]</code>) — an existing dynamic route with <code>&lt;svelte:head&gt;</code> SEO to model.</li>
+  <li><code>src/lib/server/markdown.ts</code> &amp; <code>articles.ts</code> — the render + fetch helpers from Phase 2.</li>
+  <li><code>src/lib/components/TeamLogo.svelte</code>, <code>ArticleCard.svelte</code> — reuse for related entities / more-news.</li>
+</ul>
+
+<h2>Completion Criteria</h2>
+<ul class="checklist">
+  <li class="done"><code>/news/&lt;slug&gt;</code> renders a published article: hero, title, dek, date, sanitized Markdown body, and related teams/players with working links.</li>
+  <li class="done">A non-existent or draft slug returns HTTP 404 for the public.</li>
+  <li class="done">An admin visiting a draft slug sees the article with a &ldquo;DRAFT&rdquo; banner and <code>noindex</code>.</li>
+  <li class="done">Head tags (title, description, canonical, OG image) are correct and populated from the article.</li>
+  <li class="done">Homepage cards navigate to the correct detail pages.</li>
+  <li class="done">Sitemap includes <code>/scores</code> and every published <code>/news/&lt;slug&gt;</code>, excludes drafts, and remains valid XML.</li>
+  <li class="done"><code>npm run check</code> clean; body renders correctly in light/dark and on mobile.</li>
+</ul>
+
+<h2>How to Validate</h2>
+<ol>
+  <li>From <code>/</code>, click the featured article and a card; confirm each opens its <code>/news/&lt;slug&gt;</code> page with full body and correct related entities.</li>
+  <li>View page source (or devtools) and confirm <code>&lt;title&gt;</code>, <code>meta description</code>, and <code>og:image</code> reflect the article.</li>
+  <li>Hit a random bad slug (<code>/news/does-not-exist</code>) &rarr; confirm a 404 page and 404 status.</li>
+  <li>As a non-admin/incognito, open a known draft slug &rarr; confirm 404. As admin, open the same slug &rarr; confirm it renders with the DRAFT banner and <code>noindex</code>.</li>
+  <li>Paste a Markdown body containing an inline image, a link, and a list; confirm all render and the image is responsive.</li>
+  <li>Load <code>/sitemap.xml</code> and confirm <code>/scores</code> and published article URLs appear and it's well-formed.</li>
+</ol>
+
+</body>
+</html>

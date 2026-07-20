@@ -651,6 +651,12 @@
 				<a href="/admin/roster" class="block pl-4 pr-3 py-1.5 text-xs border-l-2 border-transparent text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-gray-200 transition-colors">Review Queue</a>
 				<a href="/admin/roster/sources" class="block pl-4 pr-3 py-1.5 text-xs border-l-2 border-transparent text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-gray-200 transition-colors">Sources &amp; Coverage</a>
 			</div>
+			<!-- News/articles live on their own routes. -->
+			<div class="border-b border-gray-100 dark:border-gray-700/60 last:border-b-0">
+				<div class="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">News</div>
+				<a href="/admin/news" class="block pl-4 pr-3 py-1.5 text-xs border-l-2 border-transparent text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-gray-200 transition-colors">All Articles</a>
+				<a href="/admin/news/new" class="block pl-4 pr-3 py-1.5 text-xs border-l-2 border-transparent text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-gray-200 transition-colors">New Article</a>
+			</div>
 		</nav>
 
 		<!-- ── Content pane ─────────────────────────────────────── -->

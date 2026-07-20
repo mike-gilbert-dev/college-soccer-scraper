@@ -59,7 +59,8 @@
 
 			<!-- Desktop nav links + controls -->
 			<div class="hidden md:flex items-center gap-1">
-				<a href="/" class={navLinkClass('/')}>Scores</a>
+				<a href="/" class={navLinkClass('/')}>News</a>
+				<a href="/scores" class={navLinkClass('/scores')}>Scores</a>
 				<a href="/teams" class={navLinkClass('/teams')}>Teams</a>
 				<a href="/ratings" class={navLinkClass('/ratings')}>Ratings</a>
 				<a href="/stats" class={navLinkClass('/stats')}>Stats</a>
@@ -146,7 +147,8 @@
 	<!-- Mobile dropdown — no transition so it can never get stuck as an invisible overlay -->
 	{#if mobileOpen}
 		<div class="md:hidden mt-2 pt-2 border-t border-gray-200 dark:border-gray-700 space-y-0.5 pb-1">
-			<a href="/" onclick={closeMenu} class={mobileNavLinkClass('/')}>Scores</a>
+			<a href="/" onclick={closeMenu} class={mobileNavLinkClass('/')}>News</a>
+			<a href="/scores" onclick={closeMenu} class={mobileNavLinkClass('/scores')}>Scores</a>
 			<a href="/teams" onclick={closeMenu} class={mobileNavLinkClass('/teams')}>Teams</a>
 			<a href="/ratings" onclick={closeMenu} class={mobileNavLinkClass('/ratings')}>Ratings</a>
 			<a href="/stats" onclick={closeMenu} class={mobileNavLinkClass('/stats')}>Stats</a>

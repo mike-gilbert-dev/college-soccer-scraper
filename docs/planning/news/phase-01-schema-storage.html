@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 1: Schema &amp; Storage — News Section</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1.25rem; line-height: 1.65; color: #111; }
+    h1 { font-size: 1.6rem; border-bottom: 3px solid #e8463a; padding-bottom: .5rem; margin-bottom: .5rem; }
+    h2 { font-size: 1.1rem; color: #333; margin-top: 2rem; border-bottom: 1px solid #e5e5e5; padding-bottom: .25rem; }
+    h3 { font-size: 1rem; color: #444; }
+    .meta { display: flex; flex-wrap: wrap; gap: 1.5rem; background: #f7f7f7; padding: .75rem 1rem; border-radius: 6px; font-size: .875rem; margin-bottom: 1.75rem; color: #444; }
+    .meta strong { color: #111; }
+    .checklist { list-style: none; padding: 0; margin: 0; }
+    .checklist li { padding: .4rem 0 .4rem .25rem; border-bottom: 1px solid #f0f0f0; display: flex; gap: .75rem; align-items: flex-start; font-size: .95rem; }
+    .checklist li::before { content: "\2610"; font-size: 1.1rem; color: #aaa; flex-shrink: 0; margin-top: .05rem; }
+    .ref { background: #fffbeb; border-left: 3px solid #f59e0b; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    .ref a { color: #92400e; font-weight: 500; }
+    .dep { background: #eff6ff; border-left: 3px solid #60a5fa; padding: .5rem .85rem; margin-bottom: 1.25rem; border-radius: 0 5px 5px 0; font-size: .875rem; color: #1e40af; }
+    .note { background: #f0fdf4; border-left: 3px solid #4ade80; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    code { background: #f3f4f6; padding: .15rem .4rem; border-radius: 3px; font-size: .875em; font-family: ui-monospace, monospace; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem 1.25rem; border-radius: 7px; overflow-x: auto; font-size: .875rem; }
+    pre code { background: none; padding: 0; font-size: inherit; }
+    a { color: #e8463a; }
+  </style>
+</head>
+<body>
+
+<div style="background:#f0fdf4;border:1.5px solid #4ade80;border-radius:7px;padding:.65rem 1.1rem;margin-bottom:1.5rem;font-size:.9rem;color:#166534;font-weight:500;">
+  ✅ Phase complete — all criteria satisfied.
+</div>
+<h1>Phase 1: Schema &amp; Storage</h1>
+
+<div class="meta">
+  <span><strong>Project:</strong> News Section</span>
+  <span><strong>Phase:</strong> 1 of 6</span>
+  <span><strong>Depends on:</strong> None (first phase)</span>
+</div>
+
+<h2>Overview</h2>
+<p>This phase lays the data foundation for the entire news feature: the <code>articles</code> table, the many-to-many join tables that tag articles to teams and players, a public Storage bucket for article images, and the Row Level Security (RLS) policies that let anonymous visitors read <em>published</em> articles while keeping drafts private. Nothing else can be built until this exists, so it comes first.</p>
+
+<h2>What Will Be Built</h2>
+
+<h3>Migration: <code>supabase/migrations/&lt;timestamp&gt;_articles.sql</code></h3>
+<p>Use the repo's timestamp convention (<code>YYYYMMDDHHMMSS_articles.sql</code>, a value greater than the latest existing migration <code>20260628000001</code>). Create the following:</p>
+
+<pre><code>CREATE TABLE articles (
+  id            bigserial   PRIMARY KEY,
+  slug          text        NOT NULL UNIQUE,
+  title         text        NOT NULL,
+  subtitle      text,                         -- dek / summary line
+  category      text,                         -- free-form label
+  body_markdown text        NOT NULL DEFAULT '',
+  hero_image_path text,                       -- object key in article-images bucket
+  hero_image_url  text,                       -- resolved public URL (convenience)
+  status        text        NOT NULL DEFAULT 'draft'
+                            CHECK (status IN ('draft','published')),
+  published_at  timestamptz,                  -- editable; set when first published
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX articles_published_idx
+  ON articles (published_at DESC)
+  WHERE status = 'published';
+CREATE INDEX articles_status_idx ON articles (status);</code></pre>
+
+<h3>Join tables (article &harr; entity tagging)</h3>
+<p>Both reference the <strong>bigserial <code>id</code></strong> PKs (not the natural keys) for FK integrity. <code>teams.id</code> and <code>players.id</code> are both <code>bigserial PRIMARY KEY</code> (confirmed in <code>20260606000000_initial_schema.sql</code> and <code>20260606000006_players.sql</code>).</p>
+
+<pre><code>CREATE TABLE article_teams (
+  article_id bigint NOT NULL REFERENCES articles (id) ON DELETE CASCADE,
+  team_id    bigint NOT NULL REFERENCES teams (id)    ON DELETE CASCADE,
+  PRIMARY KEY (article_id, team_id)
+);
+
+CREATE TABLE article_players (
+  article_id bigint NOT NULL REFERENCES articles (id)  ON DELETE CASCADE,
+  player_id  bigint NOT NULL REFERENCES players (id)   ON DELETE CASCADE,
+  PRIMARY KEY (article_id, player_id)
+);
+CREATE INDEX article_teams_team_idx     ON article_teams (team_id);
+CREATE INDEX article_players_player_idx ON article_players (player_id);</code></pre>
+
+<h3><code>updated_at</code> trigger</h3>
+<p>Add a <code>BEFORE UPDATE</code> trigger that sets <code>updated_at = now()</code> on <code>articles</code> (a small <code>plpgsql</code> function, <code>SECURITY DEFINER SET search_path = ''</code> to match the repo's convention in <code>20260606000005_profiles.sql</code>).</p>
+
+<h3>Grants &amp; RLS</h3>
+<p>Mirror the pattern in <code>20260606000001_permissions.sql</code>. service_role gets full access (admin writes go through <code>supabaseAdmin</code>, which bypasses RLS but still needs the GRANT); anonymous/authenticated get public read of <strong>published</strong> rows only.</p>
+
+<pre><code>GRANT ALL ON TABLE articles, article_teams, article_players TO service_role;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO service_role;
+
+ALTER TABLE articles        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE article_teams   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE article_players ENABLE ROW LEVEL SECURITY;
+
+-- Anonymous visitors may read ONLY published articles (drafts stay hidden)
+CREATE POLICY "public read published articles"
+  ON articles FOR SELECT USING (status = 'published');
+
+-- Join rows are readable by all; the parent article's RLS is what gates
+-- visibility of a draft's tags in practice (a draft article won't be
+-- selectable, so its tags are never joined for anon users).
+CREATE POLICY "public read article_teams"   ON article_teams   FOR SELECT USING (true);
+CREATE POLICY "public read article_players" ON article_players FOR SELECT USING (true);</code></pre>
+
+<div class="note">
+  <strong>Draft privacy:</strong> the public read policy on <code>articles</code> is the security boundary. Because admin CRUD runs server-side through <code>supabaseAdmin</code> (service_role, RLS-bypassing) and is gated by <code>hooks.server.ts</code>, admins can still read/write drafts. Never expose a browser-side (publishable-key) query path that could return drafts.
+</div>
+
+<h3>Migration: <code>supabase/migrations/&lt;timestamp+1&gt;_article_images_bucket.sql</code></h3>
+<p>A separate migration (matches the repo habit of one bucket per file, e.g. <code>20260610000000_ncaa_raw_bucket.sql</code>, <code>20260622000002_player_headshots.sql</code>). Public bucket so the site serves images directly:</p>
+
+<pre><code>INSERT INTO storage.buckets (id, name, public)
+VALUES ('article-images', 'article-images', true)
+ON CONFLICT (id) DO NOTHING;</code></pre>
+
+<h2>Implementation Notes</h2>
+<ul>
+  <li><strong>Migrations are applied via the Supabase MCP</strong> <code>apply_migration</code> tool (or <code>npm run db:push</code> if working against a linked local CLI). Prefer <code>list_tables</code> first to confirm the current state, then <code>apply_migration</code> with a descriptive name.</li>
+  <li><strong>Slug</strong> is <code>UNIQUE NOT NULL</code>. Slug generation/uniqueness handling lives in the server layer (Phase 2); the DB just enforces the constraint.</li>
+  <li><strong>No author field</strong> — the intake decided against a byline.</li>
+  <li>Follow the existing SQL style: lowercase keywords are used in newer migrations, uppercase in older ones — either is fine, but be internally consistent within the file.</li>
+</ul>
+
+<h3>Key files to read before starting</h3>
+<ul>
+  <li><code>supabase/migrations/20260606000001_permissions.sql</code> — the canonical grant + public-read RLS pattern to copy.</li>
+  <li><code>supabase/migrations/20260622000002_player_headshots.sql</code> — public bucket + provenance-column pattern.</li>
+  <li><code>supabase/migrations/20260606000005_profiles.sql</code> — <code>SECURITY DEFINER SET search_path = ''</code> function/trigger convention.</li>
+  <li><code>supabase/migrations/20260606000000_initial_schema.sql</code> &amp; <code>20260606000006_players.sql</code> — confirm <code>teams.id</code> / <code>players.id</code> are the bigserial PKs referenced by the join tables.</li>
+</ul>
+
+<h2>Completion Criteria</h2>
+<p>Every item below must be satisfied before proceeding to Phase 2.</p>
+<ul class="checklist">
+  <li class="done"><code>articles</code>, <code>article_teams</code>, <code>article_players</code> tables exist with the columns, constraints, and indexes above.</li>
+  <li class="done"><code>status</code> CHECK constraint rejects any value other than <code>draft</code>/<code>published</code>.</li>
+  <li class="done"><code>updated_at</code> auto-updates on row UPDATE (verified with a manual update).</li>
+  <li class="done">RLS is enabled on all three tables; the public policy on <code>articles</code> returns published rows only.</li>
+  <li class="done">The <code>article-images</code> Storage bucket exists and is public.</li>
+  <li class="done">Migrations are applied to the remote project and appear in <code>list_migrations</code>.</li>
+</ul>
+
+<h2>How to Validate</h2>
+<ol>
+  <li>Run <code>list_tables</code> (Supabase MCP) and confirm the three new tables with expected columns/FKs.</li>
+  <li>Insert a draft row via <code>execute_sql</code>:
+    <pre><code>insert into articles (slug, title, body_markdown, status)
+values ('test-draft', 'Test Draft', '# hi', 'draft');</code></pre></li>
+  <li>Simulate anonymous read — confirm the draft is <em>not</em> visible under the public policy. Using the Supabase SQL editor as the <code>anon</code> role (or a publishable-key query in the app later) should return 0 rows for <code>select * from articles</code>. As service_role it returns 1.</li>
+  <li>Update the row to <code>status='published', published_at=now()</code> and confirm anon can now read it, and that <code>updated_at</code> changed.</li>
+  <li>In the Supabase dashboard &rarr; Storage, confirm the <code>article-images</code> bucket exists and is marked Public.</li>
+  <li>Clean up the test row: <code>delete from articles where slug='test-draft';</code></li>
+</ol>
+
+</body>
+</html>

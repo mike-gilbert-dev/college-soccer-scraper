@@ -6,7 +6,7 @@ import { getPostHogClient } from '$lib/server/posthog';
 
 // Only these paths require an authenticated admin.
 // Everything else is public.
-const ADMIN_PATHS = ['/admin', '/api/scrape'];
+const ADMIN_PATHS = ['/admin', '/api/scrape', '/api/admin'];
 
 export const handle: Handle = async ({ event, resolve }) => {
 	const { pathname } = event.url;

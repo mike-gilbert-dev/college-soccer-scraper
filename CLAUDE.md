@@ -215,3 +215,37 @@ which does NOT share a namespace with box-score players (`{ncaaTeamId}_{name}`).
 later appears in a box score, `nightly-reconcile` creates a *separate* player + player_season ->
 duplicate. Safe for completed seasons (box scores final); risky as a preseason bootstrap. Prefer
 **link-only** until a merge tool exists.
+
+## News / Articles
+
+Editorial news section. **News is the homepage (`/`)**; the scoreboard moved to
+[`/scores`](src/routes/scores). Featured article = **most recent published** (no manual pin);
+the homepage shows featured + 4 streamlined cards, then a "Load more" button fetches 8 at a time
+via [`/api/news`](src/routes/api/news/+server.ts). Article detail pages live at
+[`/news/[slug]`](src/routes/news/[slug]).
+
+- **Schema** ([`20260719000000_articles.sql`](supabase/migrations/20260719000000_articles.sql)):
+  `articles` (slug unique, title, subtitle/dek, free-form `category`, `body_markdown`, hero image
+  path+url, `status` in `draft|published`, editable `published_at`, `updated_at` trigger) plus
+  `article_teams` / `article_players` join tables (FK the bigserial `teams.id` / `players.id`).
+  **Draft privacy is an RLS boundary:** the public policy exposes only `status='published'`; anon
+  reads (browser publishable-key client / `locals.supabase`) can never see drafts.
+- **Images** live in the public **`article-images`** bucket
+  ([`20260719000001`](supabase/migrations/20260719000001_article_images_bucket.sql)); uploaded via
+  the admin-gated [`/api/admin/news/upload`](src/routes/api/admin/news/upload/+server.ts) endpoint
+  (hero + inline body images). Replacing a hero best-effort deletes the old object.
+- **Data layer:** [`src/lib/server/articles.ts`](src/lib/server/articles.ts) — public reads take
+  `locals.supabase` (RLS); admin reads/writes use `supabaseAdmin` (service_role). Card lists select
+  card columns only (never `body_markdown`); list query uses the partial `articles_published_idx`.
+- **Markdown:** [`src/lib/server/markdown.ts`](src/lib/server/markdown.ts) `renderMarkdown()` (marked
+  + sanitize-html) is the **only** place body Markdown becomes HTML — used by both the detail page
+  and the editor's live-preview endpoint, so preview === final render. `.article-body` styles in
+  `app.css` (no typography-plugin dependency).
+- **Admin** ([`/admin/news`](src/routes/admin/news)): list (all statuses) + create/edit editor
+  (`ArticleEditor.svelte`) with Markdown + live preview, hero/inline upload, team/player tagging
+  pickers, draft/publish toggle. Admin API is gated by `'/api/admin'` in `hooks.server.ts`
+  `ADMIN_PATHS`. **Draft = work without displaying it**; an admin can preview a draft at its real
+  `/news/[slug]` URL (DRAFT banner + `noindex`); non-admins get a 404.
+- **SEO:** published articles are added to
+  [`sitemap.xml`](src/routes/sitemap.xml/+server.ts) (drafts excluded); detail pages emit OG/article
+  meta tags. `/scores` is also in the sitemap.

@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 2: Server Data Layer &amp; Image Upload — News Section</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1.25rem; line-height: 1.65; color: #111; }
+    h1 { font-size: 1.6rem; border-bottom: 3px solid #e8463a; padding-bottom: .5rem; margin-bottom: .5rem; }
+    h2 { font-size: 1.1rem; color: #333; margin-top: 2rem; border-bottom: 1px solid #e5e5e5; padding-bottom: .25rem; }
+    h3 { font-size: 1rem; color: #444; }
+    .meta { display: flex; flex-wrap: wrap; gap: 1.5rem; background: #f7f7f7; padding: .75rem 1rem; border-radius: 6px; font-size: .875rem; margin-bottom: 1.75rem; color: #444; }
+    .meta strong { color: #111; }
+    .checklist { list-style: none; padding: 0; margin: 0; }
+    .checklist li { padding: .4rem 0 .4rem .25rem; border-bottom: 1px solid #f0f0f0; display: flex; gap: .75rem; align-items: flex-start; font-size: .95rem; }
+    .checklist li::before { content: "\2610"; font-size: 1.1rem; color: #aaa; flex-shrink: 0; margin-top: .05rem; }
+    .ref { background: #fffbeb; border-left: 3px solid #f59e0b; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    .ref a { color: #92400e; font-weight: 500; }
+    .dep { background: #eff6ff; border-left: 3px solid #60a5fa; padding: .5rem .85rem; margin-bottom: 1.25rem; border-radius: 0 5px 5px 0; font-size: .875rem; color: #1e40af; }
+    .note { background: #f0fdf4; border-left: 3px solid #4ade80; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    code { background: #f3f4f6; padding: .15rem .4rem; border-radius: 3px; font-size: .875em; font-family: ui-monospace, monospace; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem 1.25rem; border-radius: 7px; overflow-x: auto; font-size: .875rem; }
+    pre code { background: none; padding: 0; font-size: inherit; }
+    a { color: #e8463a; }
+  </style>
+</head>
+<body>
+
+<div style="background:#f0fdf4;border:1.5px solid #4ade80;border-radius:7px;padding:.65rem 1.1rem;margin-bottom:1.5rem;font-size:.9rem;color:#166534;font-weight:500;">
+  ✅ Phase complete — all criteria satisfied.
+</div>
+<h1>Phase 2: Server Data Layer &amp; Image Upload</h1>
+
+<div class="meta">
+  <span><strong>Project:</strong> News Section</span>
+  <span><strong>Phase:</strong> 2 of 6</span>
+  <span><strong>Depends on:</strong> Phase 1 complete</span>
+</div>
+
+<div class="dep">
+  &#9888; <strong>Prerequisite:</strong> Phase 1 (Schema &amp; Storage) must be complete — the tables and the <code>article-images</code> bucket must exist.
+</div>
+
+<h2>Overview</h2>
+<p>This phase builds the reusable server-side plumbing every UI phase consumes: typed query helpers for reading and writing articles, the Markdown&rarr;HTML render+sanitize helper, slug generation, and the admin-gated image upload endpoint. Doing this once, server-side, keeps the admin UI (Phase 3) and public pages (Phases 4–5) thin and consistent, and guarantees drafts never leak through a browser query path.</p>
+
+<h2>What Will Be Built</h2>
+
+<h3>1. Dependencies</h3>
+<p>Add two packages: a Markdown parser and an HTML sanitizer (admins are trusted, but sanitizing SSR-rendered HTML is cheap insurance and lets us safely render any pasted content).</p>
+<pre><code>npm i marked sanitize-html
+npm i -D @types/sanitize-html</code></pre>
+<div class="note"><code>marked</code> is synchronous and dependency-light; <code>sanitize-html</code> runs server-side (Node) which fits our SSR render path. Do the render on the server so no parser ships to the browser.</div>
+
+<h3>2. <code>src/lib/server/markdown.ts</code></h3>
+<p>A single exported function <code>renderMarkdown(md: string): string</code> that runs <code>marked</code> then <code>sanitizeHtml</code> with an allowlist that includes headings, paragraphs, lists, <code>a</code>, <code>img</code> (with <code>src/alt/title</code>), <code>blockquote</code>, <code>code</code>/<code>pre</code>, <code>strong</code>/<code>em</code>, and <code>figure</code>/<code>figcaption</code>. Force <code>a[target=_blank]</code> + <code>rel="noopener"</code> for external links. This is the ONLY place Markdown becomes HTML.</p>
+
+<h3>3. <code>src/lib/server/articles.ts</code></h3>
+<p>Typed helpers used by loaders and endpoints. Reads for the public site use <code>event.locals.supabase</code> (publishable key + RLS, so only published rows return); admin reads/writes use <code>supabaseAdmin</code>. Export at minimum:</p>
+<ul>
+  <li><code>listPublishedArticles(client, { offset, limit })</code> &mdash; returns published articles ordered by <code>published_at DESC</code>, selecting card fields (id, slug, title, subtitle, category, hero_image_url, published_at). Uses <code>.range(offset, offset+limit-1)</code> and returns <code>{ rows, hasMore }</code> (fetch <code>limit+1</code> to detect more, or use an exact count).</li>
+  <li><code>getPublishedArticleBySlug(client, slug)</code> &mdash; single published article incl. <code>body_markdown</code> and joined related teams/players (name, logo/slug, ncaa ids for links).</li>
+  <li><code>getArticleForAdmin(slug_or_id)</code> &mdash; via <code>supabaseAdmin</code>, any status, incl. related team/player ids for the editor.</li>
+  <li><code>listArticlesForAdmin({ status? })</code> &mdash; via <code>supabaseAdmin</code>, all statuses, newest first, for the admin index.</li>
+  <li><code>createArticle(input)</code> / <code>updateArticle(id, input)</code> &mdash; via <code>supabaseAdmin</code>; upsert the row, then reconcile <code>article_teams</code>/<code>article_players</code> (delete-then-insert the provided id sets in a best-effort transaction-like sequence). On first transition to <code>published</code> with no <code>published_at</code>, set <code>published_at = now()</code> unless an explicit value was supplied.</li>
+  <li><code>deleteArticle(id)</code> &mdash; via <code>supabaseAdmin</code> (cascade removes join rows).</li>
+  <li><code>uniqueSlug(base)</code> &mdash; slugify a title (reuse the <code>deriveSlug</code> approach already in <code>src/routes/admin/+page.svelte</code>) and append <code>-2</code>, <code>-3</code>&hellip; until unique against <code>articles.slug</code>.</li>
+</ul>
+
+<h3>4. Image upload endpoint: <code>src/routes/api/admin/news/upload/+server.ts</code></h3>
+<p>Admin-gated POST that accepts a <code>multipart/form-data</code> file, uploads it to the <code>article-images</code> bucket via <code>supabaseAdmin.storage</code>, and returns <code>{ path, url }</code> (public URL from <code>getPublicUrl</code>). Used for BOTH the hero image and inline body images (Phase 3 calls it and inserts <code>![alt](url)</code> at the cursor).</p>
+<ul>
+  <li>Object key: <code>&lt;yyyy&gt;/&lt;mm&gt;/&lt;uuid&gt;.&lt;ext&gt;</code> (e.g. <code>crypto.randomUUID()</code>). Content-addressed-ish, avoids collisions.</li>
+  <li>Validate: content-type starts with <code>image/</code>; reject &gt; ~8&nbsp;MB; allow <code>jpg/png/webp/gif</code>.</li>
+  <li>Set <code>cacheControl: '31536000'</code> and <code>upsert: false</code>.</li>
+</ul>
+
+<h3>5. Register the admin path in <code>src/hooks.server.ts</code></h3>
+<p>Add <code>'/api/admin'</code> to the <code>ADMIN_PATHS</code> array so the upload endpoint (and any future admin API) is gated exactly like <code>/admin</code> and <code>/api/scrape</code>.</p>
+
+<h2>Implementation Notes</h2>
+<ul>
+  <li><strong>Runes mode</strong> is enforced repo-wide, but this phase is <code>.ts</code> only — no Svelte components yet.</li>
+  <li><strong>Never</strong> read drafts through <code>locals.supabase</code>; that client uses the publishable key and RLS will (correctly) hide them. Admin reads must use <code>supabaseAdmin</code>.</li>
+  <li><strong>SUPABASE_SERVICE_ROLE_KEY</strong> is already wired into <code>src/lib/server/supabase-admin.ts</code>; reuse that singleton, don't create a new client.</li>
+  <li>Keep the related-entity reconcile simple: <code>delete from article_teams where article_id=?</code> then bulk insert the new set. Same for players. Acceptable because edits are infrequent and admin-only.</li>
+  <li><strong>Types:</strong> optionally regenerate types via the Supabase MCP <code>generate_typescript_types</code>, or hand-write a small <code>Article</code> interface in <code>articles.ts</code>. Match how the rest of the app types Supabase rows (the homepage hand-writes interfaces).</li>
+</ul>
+
+<h3>Key files to read before starting</h3>
+<ul>
+  <li><code>src/lib/server/supabase-admin.ts</code> — the service-role client to reuse for all admin/storage writes.</li>
+  <li><code>src/lib/server/roster-archive.ts</code> (or any file doing <code>supabaseAdmin.storage.from(...).upload</code>) — existing Storage upload idiom to mirror.</li>
+  <li><code>src/routes/admin/+page.svelte</code> lines ~119–126 — the <code>deriveSlug</code> function to reuse in <code>uniqueSlug</code>.</li>
+  <li><code>src/hooks.server.ts</code> — <code>ADMIN_PATHS</code> gating to extend.</li>
+</ul>
+
+<h2>Completion Criteria</h2>
+<ul class="checklist">
+  <li class="done"><code>marked</code> and <code>sanitize-html</code> are installed and in <code>package.json</code>.</li>
+  <li class="done"><code>renderMarkdown()</code> converts Markdown to sanitized HTML (script tags / <code>onerror</code> handlers stripped; images and links preserved).</li>
+  <li class="done"><code>src/lib/server/articles.ts</code> exports all read/write/slug helpers listed above and type-checks (<code>npm run check</code> clean).</li>
+  <li class="done">The upload endpoint stores an image in <code>article-images</code> and returns a working public URL; it 401/403s when not authenticated as admin.</li>
+  <li class="done"><code>/api/admin</code> is in <code>ADMIN_PATHS</code>.</li>
+</ul>
+
+<h2>How to Validate</h2>
+<ol>
+  <li><code>npm run check</code> passes with no new errors.</li>
+  <li>Unit-poke <code>renderMarkdown</code> from a scratch script: feed <code>&lt;img src=x onerror=alert(1)&gt;## Hi</code> and confirm the output has the heading but no <code>onerror</code>.</li>
+  <li>With the dev server running and signed in as an admin, POST an image to <code>/api/admin/news/upload</code> (e.g. via the browser devtools or a small fetch) and confirm a <code>{ path, url }</code> response whose <code>url</code> loads the image.</li>
+  <li>Sign out (or use an incognito session) and POST again — confirm you're redirected/blocked by the admin gate.</li>
+  <li>Temporarily call <code>listPublishedArticles(locals.supabase, {offset:0,limit:5})</code> from a scratch loader and confirm it returns only published rows (create one published + one draft to verify the draft is excluded).</li>
+</ol>
+
+</body>
+</html>

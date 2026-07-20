@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 3: Admin Authoring UI — News Section</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1.25rem; line-height: 1.65; color: #111; }
+    h1 { font-size: 1.6rem; border-bottom: 3px solid #e8463a; padding-bottom: .5rem; margin-bottom: .5rem; }
+    h2 { font-size: 1.1rem; color: #333; margin-top: 2rem; border-bottom: 1px solid #e5e5e5; padding-bottom: .25rem; }
+    h3 { font-size: 1rem; color: #444; }
+    .meta { display: flex; flex-wrap: wrap; gap: 1.5rem; background: #f7f7f7; padding: .75rem 1rem; border-radius: 6px; font-size: .875rem; margin-bottom: 1.75rem; color: #444; }
+    .meta strong { color: #111; }
+    .checklist { list-style: none; padding: 0; margin: 0; }
+    .checklist li { padding: .4rem 0 .4rem .25rem; border-bottom: 1px solid #f0f0f0; display: flex; gap: .75rem; align-items: flex-start; font-size: .95rem; }
+    .checklist li::before { content: "\2610"; font-size: 1.1rem; color: #aaa; flex-shrink: 0; margin-top: .05rem; }
+    .ref { background: #fffbeb; border-left: 3px solid #f59e0b; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    .ref a { color: #92400e; font-weight: 500; }
+    .dep { background: #eff6ff; border-left: 3px solid #60a5fa; padding: .5rem .85rem; margin-bottom: 1.25rem; border-radius: 0 5px 5px 0; font-size: .875rem; color: #1e40af; }
+    .note { background: #f0fdf4; border-left: 3px solid #4ade80; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    code { background: #f3f4f6; padding: .15rem .4rem; border-radius: 3px; font-size: .875em; font-family: ui-monospace, monospace; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem 1.25rem; border-radius: 7px; overflow-x: auto; font-size: .875rem; }
+    pre code { background: none; padding: 0; font-size: inherit; }
+    a { color: #e8463a; }
+  </style>
+</head>
+<body>
+
+<div style="background:#f0fdf4;border:1.5px solid #4ade80;border-radius:7px;padding:.65rem 1.1rem;margin-bottom:1.5rem;font-size:.9rem;color:#166534;font-weight:500;">
+  ✅ Phase complete — all criteria satisfied.
+</div>
+<h1>Phase 3: Admin Authoring UI</h1>
+
+<div class="meta">
+  <span><strong>Project:</strong> News Section</span>
+  <span><strong>Phase:</strong> 3 of 6</span>
+  <span><strong>Depends on:</strong> Phase 2 complete</span>
+</div>
+
+<div class="dep">
+  &#9888; <strong>Prerequisite:</strong> Phase 2 (Server Data Layer &amp; Image Upload) must be complete — the editor consumes <code>articles.ts</code> helpers and the upload endpoint.
+</div>
+
+<h2>Overview</h2>
+<p>This phase gives you the tools to actually write articles: an admin index listing every article (any status), and a create/edit editor with a Markdown textarea + live preview, hero image upload, inline body-image upload, category, dek, editable publish date, the draft/published toggle, and the team/player tagging picker. Building the authoring side before the public side means there is real content to render in Phases 4–5. Crucially, this is where the <strong>&ldquo;work on an article without it being displayed&rdquo;</strong> requirement is satisfied via the draft state.</p>
+
+<h2>What Will Be Built</h2>
+
+<h3>Routes (all under the admin-gated <code>/admin</code> tree)</h3>
+<ul>
+  <li><code>src/routes/admin/news/+page.server.ts</code> / <code>+page.svelte</code> &mdash; index table of all articles: title, status badge (draft = grey, published = green), category, published date, and Edit / View / Delete actions, plus a <strong>&ldquo;New article&rdquo;</strong> button. Uses <code>listArticlesForAdmin()</code>.</li>
+  <li><code>src/routes/admin/news/new/+page.svelte</code> &amp; <code>src/routes/admin/news/[id]/+page.server.ts</code> / <code>+page.svelte</code> &mdash; the editor. New and edit can share one editor component. The <code>[id]</code> load uses <code>getArticleForAdmin()</code>.</li>
+</ul>
+
+<h3>Editor component: <code>src/lib/components/ArticleEditor.svelte</code></h3>
+<p>A Svelte 5 runes component (<code>$props</code>, <code>$state</code>, <code>$derived</code>). Fields:</p>
+<ul>
+  <li><strong>Title</strong> (text). On blur, if slug is empty, auto-fill slug from title.</li>
+  <li><strong>Slug</strong> (text, editable) with an inline &ldquo;uniqueness&rdquo; hint. Final uniqueness is enforced server-side via <code>uniqueSlug</code>.</li>
+  <li><strong>Subtitle / dek</strong> (text).</li>
+  <li><strong>Category</strong> (free-form text input).</li>
+  <li><strong>Hero image</strong> (required to publish): file input &rarr; POSTs to <code>/api/admin/news/upload</code> &rarr; stores returned <code>path</code>+<code>url</code>, shows a thumbnail preview.</li>
+  <li><strong>Body</strong> (Markdown <code>&lt;textarea&gt;</code>) with a <strong>live preview pane</strong> beside/below it. Preview should call the same <code>renderMarkdown</code> logic — do it via a tiny <code>/api/admin/news/preview</code> endpoint (debounced) OR import a client-safe render; to avoid shipping <code>sanitize-html</code> to the browser, a debounced fetch to a server preview endpoint is the clean choice.</li>
+  <li><strong>Insert image</strong> button above the textarea: uploads via the same endpoint and inserts <code>![alt](url)</code> at the cursor position.</li>
+  <li><strong>Published date</strong> (<code>datetime-local</code>, editable — defaults to now when publishing; can be backdated).</li>
+  <li><strong>Status</strong> toggle: Save as Draft / Publish (and Unpublish back to draft). Publishing is blocked client-side unless a hero image is set.</li>
+  <li><strong>Related teams / players</strong> picker (see below).</li>
+</ul>
+
+<h3>Team / player tagging picker</h3>
+<p>A searchable multi-select. Teams list is small enough to load fully (the admin page already loads <code>allTeams</code>); players are ~thousands, so search them via a lightweight admin lookup endpoint (<code>/api/admin/news/search-players?q=</code>) returning id + name + team. Selected entities render as removable chips. On save, submit arrays of <code>team_id</code> / <code>player_id</code>.</p>
+
+<h3>Save path</h3>
+<p>Use SvelteKit <strong>form actions</strong> in <code>+page.server.ts</code> (<code>?/save</code>, <code>?/delete</code>) that call <code>createArticle</code>/<code>updateArticle</code>/<code>deleteArticle</code>. Actions run server-side and are admin-gated by hooks. After save, redirect to the edit page (or index) with a success flash. The image uploads happen via <code>fetch</code> to the upload endpoint <em>before</em> form submit (so the form just carries the resulting URLs/paths).</p>
+
+<h3>Admin navigation</h3>
+<p>Add a <strong>News</strong> section to the admin sidebar in <code>src/routes/admin/+page.svelte</code>, following the existing &ldquo;Rosters&rdquo; pattern (a labelled group with links to separate routes rather than an <code>activeView</code>): links to <code>/admin/news</code> (&ldquo;All Articles&rdquo;) and <code>/admin/news/new</code> (&ldquo;New Article&rdquo;).</p>
+
+<h2>Implementation Notes</h2>
+<ul>
+  <li><strong>Flowbite Svelte</strong> components (<code>Button</code>, <code>Input</code>, <code>Label</code>, <code>Select</code>, <code>Textarea</code>, <code>Badge</code>, <code>Alert</code>) — same imports as <code>src/routes/admin/+page.svelte</code>. Consult <code>docs/flowbite-svelte.md</code> for quirks.</li>
+  <li><strong>Design:</strong> dense, small text, red accent <code>#e8463a</code> (<code>primary-500</code>), light/dark support — match the admin page's Tailwind idioms exactly.</li>
+  <li><strong>Preview XSS:</strong> the preview endpoint reuses <code>renderMarkdown</code> (already sanitizes), so preview and final render are identical.</li>
+  <li><strong>Draft is the default</strong> for a new article — you can save and return to a half-finished article indefinitely without it ever appearing on the site.</li>
+  <li>Don't over-engineer the picker — a text input with a filtered dropdown and chips is enough. Reuse <code>TeamLogo.svelte</code> for team chips if convenient.</li>
+</ul>
+
+<h3>Key files to read before starting</h3>
+<ul>
+  <li><code>src/routes/admin/+page.svelte</code> — sidebar nav pattern (the &ldquo;Rosters&rdquo; group), form/fetch idioms, Tailwind density conventions.</li>
+  <li><code>src/routes/admin/roster/+page.svelte</code> &amp; <code>+page.server.ts</code> — a full admin sub-route with load + actions to model the news routes on.</li>
+  <li><code>src/lib/components/TeamLogo.svelte</code> — reusable team logo/chip.</li>
+  <li><code>docs/flowbite-svelte.md</code> — component usage + known quirks.</li>
+</ul>
+
+<h2>Completion Criteria</h2>
+<ul class="checklist">
+  <li class="done"><code>/admin/news</code> lists all articles with status badges and New/Edit/View/Delete actions.</li>
+  <li class="done">A new article can be created, saved as draft, reopened, and edited without ever being publicly visible.</li>
+  <li class="done">Hero image upload works and previews; publishing is blocked until a hero image exists.</li>
+  <li class="done">Inline &ldquo;Insert image&rdquo; uploads and inserts a working <code>![]()</code> at the cursor.</li>
+  <li class="done">Markdown live preview matches the eventual rendered output.</li>
+  <li class="done">Category, dek, and an editable/backdatable publish date all persist.</li>
+  <li class="done">Related teams and players can be added/removed and persist to the join tables.</li>
+  <li class="done">Publish / Unpublish toggles <code>status</code> and sets <code>published_at</code> correctly on first publish.</li>
+  <li class="done">Admin sidebar has a working News section; <code>npm run check</code> is clean.</li>
+</ul>
+
+<h2>How to Validate</h2>
+<ol>
+  <li>Sign in as admin, open <code>/admin/news</code>, click New Article.</li>
+  <li>Fill title (watch slug auto-fill), dek, category; upload a hero image; write Markdown and confirm the live preview renders headings/bold/links.</li>
+  <li>Use Insert image to upload an inline image; confirm <code>![]()</code> is inserted and previews.</li>
+  <li>Tag 1–2 teams and a player via the picker; save as <strong>Draft</strong>.</li>
+  <li>Reload <code>/admin/news</code> — the article shows as Draft. Visit <code>/news/&lt;slug&gt;</code> in an incognito window and confirm it is NOT publicly reachable (404) — proving draft privacy (full public rendering is Phase 5, but the RLS gate already applies).</li>
+  <li>Reopen, backdate the publish date, click Publish, and confirm <code>status=published</code> and <code>published_at</code> in the DB (<code>execute_sql</code>).</li>
+  <li>Delete a throwaway article and confirm it disappears and its join rows are gone.</li>
+</ol>
+
+</body>
+</html>

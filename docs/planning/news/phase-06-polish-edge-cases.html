@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 6: Polish, Edge Cases &amp; Hardening — News Section</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1.25rem; line-height: 1.65; color: #111; }
+    h1 { font-size: 1.6rem; border-bottom: 3px solid #e8463a; padding-bottom: .5rem; margin-bottom: .5rem; }
+    h2 { font-size: 1.1rem; color: #333; margin-top: 2rem; border-bottom: 1px solid #e5e5e5; padding-bottom: .25rem; }
+    h3 { font-size: 1rem; color: #444; }
+    .meta { display: flex; flex-wrap: wrap; gap: 1.5rem; background: #f7f7f7; padding: .75rem 1rem; border-radius: 6px; font-size: .875rem; margin-bottom: 1.75rem; color: #444; }
+    .meta strong { color: #111; }
+    .checklist { list-style: none; padding: 0; margin: 0; }
+    .checklist li { padding: .4rem 0 .4rem .25rem; border-bottom: 1px solid #f0f0f0; display: flex; gap: .75rem; align-items: flex-start; font-size: .95rem; }
+    .checklist li::before { content: "\2610"; font-size: 1.1rem; color: #aaa; flex-shrink: 0; margin-top: .05rem; }
+    .ref { background: #fffbeb; border-left: 3px solid #f59e0b; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    .ref a { color: #92400e; font-weight: 500; }
+    .dep { background: #eff6ff; border-left: 3px solid #60a5fa; padding: .5rem .85rem; margin-bottom: 1.25rem; border-radius: 0 5px 5px 0; font-size: .875rem; color: #1e40af; }
+    .note { background: #f0fdf4; border-left: 3px solid #4ade80; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    code { background: #f3f4f6; padding: .15rem .4rem; border-radius: 3px; font-size: .875em; font-family: ui-monospace, monospace; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem 1.25rem; border-radius: 7px; overflow-x: auto; font-size: .875rem; }
+    pre code { background: none; padding: 0; font-size: inherit; }
+    a { color: #e8463a; }
+  </style>
+</head>
+<body>
+
+<div style="background:#f0fdf4;border:1.5px solid #4ade80;border-radius:7px;padding:.65rem 1.1rem;margin-bottom:1.5rem;font-size:.9rem;color:#166534;font-weight:500;">
+  ✅ Phase complete — all criteria satisfied.
+</div>
+<h1>Phase 6: Polish, Edge Cases &amp; Hardening</h1>
+
+<div class="meta">
+  <span><strong>Project:</strong> News Section</span>
+  <span><strong>Phase:</strong> 6 of 6</span>
+  <span><strong>Depends on:</strong> Phase 5 complete</span>
+</div>
+
+<div class="dep">
+  &#9888; <strong>Prerequisite:</strong> Phases 1&ndash;5 complete — this phase hardens the finished feature end-to-end.
+</div>
+
+<h2>Overview</h2>
+<p>The feature is functional after Phase 5; this phase closes the gaps that make it production-ready: validation, error/empty states, image cleanup, accessibility, performance, and a final cross-cutting QA pass. Keep changes surgical — no new surface area, just robustness and finish.</p>
+
+<h2>What Will Be Built / Hardened</h2>
+
+<h3>Validation &amp; error handling</h3>
+<ul>
+  <li>Server-side validation in the save action: title required, slug required + unique, hero image required to publish, category/dek length caps. Return field-level errors to the editor (Flowbite <code>Alert</code> / helper text), not raw 500s.</li>
+  <li>Upload endpoint: friendly JSON errors for oversized/wrong-type files; the editor surfaces them inline.</li>
+  <li>Guard the load-more endpoint against absurd <code>limit</code> values (clamp to e.g. 1&ndash;24) and negative offsets.</li>
+</ul>
+
+<h3>Empty / loading / end states</h3>
+<ul>
+  <li>Homepage empty state (no published articles) reads well and doesn't break the featured layout.</li>
+  <li>Load more: spinner while fetching, graceful &ldquo;You're all caught up&rdquo; (or simply hide) at the end, error toast on failure with retry.</li>
+  <li>Cards with a missing/broken hero image fall back to a neutral placeholder (defensive even though hero is required).</li>
+</ul>
+
+<h3>Image lifecycle</h3>
+<ul>
+  <li>When an article's hero image is replaced, optionally delete the old object from <code>article-images</code> to avoid orphans (best-effort; ignore failures). Inline body images are harder to track — document that they may orphan and leave a note; not blocking.</li>
+  <li>Confirm deleting an article does NOT need to delete images synchronously (acceptable to leave; note it).</li>
+</ul>
+
+<h3>Accessibility &amp; responsive</h3>
+<ul>
+  <li>All images have meaningful <code>alt</code> (hero uses title; require/encourage alt on inline uploads).</li>
+  <li>Cards are keyboard-focusable links with visible focus rings; category pills have sufficient contrast in both themes.</li>
+  <li>Featured + card grid verified at 320px, tablet, and desktop; article body measure stays readable (~65ch).</li>
+  <li>Semantic structure: article uses <code>&lt;article&gt;</code>, headings in order, published date in <code>&lt;time datetime&gt;</code>.</li>
+</ul>
+
+<h3>Performance</h3>
+<ul>
+  <li>Confirm the <code>articles_published_idx</code> partial index is actually used by the list query (<code>explain</code> via <code>execute_sql</code>).</li>
+  <li>Card images: <code>loading="lazy"</code> + explicit width/height or aspect-ratio to prevent CLS.</li>
+  <li>Ensure the homepage load selects only card columns (not <code>body_markdown</code>) — verify no over-fetch.</li>
+</ul>
+
+<h3>Final QA sweep</h3>
+<ul>
+  <li>Run <code>get_advisors</code> (Supabase MCP) for security/performance advisories on the new tables (e.g. missing RLS, unindexed FKs) and resolve anything flagged.</li>
+  <li>Full <code>npm run check</code> and a production <code>npm run build</code> succeed.</li>
+  <li>Update <code>CLAUDE.md</code> with a short &ldquo;News section&rdquo; architecture note (tables, routes, bucket, admin location) consistent with how other subsystems are documented.</li>
+</ul>
+
+<h2>Implementation Notes</h2>
+<ul>
+  <li>Prefer editing existing Phase 3&ndash;5 files over adding new ones; this is a refinement pass.</li>
+  <li>Don't gold-plate the image-orphan problem — a documented note + best-effort hero cleanup is sufficient for v1.</li>
+  <li>Re-verify draft privacy one final time end-to-end (RLS + 404) — it's the single most important correctness property of the feature.</li>
+</ul>
+
+<h3>Key files to read before starting</h3>
+<ul>
+  <li>All files created in Phases 2&ndash;5 (server helpers, endpoints, routes, components).</li>
+  <li><code>CLAUDE.md</code> — to add the News architecture section in the house style.</li>
+</ul>
+
+<h2>Completion Criteria</h2>
+<ul class="checklist">
+  <li class="done">Invalid saves show field-level errors, not crashes; publishing without a hero image is blocked server-side too.</li>
+  <li class="done">Homepage, load-more, and detail pages all handle empty/error/end states gracefully.</li>
+  <li class="done">Replacing a hero image cleans up (best-effort) the previous object.</li>
+  <li class="done">Accessibility pass done: alt text, focus states, semantic markup, contrast in both themes.</li>
+  <li class="done">List query uses the partial index and does not over-fetch <code>body_markdown</code>.</li>
+  <li class="done"><code>get_advisors</code> shows no unresolved security/performance issues for the new tables.</li>
+  <li class="done">Draft privacy re-verified end-to-end (public 404, admin preview only).</li>
+  <li class="done"><code>npm run check</code> and <code>npm run build</code> pass; CLAUDE.md updated.</li>
+</ul>
+
+<h2>How to Validate</h2>
+<ol>
+  <li>Try to save an article with no title, a duplicate slug, and publish with no hero — confirm each is rejected with a clear message.</li>
+  <li>Unpublish every article and load <code>/</code> — confirm the empty state; republish and confirm normal rendering.</li>
+  <li>Replace a hero image and confirm (Storage dashboard) the old object is gone and the new one serves.</li>
+  <li>Run Lighthouse/axe on <code>/</code> and a <code>/news/&lt;slug&gt;</code> — confirm no critical a11y violations and no layout shift from images.</li>
+  <li><code>explain analyze</code> the list query and confirm the partial index is used.</li>
+  <li>Run <code>get_advisors</code>; resolve/annotate anything flagged.</li>
+  <li>Final: <code>npm run check</code> + <code>npm run build</code> both green.</li>
+</ol>
+
+</body>
+</html>

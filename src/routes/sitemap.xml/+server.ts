@@ -4,7 +4,7 @@ import { supabaseAdmin } from '$lib/server/supabase-admin';
 export const GET: RequestHandler = async ({ request }) => {
 	const origin = new URL(request.url).origin;
 
-	const [{ data: teamSeasons }, { data: games }] = await Promise.all([
+	const [{ data: teamSeasons }, { data: games }, { data: articles }] = await Promise.all([
 		supabaseAdmin
 			.from('team_seasons')
 			.select('team:teams!inner(ncaa_team_id)')
@@ -16,6 +16,11 @@ export const GET: RequestHandler = async ({ request }) => {
 			.eq('division', 1)
 			.gte('contest_date', '2024-01-01')
 			.order('contest_date', { ascending: false }),
+		supabaseAdmin
+			.from('articles')
+			.select('slug, updated_at')
+			.eq('status', 'published')
+			.order('published_at', { ascending: false }),
 	]);
 
 	// Deduplicate teams (same team may appear across multiple seasons)
@@ -28,10 +33,18 @@ export const GET: RequestHandler = async ({ request }) => {
 
 	const staticUrls = [
 		{ path: '/', changefreq: 'hourly', priority: '1.0' },
+		{ path: '/scores', changefreq: 'hourly', priority: '0.9' },
 		{ path: '/teams', changefreq: 'daily', priority: '0.8' },
 		{ path: '/ratings', changefreq: 'daily', priority: '0.8' },
 		{ path: '/stats', changefreq: 'daily', priority: '0.8' },
 	];
+
+	const articleUrls = (articles ?? []).map(a => ({
+		path: `/news/${a.slug}`,
+		lastmod: a.updated_at ? String(a.updated_at).slice(0, 10) : undefined,
+		changefreq: 'weekly',
+		priority: '0.7',
+	}));
 
 	const teamUrls = (teams ?? []).map(t => ({
 		path: `/teams/${t.ncaa_team_id}`,
@@ -46,7 +59,7 @@ export const GET: RequestHandler = async ({ request }) => {
 		priority: '0.5',
 	}));
 
-	const allUrls = [...staticUrls, ...teamUrls, ...gameUrls];
+	const allUrls = [...staticUrls, ...articleUrls, ...teamUrls, ...gameUrls];
 
 	const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">

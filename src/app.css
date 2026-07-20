@@ -135,3 +135,47 @@
 .dark .flatpickr-day.nextMonthDay { color: var(--color-gray-600); }
 .dark .flatpickr-day.flatpickr-disabled,
 .dark .flatpickr-day.flatpickr-disabled:hover { color: var(--color-gray-700); }
+
+/* ── Article body (Markdown-rendered content + admin preview pane) ──────────
+   Scoped prose styling; avoids a Tailwind typography-plugin dependency.
+   Used by /news/[slug] and the ArticleEditor live-preview pane. */
+.article-body { color: var(--color-gray-700); line-height: 1.7; }
+.dark .article-body { color: var(--color-gray-200); }
+.article-body > :first-child { margin-top: 0; }
+.article-body h1, .article-body h2, .article-body h3, .article-body h4 {
+    font-weight: 700; line-height: 1.25; color: var(--color-gray-900);
+    margin: 1.6em 0 0.5em;
+}
+.dark .article-body h1, .dark .article-body h2,
+.dark .article-body h3, .dark .article-body h4 { color: #fff; }
+.article-body h1 { font-size: 1.6rem; }
+.article-body h2 { font-size: 1.3rem; }
+.article-body h3 { font-size: 1.1rem; }
+.article-body p { margin: 0 0 1em; }
+.article-body a { color: var(--color-primary-600); text-decoration: underline; }
+.dark .article-body a { color: var(--color-primary-400); }
+.article-body ul, .article-body ol { margin: 0 0 1em; padding-left: 1.5em; }
+.article-body ul { list-style: disc; }
+.article-body ol { list-style: decimal; }
+.article-body li { margin: 0.25em 0; }
+.article-body img { max-width: 100%; height: auto; border-radius: 0.5rem; margin: 1em 0; }
+.article-body blockquote {
+    border-left: 3px solid var(--color-primary-500);
+    padding-left: 1em; margin: 1em 0; color: var(--color-gray-500); font-style: italic;
+}
+.article-body pre {
+    background: #1e1e1e; color: #d4d4d4; padding: 1rem; border-radius: 0.5rem;
+    overflow-x: auto; margin: 1em 0; font-size: 0.85em;
+}
+.article-body code {
+    background: var(--color-gray-100); padding: 0.15em 0.4em; border-radius: 3px; font-size: 0.85em;
+}
+.dark .article-body code { background: var(--color-gray-800); }
+.article-body pre code { background: none; padding: 0; }
+.article-body hr { border: 0; border-top: 1px solid var(--color-gray-200); margin: 1.5em 0; }
+.dark .article-body hr { border-top-color: var(--color-gray-700); }
+.article-body table { width: 100%; border-collapse: collapse; margin: 1em 0; font-size: 0.9em; }
+.article-body th, .article-body td {
+    border: 1px solid var(--color-gray-200); padding: 0.4em 0.6em; text-align: left;
+}
+.dark .article-body th, .dark .article-body td { border-color: var(--color-gray-700); }
