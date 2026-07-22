@@ -73,7 +73,7 @@
 			{#if article.teams.length}
 				<div class="mb-3 flex flex-wrap gap-2">
 					{#each article.teams as team (team.id)}
-						<a href="/teams/{team.ncaa_team_id}" class="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-700 hover:border-primary-400 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
+						<a href="/teams/{team.ncaa_team_id}{article.sport_code ? `?sport=${article.sport_code}` : ''}" class="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-700 hover:border-primary-400 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
 							<TeamLogo lightUrl={team.logo_url_light} darkUrl={team.logo_url_dark} name={team.name} size={18} />
 							{team.name}
 						</a>

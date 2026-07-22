@@ -8,6 +8,7 @@ import {
 	updateArticle,
 	uniqueSlug,
 	type ArticleInput,
+	type ArticleSport,
 	type ArticleStatus
 } from '$lib/server/articles';
 
@@ -42,6 +43,11 @@ export async function saveArticleFromForm(
 	if (category.length > 60) return { ok: false, status: 400, error: 'Category must be 60 characters or fewer.' };
 
 	const status: ArticleStatus = fd.get('status') === 'published' ? 'published' : 'draft';
+
+	// Sport/gender: MSO | WSO | '' (→ null = general). Anything else → null.
+	const sportRaw = (fd.get('sport_code') ?? '').toString();
+	const sportCode: ArticleSport | null = sportRaw === 'MSO' || sportRaw === 'WSO' ? sportRaw : null;
+
 	const heroPath = (fd.get('hero_path') ?? '').toString().trim() || null;
 	const heroUrl = (fd.get('hero_url') ?? '').toString().trim() || null;
 
@@ -69,6 +75,7 @@ export async function saveArticleFromForm(
 		hero_image_path: heroPath,
 		hero_image_url: heroUrl,
 		status,
+		sport_code: sportCode,
 		published_at: publishedAt,
 		team_ids: parseIds(fd.get('team_ids')),
 		player_ids: parseIds(fd.get('player_ids'))

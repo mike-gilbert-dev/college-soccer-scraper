@@ -24,6 +24,14 @@
 
 	const featured = $derived(data.featured as ArticleCardType | null);
 
+	// Active gender filter (null = All). Drives the tab highlight + load-more query.
+	const currentSport = $derived((data.sport as 'MSO' | 'WSO' | null) ?? null);
+	const filterTabs: { label: string; sport: 'MSO' | 'WSO' | null; href: string }[] = [
+		{ label: 'All', sport: null, href: '/' },
+		{ label: "Men's", sport: 'MSO', href: '/?sport=MSO' },
+		{ label: "Women's", sport: 'WSO', href: '/?sport=WSO' }
+	];
+
 	// Keep the streamlined grid free of ragged rows. The grid is 1/2/3 columns, so
 	// while more cards remain to load we render only a multiple of 6 (LCM of 1,2,3)
 	// — any leftover is already fetched and appears in a full row after "load more".
@@ -37,7 +45,8 @@
 		loading = true;
 		loadError = '';
 		try {
-			const res = await fetch(`/api/news?offset=${offset}&limit=6`);
+			const sportQ = currentSport ? `&sport=${currentSport}` : '';
+			const res = await fetch(`/api/news?offset=${offset}&limit=6${sportQ}`);
 			if (!res.ok) throw new Error(`${res.status}`);
 			const body = await res.json();
 			cards = [...cards, ...(body.articles ?? [])];
@@ -67,10 +76,28 @@
 	<meta property="og:type" content="website" />
 </svelte:head>
 
+<!-- Gender filter tabs -->
+<nav class="mb-5 flex gap-1.5" aria-label="Filter news by sport">
+	{#each filterTabs as tab (tab.label)}
+		<a
+			href={tab.href}
+			data-sveltekit-noscroll
+			aria-current={currentSport === tab.sport ? 'page' : undefined}
+			class="rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors {currentSport === tab.sport
+				? 'bg-primary-500 text-white'
+				: 'border border-gray-200 bg-white text-gray-600 hover:border-primary-400 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300'}"
+		>
+			{tab.label}
+		</a>
+	{/each}
+</nav>
+
 {#if !featured}
-	<!-- Empty state: no published articles yet -->
+	<!-- Empty state: no published articles (optionally within the active filter) -->
 	<div class="rounded-lg border border-dashed border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 py-16 text-center">
-		<p class="text-sm font-semibold text-gray-800 dark:text-gray-200">No news yet</p>
+		<p class="text-sm font-semibold text-gray-800 dark:text-gray-200">
+			{currentSport === 'MSO' ? "No men's news yet" : currentSport === 'WSO' ? "No women's news yet" : 'No news yet'}
+		</p>
 		<p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Check back soon for the latest college soccer coverage.</p>
 	</div>
 {:else}

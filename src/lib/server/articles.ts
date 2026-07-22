@@ -10,6 +10,8 @@ import { supabaseAdmin } from '$lib/server/supabase-admin';
 
 // ── Types ───────────────────────────────────────────────────
 export type ArticleStatus = 'draft' | 'published';
+/** Gender/sport an article belongs to. null = "general" (not gender-specific). */
+export type ArticleSport = 'MSO' | 'WSO';
 
 export interface RelatedTeam {
 	id: number;
@@ -32,6 +34,7 @@ export interface ArticleCard {
 	title: string;
 	subtitle: string | null;
 	category: string | null;
+	sport_code: ArticleSport | null;
 	hero_image_url: string | null;
 	published_at: string | null;
 }
@@ -62,12 +65,13 @@ export interface ArticleInput {
 	hero_image_path: string | null;
 	hero_image_url: string | null;
 	status: ArticleStatus;
+	sport_code: ArticleSport | null;
 	published_at: string | null;
 	team_ids: number[];
 	player_ids: number[];
 }
 
-const CARD_COLS = 'id, slug, title, subtitle, category, hero_image_url, published_at';
+const CARD_COLS = 'id, slug, title, subtitle, category, sport_code, hero_image_url, published_at';
 const RELATED_SELECT =
 	'article_teams(team:teams(id, ncaa_team_id, name, short_name, logo_url_dark, logo_url_light)),' +
 	'article_players(player:players(id, ncaa_player_id, name))';
@@ -106,12 +110,16 @@ export async function uniqueSlug(base: string, excludeId?: number): Promise<stri
 /** Published articles, newest first, paginated. Fetches limit+1 to detect more. */
 export async function listPublishedArticles(
 	client: SupabaseClient,
-	{ offset, limit }: { offset: number; limit: number }
+	{ offset, limit, sport }: { offset: number; limit: number; sport?: ArticleSport }
 ): Promise<{ rows: ArticleCard[]; hasMore: boolean }> {
-	const { data, error } = await client
+	let query = client
 		.from('articles')
 		.select(CARD_COLS)
-		.eq('status', 'published')
+		.eq('status', 'published');
+	// Gender tabs are strict: MSO/WSO only. "General" (null) articles show
+	// only when no sport is requested (the "All" view).
+	if (sport) query = query.eq('sport_code', sport);
+	const { data, error } = await query
 		.order('published_at', { ascending: false })
 		.range(offset, offset + limit); // inclusive → fetches limit+1
 	if (error) throw new Error(`listPublishedArticles failed: ${error.message}`);
@@ -209,6 +217,7 @@ function coreFields(input: ArticleInput) {
 		hero_image_path: input.hero_image_path,
 		hero_image_url: input.hero_image_url,
 		status: input.status,
+		sport_code: input.sport_code,
 		published_at: input.published_at
 	};
 }

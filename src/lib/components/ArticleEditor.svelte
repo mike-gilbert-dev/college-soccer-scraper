@@ -23,6 +23,7 @@
 	let slug = $state(article?.slug ?? '');
 	let subtitle = $state(article?.subtitle ?? '');
 	let category = $state(article?.category ?? '');
+	let sportCode = $state<'' | 'MSO' | 'WSO'>(article?.sport_code ?? '');
 	let body = $state(article?.body_markdown ?? '');
 	let heroPath = $state(article?.hero_image_path ?? '');
 	let heroUrl = $state(article?.hero_image_url ?? '');
@@ -234,6 +235,20 @@
 		<div>
 			<Label class="mb-1 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Category</Label>
 			<Input name="category" bind:value={category} placeholder="e.g. Recap, Rankings" />
+		</div>
+
+		<div>
+			<Label class="mb-1 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Sport</Label>
+			<select
+				name="sport_code"
+				bind:value={sportCode}
+				class="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2.5 text-sm text-gray-900 focus:border-primary-500 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+			>
+				<option value="">General (no gender)</option>
+				<option value="MSO">Men's</option>
+				<option value="WSO">Women's</option>
+			</select>
+			<p class="mt-0.5 text-[11px] text-gray-400">Drives team-tag links & the news gender filter.</p>
 		</div>
 
 		<div class="sm:col-span-2">
