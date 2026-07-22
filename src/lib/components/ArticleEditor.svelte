@@ -276,9 +276,11 @@
 				<input type="file" accept="image/jpeg,image/png,image/webp,image/gif" class="hidden" onchange={onInlineChange} />
 			</label>
 		</div>
-		<div class="grid gap-3 lg:grid-cols-2">
-			<Textarea name="body_markdown" bind:value={body} bind:elementRef={bodyEl} rows={18} class="font-mono text-sm" placeholder="Write in Markdown…" />
-			<div class="rounded border border-gray-200 dark:border-gray-700 p-3 overflow-auto max-h-[28rem] bg-white dark:bg-gray-900">
+		<div class="grid gap-3 lg:grid-cols-2 lg:items-start">
+			<div class="min-w-0">
+				<Textarea name="body_markdown" bind:value={body} bind:elementRef={bodyEl} rows={18} class="w-full min-w-0 font-mono text-sm" placeholder="Write in Markdown…" />
+			</div>
+			<div class="min-w-0 rounded border border-gray-200 dark:border-gray-700 p-3 overflow-auto max-h-[28rem] bg-white dark:bg-gray-900">
 				<p class="mb-2 text-[10px] uppercase tracking-wider text-gray-400">Preview</p>
 				<div class="article-body prose-preview text-sm">{@html previewHtml}</div>
 			</div>

@@ -4,7 +4,9 @@ import { listPublishedArticles } from '$lib/server/articles';
 // News homepage. Featured = most recent published article; the next few stream
 // beneath it. RLS (via locals.supabase) ensures only published rows are returned.
 const FEATURED = 1;
-const INITIAL_CARDS = 4; // featured + 4, then "load more" fetches 8 (see /api/news)
+// Card counts are multiples of 6 so the 1/2/3-column grid never has a ragged
+// last row (6 = LCM of 1, 2, 3). "Load more" also fetches 6 (see /api/news).
+const INITIAL_CARDS = 6;
 
 export const load: PageServerLoad = async ({ locals }) => {
 	// Fetch featured + initial cards in one query.

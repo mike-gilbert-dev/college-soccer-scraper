@@ -24,11 +24,20 @@
 
 	const featured = $derived(data.featured as ArticleCardType | null);
 
+	// Keep the streamlined grid free of ragged rows. The grid is 1/2/3 columns, so
+	// while more cards remain to load we render only a multiple of 6 (LCM of 1,2,3)
+	// — any leftover is already fetched and appears in a full row after "load more".
+	// Once everything is loaded (no hasMore) we show all, so no article is hidden.
+	const GRID_LCM = 6;
+	const visibleCards = $derived(
+		hasMore ? cards.slice(0, cards.length - (cards.length % GRID_LCM)) : cards
+	);
+
 	async function loadMore() {
 		loading = true;
 		loadError = '';
 		try {
-			const res = await fetch(`/api/news?offset=${offset}&limit=8`);
+			const res = await fetch(`/api/news?offset=${offset}&limit=6`);
 			if (!res.ok) throw new Error(`${res.status}`);
 			const body = await res.json();
 			cards = [...cards, ...(body.articles ?? [])];
@@ -96,9 +105,9 @@
 	</a>
 
 	<!-- Streamlined cards -->
-	{#if cards.length}
+	{#if visibleCards.length}
 		<div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-			{#each cards as article (article.id)}
+			{#each visibleCards as article (article.id)}
 				<ArticleCard {article} />
 			{/each}
 		</div>
