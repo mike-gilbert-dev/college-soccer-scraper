@@ -23,10 +23,30 @@ export interface NcaaContest {
 	startTimeEpoch: number;     // Unix timestamp (seconds)
 	gameState: string;          // "F", "L", etc.
 	statusCodeDisplay: string;  // "final" | "live" | "scheduled"
-	currentPeriod: string;      // "FINAL", "1ST HALF", etc.
+	currentPeriod: string;      // "FINAL", "FINAL/PK", "1ST HALF", etc.
+	finalMessage?: string | null;      // "FINAL", "FINAL/PK" — shootout marker
+	isChampionship?: boolean;          // true for postseason/championship-bracket games
 	broadcasterName?: string | null;   // e.g. "ESPNU"
 	roundDescription?: string | null;  // e.g. "Semifinals"
 	teams: NcaaContestTeam[];
+}
+
+/**
+ * A penalty-kick shootout: tied regulation/OT score but the feed flags one team as
+ * the winner (advanced). We only trust that in a postseason context — the feed
+ * occasionally sets a spurious isWinner on regular-season draws — so we require
+ * either a FINAL/PK marker or a championship-bracket game. Returns the advancing
+ * side ('home' | 'away') or null when it isn't a shootout.
+ */
+export function shootoutWinnerSide(contest: NcaaContest): 'home' | 'away' | null {
+	const home = contest.teams.find((t) => t.isHome);
+	const away = contest.teams.find((t) => !t.isHome);
+	if (!home || !away) return null;
+	if (home.score !== away.score || home.isWinner === away.isWinner) return null;
+	const pkMarked =
+		/PK/i.test(contest.currentPeriod ?? '') || /PK/i.test(contest.finalMessage ?? '');
+	if (!pkMarked && contest.isChampionship !== true) return null;
+	return home.isWinner ? 'home' : 'away';
 }
 
 export interface FetchContestsParams {

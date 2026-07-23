@@ -1,6 +1,7 @@
 import { readGameContests, readStoredBoxScore } from '$lib/server/ncaa-archive';
 import {
 	normalizeStatus,
+	shootoutWinnerSide,
 	syntheticPlayerId,
 	type NcaaContestTeam,
 	type NcaaBoxScore
@@ -223,6 +224,14 @@ export async function ingestDate(params: {
 				? new Date(contest.startTimeEpoch * 1000).toISOString()
 				: null;
 
+			// Penalty-kick shootout: the NCAA feed reports a tied regulation/OT score
+			// but still flags the advancing team via isWinner. Per NCAA convention the
+			// game stays a tie in records/ratings; we only record who advanced.
+			const winnerSide = shootoutWinnerSide(contest);
+			const shootout = winnerSide !== null;
+			const shootoutWinnerTeamSeasonId =
+				winnerSide === 'home' ? homeTeamSeasonId : winnerSide === 'away' ? awayTeamSeasonId : null;
+
 			const { data: gameRow } = await supabaseAdmin
 				.from('games')
 				.upsert(
@@ -235,6 +244,8 @@ export async function ingestDate(params: {
 						away_team_season_id: awayTeamSeasonId,
 						home_score: homeData.score,
 						away_score: awayData.score,
+						shootout,
+						shootout_winner_team_season_id: shootoutWinnerTeamSeasonId,
 						status: normalizeStatus(contest.statusCodeDisplay),
 						neutral_site: false,
 						sport_code: sportCode,

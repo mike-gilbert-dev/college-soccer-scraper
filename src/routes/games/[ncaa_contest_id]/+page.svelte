@@ -43,9 +43,17 @@
 	);
 
 	const statusLabel = $derived(
-		game.status === 'final' ? 'Final'
+		game.status === 'final' ? (game.shootout ? 'Final / PK' : 'Final')
 		: game.status === 'in_progress' ? 'In Progress'
 		: 'Scheduled'
+	);
+
+	// Which side won the penalty shootout and advanced (game itself stays a tie).
+	const advancedTeamName = $derived(
+		!game.shootout ? null
+		: game.home_advanced ? homeTeam?.name
+		: game.away_advanced ? awayTeam?.name
+		: null
 	);
 	onMount(() => {
 		posthog.capture('game_viewed', {
@@ -134,6 +142,11 @@
 					<p class="text-2xl font-bold text-gray-400">vs</p>
 				{/if}
 				<p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{statusLabel}</p>
+				{#if advancedTeamName}
+					<p class="text-[11px] font-medium text-primary-600 dark:text-primary-400 mt-0.5">
+						{advancedTeamName} won on penalties
+					</p>
+				{/if}
 			</div>
 
 			<!-- Home team -->

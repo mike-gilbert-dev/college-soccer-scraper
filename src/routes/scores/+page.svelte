@@ -20,6 +20,10 @@
 		start_time: string | null;
 		home_score: number | null;
 		away_score: number | null;
+		shootout: boolean;
+		shootout_winner_team_season_id: number | null;
+		home_team_season_id: number;
+		away_team_season_id: number;
 		status: string;
 		neutral_site: boolean;
 		broadcaster_name: string | null;
@@ -51,6 +55,8 @@
 						id: number;
 						home_score: number | null;
 						away_score: number | null;
+						shootout: boolean | null;
+						shootout_winner_team_season_id: number | null;
 						status: string;
 						start_time: string | null;
 					};
@@ -60,6 +66,8 @@
 						...games[idx],
 						home_score: row.home_score,
 						away_score: row.away_score,
+						shootout: row.shootout ?? false,
+						shootout_winner_team_season_id: row.shootout_winner_team_season_id,
 						status: row.status,
 						start_time: row.start_time
 					};
@@ -311,8 +319,10 @@
 				{@const away = game.away_team_season}
 				{@const isFinal = game.status === 'final'}
 				{@const isLive  = game.status === 'live'}
-				{@const homeWon = isFinal && game.home_score != null && game.away_score != null && game.home_score > game.away_score}
-				{@const awayWon = isFinal && game.home_score != null && game.away_score != null && game.away_score > game.home_score}
+				{@const homeAdvanced = isFinal && game.shootout && game.shootout_winner_team_season_id === game.home_team_season_id}
+				{@const awayAdvanced = isFinal && game.shootout && game.shootout_winner_team_season_id === game.away_team_season_id}
+				{@const homeWon = (isFinal && game.home_score != null && game.away_score != null && game.home_score > game.away_score) || homeAdvanced}
+				{@const awayWon = (isFinal && game.home_score != null && game.away_score != null && game.away_score > game.home_score) || awayAdvanced}
 
 				<!-- Header row: round/broadcaster left, status/time right -->
 							<div class="flex items-center justify-between gap-2 mb-1.5">
@@ -327,7 +337,11 @@
 										<span class="text-gray-400 dark:text-gray-500">{game.broadcaster_name}</span>
 									{/if}
 								</div>
-								<div class="shrink-0">
+								<div class="shrink-0 flex items-center gap-1">
+									{#if isFinal && game.shootout}
+										<span title="Decided by penalty-kick shootout (counts as a tie)"
+											class="rounded-sm bg-gray-500/15 px-1 py-px text-[9px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">PK</span>
+									{/if}
 									{#if isFinal || isLive}
 										<Badge color={statusColor(game.status)} class="text-[10px] px-1.5 py-0 font-semibold">
 											{statusLabel(game.status)}

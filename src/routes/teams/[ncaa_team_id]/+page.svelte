@@ -113,6 +113,12 @@
 		if (my == null || op == null) return null;
 		return my > op ? 'W' : my < op ? 'L' : 'T';
 	}
+	// Penalty-shootout outcome from this team's perspective. The game itself stays a
+	// tie (NCAA convention), so result() is unchanged; this only flags who advanced.
+	function pkResult(g: ScheduleGame): 'won' | 'lost' | null {
+		if (!g.shootout || teamSeason?.id == null) return null;
+		return g.shootout_winner_team_season_id === teamSeason.id ? 'won' : 'lost';
+	}
 
 	function dateParts(iso: string) {
 		const d = new Date(iso + 'T00:00:00Z');
@@ -399,11 +405,18 @@
 								{#if r}
 									{@const my = myScore(g)}
 									{@const them = oppScore(g)}
+									{@const pk = pkResult(g)}
 									<span class="font-mono text-sm">
 										<span class={r === 'W' ? 'font-bold text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'}>{my}</span>
 										<span class="mx-px text-gray-400">–</span>
 										<span class={r === 'L' ? 'font-bold text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'}>{them}</span>
 									</span>
+									{#if pk}
+										<span
+											title={pk === 'won' ? 'Advanced on penalties (counts as a tie)' : 'Lost on penalties (counts as a tie)'}
+											class="shrink-0 rounded-sm px-1 py-px text-[9px] font-semibold uppercase tracking-wide {pk === 'won' ? 'bg-green-500/15 text-green-600 dark:text-green-400' : 'bg-red-500/15 text-red-600 dark:text-red-400'}"
+										>PK {pk === 'won' ? 'W' : 'L'}</span>
+									{/if}
 									<span class="inline-flex h-5.5 w-5.5 items-center justify-center rounded-sm font-mono text-[11px] font-bold {resChip[r]}">{r}</span>
 								{:else}
 									<span class="text-xs text-gray-400 dark:text-gray-500">TBD</span>

@@ -40,6 +40,8 @@ export const load: PageServerLoad = async ({ params, url }) => {
 			contest_date,
 			home_score,
 			away_score,
+			shootout,
+			shootout_winner_team_season_id,
 			status,
 			home_team_season_id,
 			away_team_season_id,
@@ -130,6 +132,13 @@ export const load: PageServerLoad = async ({ params, url }) => {
 			contest_date: game.contest_date,
 			home_score: game.home_score,
 			away_score: game.away_score,
+			shootout: game.shootout ?? false,
+			home_advanced: game.shootout
+				? game.shootout_winner_team_season_id === game.home_team_season_id
+				: null,
+			away_advanced: game.shootout
+				? game.shootout_winner_team_season_id === game.away_team_season_id
+				: null,
 			status: game.status,
 		},
 		homeTeam,

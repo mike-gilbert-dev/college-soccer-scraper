@@ -36,12 +36,16 @@ interface ContestTeam {
 	nameShort: string;
 	name6Char: string;
 	score: number;
+	isWinner: boolean;
 	conferenceSeo: string;
 }
 interface Contest {
 	contestId: number;
 	startTimeEpoch: number;
 	statusCodeDisplay: string;
+	currentPeriod?: string | null;
+	finalMessage?: string | null;
+	isChampionship?: boolean;
 	broadcasterName?: string | null;
 	roundDescription?: string | null;
 	teams: ContestTeam[];
@@ -208,6 +212,15 @@ async function ingestDate(
 		const homeTs = tsMap.get(teamMap.get(home.seoname) ?? -1);
 		const awayTs = tsMap.get(teamMap.get(away.seoname) ?? -1);
 		if (!homeTs || !awayTs) continue;
+		// Penalty-kick shootout: tied regulation/OT score but the feed still flags the
+		// advancing team via isWinner. Stays a tie in records/ratings; we only record
+		// who advanced. The feed occasionally sets a spurious isWinner on regular-season
+		// draws, so trust it only with a FINAL/PK marker or a championship-bracket game.
+		const pkMarked = /PK/i.test(c.currentPeriod ?? '') || /PK/i.test(c.finalMessage ?? '');
+		const shootout =
+			home.score === away.score &&
+			home.isWinner !== away.isWinner &&
+			(pkMarked || c.isChampionship === true);
 		gameRows.push({
 			ncaa_contest_id: String(c.contestId),
 			season_id: season.id,
@@ -217,6 +230,8 @@ async function ingestDate(
 			away_team_season_id: awayTs,
 			home_score: home.score,
 			away_score: away.score,
+			shootout,
+			shootout_winner_team_season_id: shootout ? (home.isWinner ? homeTs : awayTs) : null,
 			status: normalizeStatus(c.statusCodeDisplay),
 			neutral_site: false,
 			sport_code: sportCode,

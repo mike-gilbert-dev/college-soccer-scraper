@@ -32,6 +32,8 @@ export type ScheduleGame = {
 	contest_date: string;
 	home_score: number | null;
 	away_score: number | null;
+	shootout: boolean;
+	shootout_winner_team_season_id: number | null;
 	status: string;
 	home_team_season_id: number;
 	away_team_season_id: number;
@@ -88,6 +90,8 @@ export const load: PageServerLoad = async ({ params, url }) => {
 				contest_date,
 				home_score,
 				away_score,
+				shootout,
+				shootout_winner_team_season_id,
 				status,
 				home_team_season_id,
 				away_team_season_id,
