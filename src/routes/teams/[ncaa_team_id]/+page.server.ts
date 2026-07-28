@@ -1,6 +1,10 @@
 import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { supabaseAdmin } from '$lib/server/supabase-admin';
+import { listPublishedArticlesForTeam, type ArticleSport } from '$lib/server/articles';
+
+/** Team News tab: first page size (multiple of 3 for the 1/2/3-col card grid). */
+const TEAM_NEWS_PAGE = 9;
 
 export type PlayerSeasonStat = {
 	player_season_id: number;
@@ -54,6 +58,20 @@ export const load: PageServerLoad = async ({ params, url }) => {
 
 	if (!team) error(404, 'Team not found');
 
+	// Team News tab: published articles tagged to this team (school). Independent
+	// of the selected season — articles tag the team, not a team_season — so it's
+	// fetched here and included in every return path below. This route uses the
+	// RLS-bypassing admin client, so listPublishedArticlesForTeam filters
+	// status='published' explicitly (never leaks drafts).
+	const sportCode: ArticleSport = sport === 'WSO' ? 'WSO' : 'MSO';
+	const { rows: news, hasMore: newsHasMore } = await listPublishedArticlesForTeam(supabaseAdmin, {
+		teamId: team.id,
+		offset: 0,
+		limit: TEAM_NEWS_PAGE,
+		sport: sportCode
+	});
+	const newsFields = { news, newsHasMore, newsNextOffset: news.length };
+
 	const seasonBase = supabaseAdmin.from('seasons').select('id, label');
 	const { data: season } = await (seasonParam
 		? seasonBase.eq('label', seasonParam).single()
@@ -61,7 +79,7 @@ export const load: PageServerLoad = async ({ params, url }) => {
 
 	const seasonLabel = season?.label ?? seasonParam ?? '';
 
-	const empty = { team, teamSeason: null, conferenceName: null, players: [] as PlayerSeasonStat[], schedule: [] as ScheduleGame[], sport, division, seasonLabel };
+	const empty = { team, teamSeason: null, conferenceName: null, players: [] as PlayerSeasonStat[], schedule: [] as ScheduleGame[], sport, division, seasonLabel, ...newsFields };
 	if (!season) return empty;
 
 	const { data: ts } = await supabaseAdmin
@@ -119,6 +137,7 @@ export const load: PageServerLoad = async ({ params, url }) => {
 		schedule: (schedule ?? []) as unknown as ScheduleGame[],
 		sport,
 		division,
-		seasonLabel
+		seasonLabel,
+		...newsFields
 	};
 };

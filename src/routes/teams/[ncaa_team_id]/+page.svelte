@@ -2,10 +2,12 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
-	import { Dropdown, DropdownItem } from 'flowbite-svelte';
+	import { Button, Dropdown, DropdownItem } from 'flowbite-svelte';
 	import { ChevronDownOutline } from 'flowbite-svelte-icons';
 	import TeamLogo from '$lib/components/TeamLogo.svelte';
 	import TeamRoster from '$lib/components/TeamRoster.svelte';
+	import ArticleCard from '$lib/components/ArticleCard.svelte';
+	import type { ArticleCard as ArticleCardType } from '$lib/server/articles';
 	import type { PageData } from './$types';
 	import type { ScheduleGame } from './+page.server';
 	import posthog from 'posthog-js';
@@ -21,9 +23,19 @@
 	const seasons        = $derived(data.seasons);
 	const tc             = $derived(team.team_color);
 
-	// Honor ?tab=roster (e.g. linked from a player page breadcrumb); default to schedule.
-	let activeTab = $state<'roster' | 'schedule'>(
-		page.url.searchParams.get('tab') === 'roster' ? 'roster' : 'schedule'
+	// The News tab only exists for teams that have connected published articles.
+	const hasNews = $derived((data.news?.length ?? 0) > 0);
+	const tabs = $derived([
+		{ key: 'schedule' as const, label: 'Schedule' },
+		{ key: 'roster' as const, label: 'Roster' },
+		...(hasNews ? [{ key: 'news' as const, label: 'News' }] : [])
+	]);
+
+	// Honor ?tab=roster|news (e.g. linked from a player page breadcrumb); default
+	// to schedule. ?tab=news is only respected when the team actually has news.
+	const tabParam = page.url.searchParams.get('tab');
+	let activeTab = $state<'roster' | 'schedule' | 'news'>(
+		tabParam === 'roster' ? 'roster' : tabParam === 'news' && (data.news?.length ?? 0) > 0 ? 'news' : 'schedule'
 	);
 
 	const gender      = $derived(sport === 'WSO' ? 'W' : 'M');
@@ -86,6 +98,37 @@
 	}
 	function gameHref(ncaaContestId: string) {
 		return `/games/${ncaaContestId}?sport=${sport}&division=${division}&season=${seasonLabel}&from=${team.ncaa_team_id}`;
+	}
+
+	// ── News tab: paginated "Load more" over the team's tagged articles ─────
+	// Local appendable list seeded from SSR; re-seeded on season/sport nav.
+	let newsCards = $state<ArticleCardType[]>((data.news as ArticleCardType[]) ?? []);
+	let newsOffset = $state<number>(data.newsNextOffset ?? 0);
+	let newsHasMore = $state<boolean>(data.newsHasMore ?? false);
+	let newsLoading = $state(false);
+	let newsError = $state('');
+
+	$effect(() => {
+		newsCards = (data.news as ArticleCardType[]) ?? [];
+		newsOffset = data.newsNextOffset ?? 0;
+		newsHasMore = data.newsHasMore ?? false;
+	});
+
+	async function loadMoreNews() {
+		newsLoading = true;
+		newsError = '';
+		try {
+			const res = await fetch(`/api/news?team=${team.id}&sport=${sport}&offset=${newsOffset}&limit=9`);
+			if (!res.ok) throw new Error(`${res.status}`);
+			const body = await res.json();
+			newsCards = [...newsCards, ...(body.articles ?? [])];
+			newsOffset = body.nextOffset ?? newsOffset;
+			newsHasMore = !!body.hasMore;
+		} catch (e) {
+			newsError = e instanceof Error ? e.message : String(e);
+		} finally {
+			newsLoading = false;
+		}
 	}
 
 	// ── Schedule helpers (team's perspective) ──────────────────────────────
@@ -300,9 +343,9 @@
 		{/if}
 	</div>
 
-	<!-- Schedule / Roster tabs -->
+	<!-- Schedule / Roster / News tabs -->
 	<div class="flex overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
-		{#each [{ key: 'schedule' as const, label: 'Schedule' }, { key: 'roster' as const, label: 'Roster' }] as tab}
+		{#each tabs as tab (tab.key)}
 			{@const isActive = activeTab === tab.key}
 			<button
 				class="flex flex-1 items-center justify-center gap-2.5 px-4 py-3 text-sm font-medium transition-colors
@@ -443,13 +486,38 @@
 		{/if}
 
 	<!-- ── ROSTER TAB ────────────────────────────────────────────────────── -->
-	{:else}
+	{:else if activeTab === 'roster'}
 		{#if !teamSeason}
 			<p class="text-sm text-gray-500 dark:text-gray-400">No team data found for the {seasonLabel} season.</p>
 		{:else if data.players.length === 0}
 			<p class="text-sm text-gray-500 dark:text-gray-400">No player stats available for this season. Check back later.</p>
 		{:else}
 			<TeamRoster players={data.players} {playerHref} />
+		{/if}
+
+	<!-- ── NEWS TAB ──────────────────────────────────────────────────────── -->
+	{:else}
+		{#if newsCards.length === 0}
+			<p class="text-sm text-gray-500 dark:text-gray-400">No news for this team yet.</p>
+		{:else}
+			<div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+				{#each newsCards as article (article.id)}
+					<ArticleCard {article} />
+				{/each}
+			</div>
+
+			<div class="mt-6 flex flex-col items-center gap-2">
+				{#if newsError}
+					<p class="text-xs text-red-500">Couldn’t load more ({newsError}). <button class="underline" onclick={loadMoreNews}>Retry</button></p>
+				{/if}
+				{#if newsHasMore}
+					<Button color="alternative" size="sm" disabled={newsLoading} onclick={loadMoreNews}>
+						{newsLoading ? 'Loading…' : 'Load more'}
+					</Button>
+				{:else}
+					<p class="text-xs text-gray-400 dark:text-gray-500">You’re all caught up.</p>
+				{/if}
+			</div>
 		{/if}
 	{/if}
 </div>
