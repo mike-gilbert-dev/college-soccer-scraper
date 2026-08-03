@@ -5,6 +5,7 @@
 	import { Badge, Dropdown, DropdownItem } from 'flowbite-svelte';
 	import TeamLogo from '$lib/components/TeamLogo.svelte';
 	import { createSupabaseBrowserClient } from '$lib/supabase';
+	import { formatTime } from '$lib/format';
 	import type { PageData } from './$types';
 	import flatpickr from 'flatpickr';
 	import type { Instance } from 'flatpickr/dist/types/instance';
@@ -146,13 +147,6 @@
 			},
 			destroy() { fp.destroy(); }
 		};
-	}
-
-	function formatTime(iso: string | null): string {
-		if (!iso) return '';
-		return new Date(iso).toLocaleTimeString('en-US', {
-			hour: 'numeric', minute: '2-digit', timeZoneName: 'short'
-		});
 	}
 
 	function statusColor(s: string): 'gray' | 'red' {

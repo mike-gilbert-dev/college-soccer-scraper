@@ -8,6 +8,7 @@
 	import TeamRoster from '$lib/components/TeamRoster.svelte';
 	import ArticleCard from '$lib/components/ArticleCard.svelte';
 	import type { ArticleCard as ArticleCardType } from '$lib/server/articles';
+	import { formatTime } from '$lib/format';
 	import type { PageData } from './$types';
 	import type { ScheduleGame } from './+page.server';
 	import posthog from 'posthog-js';
@@ -462,7 +463,9 @@
 									{/if}
 									<span class="inline-flex h-5.5 w-5.5 items-center justify-center rounded-sm font-mono text-[11px] font-bold {resChip[r]}">{r}</span>
 								{:else}
-									<span class="text-xs text-gray-400 dark:text-gray-500">TBD</span>
+									<span class="text-xs text-gray-400 dark:text-gray-500">
+										{formatTime(g.start_time) || 'TBD'}
+									</span>
 								{/if}
 							</div>
 							<!-- boxscore / preview (md+) -->

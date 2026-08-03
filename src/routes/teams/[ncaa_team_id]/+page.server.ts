@@ -34,6 +34,7 @@ export type PlayerSeasonStat = {
 export type ScheduleGame = {
 	ncaa_contest_id: string;
 	contest_date: string;
+	start_time: string | null;
 	home_score: number | null;
 	away_score: number | null;
 	shootout: boolean;
@@ -106,6 +107,7 @@ export const load: PageServerLoad = async ({ params, url }) => {
 			.select(`
 				ncaa_contest_id,
 				contest_date,
+				start_time,
 				home_score,
 				away_score,
 				shootout,
