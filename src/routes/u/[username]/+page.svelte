@@ -46,7 +46,7 @@
 		return `${p.away_score}–${p.home_score}`;
 	}
 
-	const pageTitle = $derived(`@${data.profileUsername} — Pick'em | CollegeSoccer.IO`);
+	const pageTitle = $derived(`${data.profileUsername} — Pick'em | CollegeSoccer.IO`);
 </script>
 
 <svelte:head>
@@ -60,7 +60,7 @@
 	<section class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-4">
 		<div class="flex flex-wrap items-start justify-between gap-3">
 			<div>
-				<h1 class="text-lg font-bold text-gray-900 dark:text-white">@{data.profileUsername}</h1>
+				<h1 class="text-lg font-bold text-gray-900 dark:text-white">{data.profileUsername}</h1>
 				<p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
 					Pick'em record · {data.seasonLabel} · {data.sportCode === 'WSO' ? "Women's" : "Men's"} DI
 				</p>
@@ -117,7 +117,7 @@
 				{#if isOwnProfile}
 					Pick some games on the scoreboard — results appear here once those games finish.
 				{:else}
-					@{data.profileUsername} hasn't had any picks graded for this season and sport yet.
+					{data.profileUsername} hasn't had any picks graded for this season and sport yet.
 				{/if}
 			</p>
 			{#if isOwnProfile}

@@ -98,7 +98,7 @@
 							<!-- Dropdown panel -->
 							<div class="absolute right-0 top-full mt-1 w-56 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 overflow-hidden">
 								<div class="px-4 py-2.5 border-b border-gray-200 dark:border-gray-700">
-									<p class="text-xs font-medium text-gray-900 dark:text-white truncate">@{page.data.username}</p>
+									<p class="text-xs font-medium text-gray-900 dark:text-white truncate">{page.data.username}</p>
 								</div>
 								<a
 									href="/u/{page.data.username}"
@@ -167,7 +167,7 @@
 
 			{#if page.data.user}
 				<div class="px-3 py-1.5 text-xs text-gray-400 dark:text-gray-500 border-t border-gray-100 dark:border-gray-700 mt-1 pt-2">
-					@{page.data.username}
+					{page.data.username}
 				</div>
 				<a href="/u/{page.data.username}" onclick={closeMenu} class={mobileNavLinkClass(`/u/${page.data.username}`)}>My Picks</a>
 				<a href="/account" onclick={closeMenu} class={mobileNavLinkClass('/account')}>Account</a>

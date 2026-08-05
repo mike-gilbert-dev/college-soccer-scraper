@@ -4,7 +4,7 @@
 	import { onMount } from 'svelte';
 	import { Badge, Dropdown, DropdownItem } from 'flowbite-svelte';
 	import TeamLogo from '$lib/components/TeamLogo.svelte';
-	import PickControl from '$lib/components/PickControl.svelte';
+	import PickButtons from '$lib/components/PickButtons.svelte';
 	import { createSupabaseBrowserClient } from '$lib/supabase';
 	import { isGameOpen, actualOutcome, type PickOutcome, type PickResult } from '$lib/picks';
 	import { formatTime } from '$lib/format';
@@ -57,6 +57,21 @@
 	let pending = $state<Record<number, boolean>>({});
 
 	const signedIn = $derived(!!page.data.user);
+
+	// Pick'em is off by default: the scoreboard reads as a scoreboard until you ask
+	// for the picker. It's a viewing preference, not page state, so it's persisted
+	// rather than carried in the URL — the URL belongs to the slate being viewed.
+	const PICKEM_PREF = 'scores:pickem';
+	let pickemOn = $state(false);
+
+	function togglePickem() {
+		pickemOn = !pickemOn;
+		try {
+			localStorage.setItem(PICKEM_PREF, pickemOn ? '1' : '0');
+		} catch {
+			// Storage can be unavailable (private mode); the toggle still works for the session.
+		}
+	}
 
 	/**
 	 * Optimistic write: update local state immediately, revert if the server
@@ -111,6 +126,14 @@
 	// screen, matched by id. The list is a single day's slate, so updates for games
 	// on other dates won't match and are ignored — no server-side filter needed.
 	onMount(() => {
+		// Read after hydration — SSR has no localStorage, so the server and the
+		// first client render must agree on `false`.
+		try {
+			pickemOn = localStorage.getItem(PICKEM_PREF) === '1';
+		} catch {
+			// ignore
+		}
+
 		const supabase = createSupabaseBrowserClient();
 		const channel = supabase
 			.channel('scoreboard-live-scores')
@@ -264,6 +287,27 @@
 	<meta name="twitter:description" content={pageDesc} />
 </svelte:head>
 
+<!-- One switch, two placements: the mobile strip and the desktop sidebar. -->
+{#snippet pickemToggle(cls: string)}
+	<div class="flex items-center gap-2 {cls}">
+		<span class="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Pick'em</span>
+		<button
+			type="button"
+			role="switch"
+			aria-checked={pickemOn}
+			aria-label="Show pick'em controls on game cards"
+			onclick={togglePickem}
+			class="shrink-0 flex h-5 w-9 items-center rounded-full p-0.5 transition-colors
+				{pickemOn ? 'bg-primary-500' : 'bg-gray-300 dark:bg-gray-600'}"
+		>
+			<span
+				class="h-4 w-4 rounded-full bg-white shadow-sm transition-transform
+					{pickemOn ? 'translate-x-4' : 'translate-x-0'}"
+			></span>
+		</button>
+	</div>
+{/snippet}
+
 <div class="flex flex-col gap-2 md:flex-row md:items-start">
 
 	<!-- Navigation controls -->
@@ -295,6 +339,8 @@
 					<DropdownItem onclick={() => navigateSeason(s.label)}>{s.label}</DropdownItem>
 				{/each}
 			</Dropdown>
+			<!-- Pick'em -->
+			{@render pickemToggle('ml-auto')}
 		</div>
 
 		<!-- Desktop: vertical sidebar -->
@@ -326,6 +372,11 @@
 						<option value={s.label}>{s.label}</option>
 					{/each}
 				</select>
+			</div>
+
+			<!-- Pick'em -->
+			<div class="p-2">
+				{@render pickemToggle('w-full justify-between')}
 			</div>
 		</div>
 	</aside>
@@ -424,19 +475,7 @@
 									<TeamLogo lightUrl={away?.team.logo_url_light} darkUrl={away?.team.logo_url_dark} name={away?.team.name ?? ''} size={32} />
 									<span class="truncate">{away?.team.name ?? '—'}</span>
 								</a>
-								<!-- PickControl renders nothing unless the game is pickable or this
-								     outcome is the user's pick, so it coexists with the score. -->
 								<div class="shrink-0 flex items-center gap-2">
-									<PickControl
-										outcome="away"
-										selected={pick?.outcome ?? null}
-										result={verdict}
-										open={pickable}
-										{signedIn}
-										label={away?.team.name ?? 'Away'}
-										busy={pending[game.id] ?? false}
-										onpick={(next) => setPick(game.id, next)}
-									/>
 									{#if game.away_score != null}
 										<span class="text-base font-bold tabular-nums
 											{awayWon ? 'text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'}">
@@ -445,48 +484,6 @@
 									{/if}
 								</div>
 							</div>
-
-							<!-- Draw: sits between the two team rows -->
-							{#if pickable && signedIn}
-								<div class="flex items-center gap-2 my-1.5">
-									<span class="h-px flex-1 bg-gray-200 dark:bg-gray-700"></span>
-									<PickControl
-										outcome="draw"
-										selected={pick?.outcome ?? null}
-										result={verdict}
-										open={pickable}
-										{signedIn}
-										label="Draw"
-										busy={pending[game.id] ?? false}
-										onpick={(next) => setPick(game.id, next)}
-									/>
-									<span class="h-px flex-1 bg-gray-200 dark:bg-gray-700"></span>
-								</div>
-							{:else if pickable && !signedIn}
-								<div class="flex items-center gap-2 my-1.5">
-									<span class="h-px flex-1 bg-gray-200 dark:bg-gray-700"></span>
-									<a
-										href="/login?redirect=/scores"
-										onclick={(e) => e.stopPropagation()}
-										class="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500 hover:text-primary-600 dark:hover:text-primary-400"
-									>Sign in to pick</a>
-									<span class="h-px flex-1 bg-gray-200 dark:bg-gray-700"></span>
-								</div>
-							{:else if pick?.outcome === 'draw'}
-								<div class="flex items-center gap-2 my-1.5">
-									<span class="h-px flex-1 bg-gray-200 dark:bg-gray-700"></span>
-									<PickControl
-										outcome="draw"
-										selected={pick.outcome}
-										result={verdict}
-										open={false}
-										{signedIn}
-										label="Draw"
-										onpick={() => {}}
-									/>
-									<span class="h-px flex-1 bg-gray-200 dark:bg-gray-700"></span>
-								</div>
-							{/if}
 
 							<!-- Home row -->
 							<div class="flex items-center justify-between gap-2 mt-2">
@@ -503,16 +500,6 @@
 									</span>
 								</a>
 								<div class="shrink-0 flex items-center gap-2">
-									<PickControl
-										outcome="home"
-										selected={pick?.outcome ?? null}
-										result={verdict}
-										open={pickable}
-										{signedIn}
-										label={home?.team.name ?? 'Home'}
-										busy={pending[game.id] ?? false}
-										onpick={(next) => setPick(game.id, next)}
-									/>
 									{#if game.home_score != null}
 										<span class="text-base font-bold tabular-nums
 											{homeWon ? 'text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'}">
@@ -521,6 +508,31 @@
 									{/if}
 								</div>
 							</div>
+
+							<!-- Pick'em tools: the same three rows before and after kickoff —
+							     pickable while the game is open, a coloured result once it
+							     locks. Anonymous visitors get the prompt instead of controls,
+							     and no result rows: there's no pick of theirs to grade. -->
+							{#if pickemOn && signedIn}
+								<div class="mt-2.5">
+									<PickButtons
+										away={away?.team.name ?? 'Away'}
+										home={home?.team.name ?? 'Home'}
+										selected={pick?.outcome ?? null}
+										open={pickable}
+										actual={actualOutcome(game)}
+										result={verdict}
+										busy={pending[game.id] ?? false}
+										onpick={(next) => setPick(game.id, next)}
+									/>
+								</div>
+							{:else if pickemOn && pickable}
+								<a
+									href="/login?redirect=/scores"
+									onclick={(e) => e.stopPropagation()}
+									class="mt-2.5 block text-center text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500 hover:text-primary-600 dark:hover:text-primary-400"
+								>Sign in to pick</a>
+							{/if}
 			{/snippet}
 
 			<ul class="grid grid-cols-1 lg:grid-cols-2 gap-2 mt-2">

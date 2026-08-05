@@ -50,7 +50,7 @@
 		<div class="max-w-5xl mx-auto flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
 			<p class="flex-1 min-w-56 text-amber-900 dark:text-amber-200">
 				Your display name is
-				<span class="font-semibold">@{page.data.username}</span>, generated from your email
+				<span class="font-semibold">{page.data.username}</span>, generated from your email
 				address. It won't appear publicly until you confirm or change it.
 			</p>
 

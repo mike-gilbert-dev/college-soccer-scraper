@@ -167,7 +167,7 @@
 											{isMe
 												? 'text-primary-700 dark:text-primary-300'
 												: 'text-gray-800 dark:text-gray-200'}"
-									>@{row.username}</a>
+									>{row.username}</a>
 									{#if isMe}
 										<span class="ml-1 text-[9px] uppercase tracking-wide text-primary-600 dark:text-primary-400">you</span>
 									{/if}

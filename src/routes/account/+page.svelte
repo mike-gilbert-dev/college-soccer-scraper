@@ -49,7 +49,7 @@
 
 		{#if data.usernameIsGenerated}
 			<Alert color="yellow" class="text-xs py-2">
-				<span class="font-semibold">@{data.username}</span> was generated from your email address
+				<span class="font-semibold">{data.username}</span> was generated from your email address
 				and isn't shown publicly yet. Keep it or pick something else — either way it won't start
 				the 30-day change limit.
 			</Alert>

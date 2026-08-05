@@ -58,7 +58,7 @@ export const actions: Actions = {
 
 		switch (result) {
 			case 'ok':
-				return { section: 'username', message: `Username updated to @${username}.` };
+				return { section: 'username', message: `Username updated to ${username}.` };
 			case 'taken':
 				return fail(400, { section: 'username', error: 'That username is already taken.' });
 			case 'reserved':
