@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 3: Picks Schema, RLS &amp; Kickoff Lock — Pick'em</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1.25rem; line-height: 1.65; color: #111; }
+    h1 { font-size: 1.6rem; border-bottom: 3px solid #e8463a; padding-bottom: .5rem; margin-bottom: .5rem; }
+    h2 { font-size: 1.1rem; color: #333; margin-top: 2rem; border-bottom: 1px solid #e5e5e5; padding-bottom: .25rem; }
+    h3 { font-size: 1rem; color: #444; }
+    .meta { display: flex; flex-wrap: wrap; gap: 1.5rem; background: #f7f7f7; padding: .75rem 1rem; border-radius: 6px; font-size: .875rem; margin-bottom: 1.75rem; color: #444; }
+    .meta strong { color: #111; }
+    .checklist { list-style: none; padding: 0; margin: 0; }
+    .checklist li { padding: .4rem 0 .4rem .25rem; border-bottom: 1px solid #f0f0f0; display: flex; gap: .75rem; align-items: flex-start; font-size: .95rem; }
+    .checklist li::before { content: "☐"; font-size: 1.1rem; color: #aaa; flex-shrink: 0; margin-top: .05rem; }
+    .ref { background: #fffbeb; border-left: 3px solid #f59e0b; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    .ref a { color: #92400e; font-weight: 500; }
+    .dep { background: #eff6ff; border-left: 3px solid #60a5fa; padding: .5rem .85rem; margin-bottom: 1.25rem; border-radius: 0 5px 5px 0; font-size: .875rem; color: #1e40af; }
+    .note { background: #f0fdf4; border-left: 3px solid #4ade80; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    code { background: #f3f4f6; padding: .15rem .4rem; border-radius: 3px; font-size: .875em; font-family: ui-monospace, monospace; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem 1.25rem; border-radius: 7px; overflow-x: auto; font-size: .875rem; }
+    pre code { background: none; padding: 0; font-size: inherit; }
+    a { color: #e8463a; }
+  </style>
+</head>
+<body>
+
+<div style="background:#f0fdf4;border:1.5px solid #4ade80;border-radius:7px;padding:.65rem 1.1rem;margin-bottom:1.5rem;font-size:.9rem;color:#166534;font-weight:500;">
+  ✅ Phase complete — all criteria satisfied. <em>Scope change: <code>picks.division</code> was added beyond the plan, at the user's request.</em>
+</div>
+
+<h1>Phase 3: Picks Schema, RLS &amp; Kickoff Lock</h1>
+
+<div class="meta">
+  <span><strong>Project:</strong> Pick'em</span>
+  <span><strong>Phase:</strong> 3 of 7</span>
+  <span><strong>Depends on:</strong> Phase 2 complete</span>
+</div>
+
+<div class="dep">
+  ⚠️ <strong>Prerequisite:</strong> Phase 2 (Username UI) must be complete — picks are attributed to a user identity that must already be publishable.
+</div>
+
+<h2>Overview</h2>
+<p>Creates the <code>picks</code> table and — more importantly — the security model that makes the game fair. The kickoff lock is enforced in Row Level Security, not in the UI, because a lock that only exists in the client is not a lock.</p>
+<p>This phase writes no application code. It ends with a database that will reject a late pick from any client, which is the invariant everything else rests on.</p>
+
+<div class="ref">
+  📄 See <a href="references/pickem.md">pickem.md</a> — "Data model → picks" has the full DDL and the rationale for storing an outcome rather than a team id; "Security model → Pick lock, enforced in RLS" has the policies verbatim.
+</div>
+
+<h2>What Will Be Built</h2>
+
+<h3>Migration — <code>supabase/migrations/&lt;ts&gt;_picks.sql</code></h3>
+
+<h3>1. Enums and table</h3>
+<pre><code>create type pick_outcome as enum ('home', 'draw', 'away');
+create type pick_result  as enum ('win', 'loss', 'void');</code></pre>
+<p>Then the <code>picks</code> table exactly as specified in the reference doc, with <code>unique (user_id, game_id)</code> and the three indexes (<code>picks_user_season_idx</code>, <code>picks_game_idx</code>, and the partial <code>picks_ungraded_idx</code> for the grader).</p>
+
+<div class="note">
+  ✅ <strong>Picks store an outcome, never a team id.</strong> This is deliberate: it makes 2-way vs. 3-way a config difference rather than a migration, and it avoids depending on <code>team_seasons.id</code>, which migration <code>20260609000001_split_team_seasons_by_sport.sql</code> has already rewritten once. A pick must survive that kind of change.
+</div>
+
+<h3>2. Denormalization trigger</h3>
+<p>A <code>before insert</code> trigger fills <code>season_id</code> and <code>sport_code</code> from the referenced game. The client never supplies them, so it cannot mis-attribute a pick to the wrong season or sport to game a leaderboard.</p>
+
+<h3>3. <code>game_is_open(p_game_id bigint)</code></h3>
+<pre><code>create or replace function public.game_is_open(p_game_id bigint) returns boolean
+language sql stable security definer set search_path = '' as $$
+  select exists (
+    select 1 from public.games g
+     where g.id = p_game_id
+       and g.status = 'scheduled'
+       and coalesce(g.start_time,
+                    (g.contest_date::timestamp at time zone 'America/New_York')) > now()
+  );
+$$;</code></pre>
+<p>Must be <code>security definer</code> — it is called from an RLS policy and needs to read <code>games</code> regardless of the caller.</p>
+
+<div class="note">
+  ✅ <strong>The <code>coalesce</code> fallback is a safety net, not a hot path.</strong> Verified against the live database: 0 of 5,279 D1 2025 games had a null <code>start_time</code>. The fallback locks a TBD-time game at midnight ET on game day, which errs toward locking early — the correct direction for integrity.
+</div>
+
+<h3>4. RLS policies</h3>
+<p>Enable RLS, grant <code>select, insert, update, delete</code> to <code>authenticated</code>, and add the four policies from the reference doc. Every one of insert/update/delete is gated on both <code>auth.uid() = user_id</code> <em>and</em> <code>game_is_open(game_id)</code>.</p>
+<p>Users can only ever <code>select</code> their own picks. Aggregate visibility (leaderboards, other users' profiles) arrives in Phases 6–7 via <code>security definer</code> functions that expose totals only.</p>
+
+<h3>5. Vitest coverage</h3>
+<p>Extract the outcome-derivation logic into <code>src/lib/picks.ts</code> so it is unit-testable and shared with the client (Phase 5 uses it for instant result feedback on live score updates):</p>
+<pre><code>export type PickOutcome = 'home' | 'draw' | 'away';
+
+/** Which outcome actually occurred. Null when the game has no final score. */
+export function actualOutcome(
+  game: { home_score: number | null; away_score: number | null; status: string }
+): PickOutcome | null;
+
+/** Whether a game can still be picked, given a reference time. */
+export function isGameOpen(
+  game: { status: string; start_time: string | null; contest_date: string },
+  now?: Date
+): boolean;</code></pre>
+<p>Test both against the draw, shootout, and boundary cases listed below. This TS logic must stay in lockstep with the SQL — the SQL remains authoritative.</p>
+
+<h2>Implementation Notes</h2>
+
+<p><strong>Shootouts are draws.</strong> A PK-decided game keeps its tied score, and the site already treats it as a tie in W-L-T records, Elo and RPI (see <code>20260723000000_games_shootout.sql</code>). <code>actualOutcome</code> must therefore return <code>'draw'</code> for a shootout game and must <em>not</em> consult <code>shootout_winner_team_season_id</code>. Grading it any other way would contradict every other page on the site. 68 of 5,276 games in 2025.</p>
+
+<p><strong>Do not add a foreign key to <code>team_seasons</code>.</strong> There is no team reference on a pick by design — see the note above.</p>
+
+<p><strong>The lock is absolute and has a consequence worth recording:</strong> any game that kicks off before this feature ships is permanently unpickable. The 2026 season's first game is <strong>2026-08-12</strong>. Games played during the build window will simply have no picks — expected, not a bug.</p>
+
+<p><strong>Non-D1 opponents are pickable.</strong> Some games on a D1 slate involve a non-D1-member opponent (<code>team_seasons.division_member</code> is what standings and ratings filter on). Division membership isn't known until later in the season, so filtering at pick time isn't possible. These grade normally; no special handling.</p>
+
+<h3>Key files to read before starting</h3>
+<ul>
+  <li><code>supabase/migrations/20260606000000_initial_schema.sql</code> — the <code>games</code> table: <code>status</code> check constraint, <code>start_time</code>, <code>contest_date</code></li>
+  <li><code>supabase/migrations/20260723000000_games_shootout.sql</code> — why a shootout is a tie everywhere else</li>
+  <li><code>supabase/migrations/20260606000005_profiles.sql</code> — the RLS style this project uses</li>
+  <li><code>supabase/migrations/20260609000001_split_team_seasons_by_sport.sql</code> — the id churn that motivates storing outcomes, not team ids</li>
+</ul>
+
+<h2>Completion Criteria</h2>
+<p>Every item below must be satisfied before proceeding to Phase 4.</p>
+<ul class="checklist">
+  <li class="done">Migration applies cleanly via <code>supabase db reset</code></li>
+  <li class="done"><code>picks</code> exists with both enums, the unique constraint, and all three indexes</li>
+  <li class="done">Inserting a pick without <code>season_id</code>/<code>sport_code</code> populates them correctly from the game</li>
+  <li class="done">RLS is enabled and <code>authenticated</code> has the four policies</li>
+  <li class="done">A user <strong>cannot</strong> insert a pick for a game whose <code>start_time</code> has passed</li>
+  <li class="done">A user <strong>cannot</strong> insert a pick for a game with status <code>live</code>, <code>final</code>, <code>postponed</code> or <code>cancelled</code></li>
+  <li class="done">A user <strong>cannot</strong> insert or update a pick with another user's <code>user_id</code></li>
+  <li class="done">A user <strong>cannot</strong> select another user's picks</li>
+  <li class="done">A user <strong>can</strong> insert, update and delete their own pick on a future scheduled game</li>
+  <li class="done">The unique constraint prevents two picks on the same game by the same user</li>
+  <li class="done"><code>src/lib/picks.ts</code> exists with passing tests for: home win, away win, 0-0 draw, non-zero draw, shootout (→ draw), null scores, non-final status, and lock boundaries either side of <code>start_time</code></li>
+  <li class="done"><code>npm run test</code> passes</li>
+</ul>
+
+<h2>How to Validate</h2>
+<p>The security properties are the point of this phase — test them as an actual authenticated user, not as <code>service_role</code>, which bypasses RLS entirely and will make every check falsely pass.</p>
+<ol>
+  <li>Apply the migration and confirm the schema: <code>\d picks</code> in psql, or <code>list_tables</code>.</li>
+  <li>Pick a future game and a past game from the 2026 season:
+    <pre><code>select id, contest_date, start_time, status from games
+where season_id = (select id from seasons where year = 2026)
+order by start_time limit 5;</code></pre></li>
+  <li>In the Supabase SQL editor, impersonate an authenticated user:
+    <pre><code>set local role authenticated;
+set local request.jwt.claims = '{"sub":"&lt;user-uuid&gt;","role":"authenticated"}';</code></pre></li>
+  <li><strong>Happy path:</strong> insert a pick on a future scheduled game → succeeds. Update its outcome → succeeds. Delete it → succeeds.</li>
+  <li><strong>Late pick:</strong> insert on a game whose <code>start_time</code> is in the past → must fail with an RLS violation.</li>
+  <li><strong>Status gate:</strong> insert on a <code>final</code> game → must fail.</li>
+  <li><strong>Identity gate:</strong> insert with a different <code>user_id</code> → must fail.</li>
+  <li><strong>Read isolation:</strong> insert picks as two different users, then <code>select * from picks</code> as each — each sees only their own row.</li>
+  <li><strong>Trigger:</strong> confirm the inserted rows have correct <code>season_id</code> and <code>sport_code</code> without having supplied them.</li>
+  <li><strong>Race check:</strong> insert a pick on a game starting shortly, then <code>update games set start_time = now() - interval '1 minute'</code> and attempt to update the pick → must now fail.</li>
+  <li>Run <code>npm run test</code>.</li>
+</ol>
+
+</body>
+</html>

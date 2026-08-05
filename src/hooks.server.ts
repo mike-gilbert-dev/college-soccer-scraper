@@ -44,6 +44,8 @@ export const handle: Handle = async ({ event, resolve }) => {
 
 	event.locals.supabase = createSupabaseServerClient(event.cookies);
 	event.locals.isAdmin = false;
+	event.locals.username = null;
+	event.locals.usernameIsGenerated = false;
 
 	event.locals.safeGetSession = async () => {
 		const { data: { session } } = await event.locals.supabase.auth.getSession();
@@ -61,11 +63,13 @@ export const handle: Handle = async ({ event, resolve }) => {
 	if (user) {
 		const { data: profile } = await supabaseAdmin
 			.from('profiles')
-			.select('is_admin')
+			.select('is_admin, username, username_is_generated')
 			.eq('id', user.id)
 			.single();
 
-		event.locals.isAdmin = profile?.is_admin ?? false;
+		event.locals.isAdmin             = profile?.is_admin ?? false;
+		event.locals.username            = profile?.username ?? null;
+		event.locals.usernameIsGenerated = profile?.username_is_generated ?? false;
 	}
 
 	// Enforce admin-only access on protected paths.

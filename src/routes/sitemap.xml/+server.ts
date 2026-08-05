@@ -37,6 +37,8 @@ export const GET: RequestHandler = async ({ request }) => {
 		{ path: '/teams', changefreq: 'daily', priority: '0.8' },
 		{ path: '/ratings', changefreq: 'daily', priority: '0.8' },
 		{ path: '/stats', changefreq: 'daily', priority: '0.8' },
+		// The leaderboard is indexable; individual /u/ profile pages are not.
+		{ path: '/pickem', changefreq: 'daily', priority: '0.7' },
 	];
 
 	const articleUrls = (articles ?? []).map(a => ({

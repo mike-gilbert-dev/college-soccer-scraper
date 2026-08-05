@@ -23,6 +23,8 @@ export const load: LayoutServerLoad = async ({ locals, depends }) => {
 		session,
 		user,
 		isAdmin: locals.isAdmin,
+		username: locals.username,
+		usernameIsGenerated: locals.usernameIsGenerated,
 		seasons: (seasonsData ?? []) as { id: number; label: string; start_date: string; end_date: string }[],
 		teamCount:   teamCount   ?? 0,
 		gameCount:   gameCount   ?? 0,

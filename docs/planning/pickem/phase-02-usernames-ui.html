@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 2: Username UI &amp; Account Tools — Pick'em</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1.25rem; line-height: 1.65; color: #111; }
+    h1 { font-size: 1.6rem; border-bottom: 3px solid #e8463a; padding-bottom: .5rem; margin-bottom: .5rem; }
+    h2 { font-size: 1.1rem; color: #333; margin-top: 2rem; border-bottom: 1px solid #e5e5e5; padding-bottom: .25rem; }
+    h3 { font-size: 1rem; color: #444; }
+    .meta { display: flex; flex-wrap: wrap; gap: 1.5rem; background: #f7f7f7; padding: .75rem 1rem; border-radius: 6px; font-size: .875rem; margin-bottom: 1.75rem; color: #444; }
+    .meta strong { color: #111; }
+    .checklist { list-style: none; padding: 0; margin: 0; }
+    .checklist li { padding: .4rem 0 .4rem .25rem; border-bottom: 1px solid #f0f0f0; display: flex; gap: .75rem; align-items: flex-start; font-size: .95rem; }
+    .checklist li::before { content: "☐"; font-size: 1.1rem; color: #aaa; flex-shrink: 0; margin-top: .05rem; }
+    .ref { background: #fffbeb; border-left: 3px solid #f59e0b; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    .ref a { color: #92400e; font-weight: 500; }
+    .dep { background: #eff6ff; border-left: 3px solid #60a5fa; padding: .5rem .85rem; margin-bottom: 1.25rem; border-radius: 0 5px 5px 0; font-size: .875rem; color: #1e40af; }
+    .note { background: #f0fdf4; border-left: 3px solid #4ade80; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    code { background: #f3f4f6; padding: .15rem .4rem; border-radius: 3px; font-size: .875em; font-family: ui-monospace, monospace; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem 1.25rem; border-radius: 7px; overflow-x: auto; font-size: .875rem; }
+    pre code { background: none; padding: 0; font-size: inherit; }
+    a { color: #e8463a; }
+  </style>
+</head>
+<body>
+
+<div style="background:#f0fdf4;border:1.5px solid #4ade80;border-radius:7px;padding:.65rem 1.1rem;margin-bottom:1.5rem;font-size:.9rem;color:#166534;font-weight:500;">
+  ✅ Phase complete — all criteria satisfied.
+</div>
+
+<h1>Phase 2: Username UI &amp; Account Tools</h1>
+
+<div class="meta">
+  <span><strong>Project:</strong> Pick'em</span>
+  <span><strong>Phase:</strong> 2 of 7</span>
+  <span><strong>Depends on:</strong> Phase 1 complete</span>
+</div>
+
+<div class="dep">
+  ⚠️ <strong>Prerequisite:</strong> Phase 1 (Vitest Harness &amp; Username Backend) must be complete — this phase consumes <code>set_username</code>, <code>username_available</code>, and <code>src/lib/username.ts</code>.
+</div>
+
+<h2>Overview</h2>
+<p>Builds every screen that touches usernames: the signup field, the account settings page, and the one-time confirmation prompt for the three backfilled accounts. Also removes email addresses from the UI now that a display identity exists.</p>
+<p>After this phase, identity is complete and the rest of the project is purely about picks.</p>
+
+<div class="ref">
+  📄 See <a href="references/pickem.md">pickem.md</a> — "Why <code>username_is_generated</code> exists" explains the confirmation prompt's purpose; "Public read surfaces" covers the email-removal decision.
+</div>
+
+<h2>What Will Be Built</h2>
+
+<h3>1. Register form — <code>src/routes/register/</code></h3>
+<p>Add a username field above the email field. The server action must pass it through to Supabase as user metadata so Phase 1's trigger can consume it:</p>
+<pre><code>await locals.supabase.auth.signUp({
+  email, password,
+  options: { data: { username } }
+});</code></pre>
+<p>Before calling <code>signUp</code>, the action validates with <code>validateUsername()</code> and checks <code>username_available()</code>, returning <code>fail(400, ...)</code> with a specific message. It must also catch Postgres error <code>23505</code> from the trigger's unique index and map it to "That username was just taken — try another", since a small race exists between the availability check and the insert.</p>
+<p>Live availability feedback: debounce ~400ms, call <code>username_available</code> via the browser client, show ✓ / ✗ inline. Run <code>validateUsername()</code> locally first so format errors never cost a round trip.</p>
+
+<h3>2. <code>/account</code> — new route, auth-gated</h3>
+<p><code>+page.server.ts</code> redirects to <code>/login</code> when there's no user, and loads the current profile (username, <code>username_changed_at</code>, <code>username_is_generated</code>). Sections:</p>
+<ul>
+  <li><strong>Username</strong> — current name, a change form, and the cooldown state. When a change isn't yet allowed, disable the input and show the date it unlocks rather than only failing on submit.</li>
+  <li><strong>Email</strong> — display current address, form to change it via <code>supabase.auth.updateUser({ email })</code>, with a note that confirmation is required.</li>
+  <li><strong>Password</strong> — change via <code>supabase.auth.updateUser({ password })</code>. Reuse <code>PasswordInput.svelte</code>.</li>
+</ul>
+<p>Use SvelteKit form actions here (not <code>fetch</code>) — these are low-frequency, benefit from progressive enhancement, and match the pattern already used by <code>/login</code> and <code>/register</code>.</p>
+
+<h3>3. Confirm-your-username prompt</h3>
+<p>For profiles where <code>username_is_generated = true</code>. Shown as a dismissible-but-persistent banner in the root layout (not a blocking modal — it must not prevent browsing). Copy should make the situation plain:</p>
+<blockquote>Your display name is <strong>@ilgilbert30</strong>, generated from your email address. It won't appear publicly until you confirm or change it. <em>[Keep it] [Change it]</em></blockquote>
+<p>"Keep it" calls <code>set_username</code> with the current name (flipping the generated flag without starting the cooldown). "Change it" links to <code>/account</code>.</p>
+
+<div class="note">
+  ✅ <strong>This is the privacy mechanism, not decoration.</strong> A generated name is derived from the user's email local-part. Until the user has seen this prompt, that string must not appear on any public surface — which Phase 1's <code>public_profiles</code> view already enforces at the data layer.
+</div>
+
+<h3>4. Navbar — replace email with username</h3>
+<p><code>src/lib/components/Navbar.svelte</code> renders <code>page.data.user.email</code> in two places (desktop dropdown, mobile menu). Both become <code>@{username}</code>. Add an <strong>Account</strong> link to the dropdown next to the existing Admin link.</p>
+<p>This requires <code>username</code> in <code>PageData</code>: extend <code>src/routes/+layout.server.ts</code> to include it. <code>src/hooks.server.ts</code> already fetches the profile row for <code>is_admin</code> — extend that existing query to select <code>username, username_is_generated</code> too and expose them on <code>locals</code>, rather than adding a second round trip per request.</p>
+
+<h2>Implementation Notes</h2>
+
+<p><strong>Svelte 5 runes mode is enforced.</strong> Use <code>$props()</code>, <code>$state()</code>, <code>$derived()</code> — never <code>export let</code> or legacy stores. See CLAUDE.md.</p>
+
+<p><strong>Extend the existing hooks query, don't add another.</strong> <code>hooks.server.ts</code> runs on every request and already does one <code>profiles</code> select via <code>supabaseAdmin</code>. Adding columns is free; adding a query is not.</p>
+
+<p><strong>Don't add <code>/account</code> to the sitemap.</strong> Per CLAUDE.md, auth pages and internal routes stay out of <code>sitemap.xml</code>.</p>
+
+<p><strong>Email confirmation flow.</strong> Changing an email in Supabase sends a confirmation link and does not take effect until confirmed. The UI must say so, or users will think it silently failed.</p>
+
+<h3>Key files to read before starting</h3>
+<ul>
+  <li><code>src/routes/register/+page.server.ts</code> and <code>+page.svelte</code> — the form-action pattern to extend</li>
+  <li><code>src/routes/login/+page.svelte</code> — form styling conventions to match on <code>/account</code></li>
+  <li><code>src/lib/components/Navbar.svelte</code> — lines rendering <code>page.data.user.email</code> (desktop dropdown and mobile menu)</li>
+  <li><code>src/lib/components/PasswordInput.svelte</code> — reuse for the password section</li>
+  <li><code>src/routes/+layout.server.ts</code> / <code>src/hooks.server.ts</code> — where username joins <code>PageData</code></li>
+  <li><code>docs/design.md</code> — form and spacing conventions</li>
+</ul>
+
+<h2>Completion Criteria</h2>
+<p>Every item below must be satisfied before proceeding to Phase 3.</p>
+<ul class="checklist">
+  <li class="done">Registering requires a username; submitting without one shows a validation error and creates no account</li>
+  <li class="done">Registering with a taken username fails gracefully with a readable message, not a raw Postgres error</li>
+  <li class="done">Live availability feedback appears while typing and correctly reports taken vs. available</li>
+  <li class="done">A newly registered account has <code>username_is_generated = false</code> and the chosen username</li>
+  <li class="done"><code>/account</code> redirects anonymous visitors to <code>/login</code></li>
+  <li class="done"><code>/account</code> allows a username change, and the old name appears in <code>username_history</code></li>
+  <li class="done">A second username change within 30 days is blocked in the UI with the unlock date shown</li>
+  <li class="done">Email and password changes both work from <code>/account</code></li>
+  <li class="done">The confirmation banner appears for the 3 backfilled accounts and not for new signups</li>
+  <li class="done">"Keep it" clears <code>username_is_generated</code> without setting <code>username_changed_at</code>, and the banner disappears</li>
+  <li class="done">No email address is rendered anywhere in the navbar on desktop or mobile</li>
+  <li class="done">An <strong>Account</strong> link is present in the user dropdown</li>
+  <li class="done"><code>npm run check</code> passes with no new type errors</li>
+</ul>
+
+<h2>How to Validate</h2>
+<ol>
+  <li><code>npm run dev</code>, go to <code>/register</code>. Type <code>ilgilbert30</code> → expect a "taken" indicator. Type <code>ab</code> → "too short". Type <code>admin</code> → "reserved".</li>
+  <li>Register a fresh account with a valid username. Confirm in SQL: <code>select username, username_is_generated from profiles order by id desc limit 1;</code> → the chosen name, <code>false</code>.</li>
+  <li>Sign in as that account. Navbar dropdown shows <code>@username</code>, no email, and an Account link.</li>
+  <li>At <code>/account</code>, change the username. Verify <code>username_history</code> gained a row and <code>username_changed_at</code> is set.</li>
+  <li>Attempt a second change immediately — the form should be disabled with the unlock date, and the RPC should return <code>'cooldown'</code> if called directly.</li>
+  <li>Sign in as one of the 3 backfilled accounts. The confirmation banner appears. Click "Keep it" — banner clears, <code>username_is_generated</code> is false, <code>username_changed_at</code> is still null.</li>
+  <li>Confirm that account now appears in <code>select * from public_profiles</code>.</li>
+  <li>Change the email; confirm Supabase sends a confirmation mail and the UI says confirmation is pending.</li>
+  <li>Run <code>npm run check</code> and <code>npm run test</code>.</li>
+</ol>
+
+</body>
+</html>

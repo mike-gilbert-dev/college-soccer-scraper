@@ -4,7 +4,9 @@
 	import { onMount } from 'svelte';
 	import { Badge, Dropdown, DropdownItem } from 'flowbite-svelte';
 	import TeamLogo from '$lib/components/TeamLogo.svelte';
+	import PickControl from '$lib/components/PickControl.svelte';
 	import { createSupabaseBrowserClient } from '$lib/supabase';
+	import { isGameOpen, actualOutcome, type PickOutcome, type PickResult } from '$lib/picks';
 	import { formatTime } from '$lib/format';
 	import type { PageData } from './$types';
 	import flatpickr from 'flatpickr';
@@ -40,6 +42,70 @@
 	$effect(() => {
 		games = (data.games as unknown as Game[]) ?? [];
 	});
+
+	// Pick'em state is kept OUT of the games array so the realtime patching above
+	// and the date/sport re-seed can't wipe it. Keyed by game id.
+	type UserPick = { outcome: PickOutcome; result: PickResult | null };
+	let picks = $state<Record<number, UserPick>>(
+		(data.userPicks as unknown as Record<number, UserPick>) ?? {}
+	);
+	$effect(() => {
+		picks = (data.userPicks as unknown as Record<number, UserPick>) ?? {};
+	});
+
+	// Games currently mid-request, so their controls disable without blocking others.
+	let pending = $state<Record<number, boolean>>({});
+
+	const signedIn = $derived(!!page.data.user);
+
+	/**
+	 * Optimistic write: update local state immediately, revert if the server
+	 * disagrees. The server is authoritative — RLS owns the kickoff lock.
+	 */
+	async function setPick(gameId: number, next: PickOutcome | null) {
+		const previous = picks[gameId];
+		pending[gameId] = true;
+
+		if (next === null) {
+			delete picks[gameId];
+		} else {
+			picks[gameId] = { outcome: next, result: previous?.result ?? null };
+		}
+
+		try {
+			const res = await fetch('/api/picks', {
+				method: next === null ? 'DELETE' : 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(next === null ? { gameId } : { gameId, outcome: next })
+			});
+
+			if (!res.ok) {
+				// Revert. A 403 means the game locked out from under us.
+				if (previous) picks[gameId] = previous;
+				else delete picks[gameId];
+			}
+		} catch {
+			if (previous) picks[gameId] = previous;
+			else delete picks[gameId];
+		} finally {
+			pending[gameId] = false;
+		}
+	}
+
+	/**
+	 * A graded result arrives from the grader up to 10 minutes after a final. When
+	 * a game flips to final in an open tab, derive the result immediately so the
+	 * card gives instant feedback; the stored value wins on reload.
+	 */
+	function displayResult(game: Game, pick: UserPick | undefined): PickResult | null {
+		if (!pick) return null;
+		if (pick.result) return pick.result;
+		if (game.status === 'cancelled') return 'void';
+
+		const actual = actualOutcome(game);
+		if (actual === null) return null;
+		return actual === pick.outcome ? 'win' : 'loss';
+	}
 
 	// Live scores: subscribe to UPDATEs on `games` and patch any row currently on
 	// screen, matched by id. The list is a single day's slate, so updates for games
@@ -317,6 +383,9 @@
 				{@const awayAdvanced = isFinal && game.shootout && game.shootout_winner_team_season_id === game.away_team_season_id}
 				{@const homeWon = (isFinal && game.home_score != null && game.away_score != null && game.home_score > game.away_score) || homeAdvanced}
 				{@const awayWon = (isFinal && game.home_score != null && game.away_score != null && game.away_score > game.home_score) || awayAdvanced}
+				{@const pick     = picks[game.id]}
+				{@const pickable = isGameOpen(game)}
+				{@const verdict  = displayResult(game, pick)}
 
 				<!-- Header row: round/broadcaster left, status/time right -->
 							<div class="flex items-center justify-between gap-2 mb-1.5">
@@ -355,13 +424,69 @@
 									<TeamLogo lightUrl={away?.team.logo_url_light} darkUrl={away?.team.logo_url_dark} name={away?.team.name ?? ''} size={32} />
 									<span class="truncate">{away?.team.name ?? '—'}</span>
 								</a>
-								{#if game.away_score != null}
-									<span class="text-base font-bold tabular-nums shrink-0
-										{awayWon ? 'text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'}">
-										{game.away_score}
-									</span>
-								{/if}
+								<!-- PickControl renders nothing unless the game is pickable or this
+								     outcome is the user's pick, so it coexists with the score. -->
+								<div class="shrink-0 flex items-center gap-2">
+									<PickControl
+										outcome="away"
+										selected={pick?.outcome ?? null}
+										result={verdict}
+										open={pickable}
+										{signedIn}
+										label={away?.team.name ?? 'Away'}
+										busy={pending[game.id] ?? false}
+										onpick={(next) => setPick(game.id, next)}
+									/>
+									{#if game.away_score != null}
+										<span class="text-base font-bold tabular-nums
+											{awayWon ? 'text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'}">
+											{game.away_score}
+										</span>
+									{/if}
+								</div>
 							</div>
+
+							<!-- Draw: sits between the two team rows -->
+							{#if pickable && signedIn}
+								<div class="flex items-center gap-2 my-1.5">
+									<span class="h-px flex-1 bg-gray-200 dark:bg-gray-700"></span>
+									<PickControl
+										outcome="draw"
+										selected={pick?.outcome ?? null}
+										result={verdict}
+										open={pickable}
+										{signedIn}
+										label="Draw"
+										busy={pending[game.id] ?? false}
+										onpick={(next) => setPick(game.id, next)}
+									/>
+									<span class="h-px flex-1 bg-gray-200 dark:bg-gray-700"></span>
+								</div>
+							{:else if pickable && !signedIn}
+								<div class="flex items-center gap-2 my-1.5">
+									<span class="h-px flex-1 bg-gray-200 dark:bg-gray-700"></span>
+									<a
+										href="/login?redirect=/scores"
+										onclick={(e) => e.stopPropagation()}
+										class="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500 hover:text-primary-600 dark:hover:text-primary-400"
+									>Sign in to pick</a>
+									<span class="h-px flex-1 bg-gray-200 dark:bg-gray-700"></span>
+								</div>
+							{:else if pick?.outcome === 'draw'}
+								<div class="flex items-center gap-2 my-1.5">
+									<span class="h-px flex-1 bg-gray-200 dark:bg-gray-700"></span>
+									<PickControl
+										outcome="draw"
+										selected={pick.outcome}
+										result={verdict}
+										open={false}
+										{signedIn}
+										label="Draw"
+										onpick={() => {}}
+									/>
+									<span class="h-px flex-1 bg-gray-200 dark:bg-gray-700"></span>
+								</div>
+							{/if}
 
 							<!-- Home row -->
 							<div class="flex items-center justify-between gap-2 mt-2">
@@ -377,12 +502,24 @@
 										{/if}
 									</span>
 								</a>
-								{#if game.home_score != null}
-									<span class="text-base font-bold tabular-nums shrink-0
-										{homeWon ? 'text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'}">
-										{game.home_score}
-									</span>
-								{/if}
+								<div class="shrink-0 flex items-center gap-2">
+									<PickControl
+										outcome="home"
+										selected={pick?.outcome ?? null}
+										result={verdict}
+										open={pickable}
+										{signedIn}
+										label={home?.team.name ?? 'Home'}
+										busy={pending[game.id] ?? false}
+										onpick={(next) => setPick(game.id, next)}
+									/>
+									{#if game.home_score != null}
+										<span class="text-base font-bold tabular-nums
+											{homeWon ? 'text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'}">
+											{game.home_score}
+										</span>
+									{/if}
+								</div>
 							</div>
 			{/snippet}
 

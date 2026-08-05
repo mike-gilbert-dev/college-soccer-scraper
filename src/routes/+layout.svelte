@@ -2,6 +2,7 @@
 	import '../app.css';
 	import favicon from '$lib/assets/favicon.svg';
 	import Navbar from '$lib/components/Navbar.svelte';
+	import UsernameBanner from '$lib/components/UsernameBanner.svelte';
 	import { createSupabaseBrowserClient } from '$lib/supabase';
 	import { invalidate } from '$app/navigation';
 	import { onMount } from 'svelte';
@@ -49,6 +50,7 @@
 </svelte:head>
 
 <Navbar />
+<UsernameBanner />
 
 <main class="max-w-5xl mx-auto px-3 py-3">
 	<div class="bg-white dark:bg-gray-950 text-gray-500 border dark:border-gray-800 border-gray-200 p-4 rounded-lg mb-4">

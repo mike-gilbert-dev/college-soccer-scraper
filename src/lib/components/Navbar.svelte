@@ -64,6 +64,7 @@
 				<a href="/teams" class={navLinkClass('/teams')}>Teams</a>
 				<a href="/ratings" class={navLinkClass('/ratings')}>Ratings</a>
 				<a href="/stats" class={navLinkClass('/stats')}>Stats</a>
+				<a href="/pickem" class={navLinkClass('/pickem')}>Pick'em</a>
 
 				<!-- Dark mode -->
 				<button
@@ -97,8 +98,18 @@
 							<!-- Dropdown panel -->
 							<div class="absolute right-0 top-full mt-1 w-56 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 overflow-hidden">
 								<div class="px-4 py-2.5 border-b border-gray-200 dark:border-gray-700">
-									<p class="text-xs font-medium text-gray-900 dark:text-white truncate">{page.data.user.email}</p>
+									<p class="text-xs font-medium text-gray-900 dark:text-white truncate">@{page.data.username}</p>
 								</div>
+								<a
+									href="/u/{page.data.username}"
+									onclick={closeUserMenu}
+									class="block px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+								>My Picks</a>
+								<a
+									href="/account"
+									onclick={closeUserMenu}
+									class="block px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+								>Account</a>
 								{#if page.data.isAdmin}
 									<a
 										href="/admin"
@@ -152,11 +163,14 @@
 			<a href="/teams" onclick={closeMenu} class={mobileNavLinkClass('/teams')}>Teams</a>
 			<a href="/ratings" onclick={closeMenu} class={mobileNavLinkClass('/ratings')}>Ratings</a>
 			<a href="/stats" onclick={closeMenu} class={mobileNavLinkClass('/stats')}>Stats</a>
+			<a href="/pickem" onclick={closeMenu} class={mobileNavLinkClass('/pickem')}>Pick'em</a>
 
 			{#if page.data.user}
 				<div class="px-3 py-1.5 text-xs text-gray-400 dark:text-gray-500 border-t border-gray-100 dark:border-gray-700 mt-1 pt-2">
-					{page.data.user.email}
+					@{page.data.username}
 				</div>
+				<a href="/u/{page.data.username}" onclick={closeMenu} class={mobileNavLinkClass(`/u/${page.data.username}`)}>My Picks</a>
+				<a href="/account" onclick={closeMenu} class={mobileNavLinkClass('/account')}>Account</a>
 				{#if page.data.isAdmin}
 					<a href="/admin" onclick={closeMenu} class={mobileNavLinkClass('/admin')}>Admin</a>
 				{/if}

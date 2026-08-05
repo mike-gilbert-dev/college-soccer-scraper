@@ -39,6 +39,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 		const contestDate = defaultDate(startDate, endDate);
 		return {
 			games: [],
+			userPicks: {} as Record<number, { outcome: string; result: string | null }>,
 			contestDate,
 			availableDates: [] as string[],
 			gender,
@@ -97,8 +98,31 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 
 	if (gamesError) console.error('[scoreboard] games query error:', gamesError);
 
+	// Pick'em: load this user's picks for the games on screen. Skipped entirely
+	// for anonymous visitors. RLS already scopes picks to the caller, but the
+	// explicit user_id filter keeps the query on picks_user_season_idx.
+	const { user } = await locals.safeGetSession();
+	const userPicks: Record<number, { outcome: string; result: string | null }> = {};
+
+	if (user && games && games.length > 0) {
+		const { data: picks, error: picksError } = await supabase
+			.from('picks')
+			.select('game_id, outcome, result')
+			.eq('user_id', user.id)
+			.in('game_id', games.map((g) => g.id));
+
+		if (picksError) {
+			console.error('[scoreboard] picks query error:', picksError);
+		} else {
+			for (const p of picks ?? []) {
+				userPicks[p.game_id] = { outcome: p.outcome, result: p.result };
+			}
+		}
+	}
+
 	return {
 		games: games ?? [],
+		userPicks,
 		gamesError: gamesError ? `${gamesError.code}: ${gamesError.message}` : null,
 		contestDate,
 		availableDates,

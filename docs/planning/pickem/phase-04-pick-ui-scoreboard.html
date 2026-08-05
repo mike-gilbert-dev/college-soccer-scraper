@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 4: Pick Controls on the Scoreboard — Pick'em</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1.25rem; line-height: 1.65; color: #111; }
+    h1 { font-size: 1.6rem; border-bottom: 3px solid #e8463a; padding-bottom: .5rem; margin-bottom: .5rem; }
+    h2 { font-size: 1.1rem; color: #333; margin-top: 2rem; border-bottom: 1px solid #e5e5e5; padding-bottom: .25rem; }
+    h3 { font-size: 1rem; color: #444; }
+    .meta { display: flex; flex-wrap: wrap; gap: 1.5rem; background: #f7f7f7; padding: .75rem 1rem; border-radius: 6px; font-size: .875rem; margin-bottom: 1.75rem; color: #444; }
+    .meta strong { color: #111; }
+    .checklist { list-style: none; padding: 0; margin: 0; }
+    .checklist li { padding: .4rem 0 .4rem .25rem; border-bottom: 1px solid #f0f0f0; display: flex; gap: .75rem; align-items: flex-start; font-size: .95rem; }
+    .checklist li::before { content: "☐"; font-size: 1.1rem; color: #aaa; flex-shrink: 0; margin-top: .05rem; }
+    .ref { background: #fffbeb; border-left: 3px solid #f59e0b; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    .ref a { color: #92400e; font-weight: 500; }
+    .dep { background: #eff6ff; border-left: 3px solid #60a5fa; padding: .5rem .85rem; margin-bottom: 1.25rem; border-radius: 0 5px 5px 0; font-size: .875rem; color: #1e40af; }
+    .note { background: #f0fdf4; border-left: 3px solid #4ade80; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    code { background: #f3f4f6; padding: .15rem .4rem; border-radius: 3px; font-size: .875em; font-family: ui-monospace, monospace; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem 1.25rem; border-radius: 7px; overflow-x: auto; font-size: .875rem; }
+    pre code { background: none; padding: 0; font-size: inherit; }
+    a { color: #e8463a; }
+  </style>
+</head>
+<body>
+
+<div style="background:#f0fdf4;border:1.5px solid #4ade80;border-radius:7px;padding:.65rem 1.1rem;margin-bottom:1.5rem;font-size:.9rem;color:#166534;font-weight:500;">
+  ✅ Phase complete — all criteria satisfied. The game is now playable.
+</div>
+
+<h1>Phase 4: Pick Controls on the Scoreboard</h1>
+
+<div class="meta">
+  <span><strong>Project:</strong> Pick'em</span>
+  <span><strong>Phase:</strong> 4 of 7</span>
+  <span><strong>Depends on:</strong> Phase 3 complete</span>
+</div>
+
+<div class="dep">
+  ⚠️ <strong>Prerequisite:</strong> Phase 3 (Picks Schema, RLS &amp; Kickoff Lock) must be complete — the RLS lock must be verified before any UI can be trusted to respect it.
+</div>
+
+<h2>Overview</h2>
+<p>The first user-facing Pick'em phase. Adds the three-way pick control to every unstarted game card on <code>/scores</code>, an API endpoint to persist picks, and loading of existing picks so a returning user sees their selections.</p>
+<p>At the end of this phase the game is playable — picks are made and stored, just not yet graded. Grading lands in Phase 5, which is why validation here is about persistence and the lock, not about correctness of results.</p>
+
+<div class="ref">
+  📄 See <a href="references/pickem.md">pickem.md</a> — "Routes and UI → The pick control on a game card" has the card layout sketch and the reasoning for <code>fetch</code> over form actions.
+</div>
+
+<h2>What Will Be Built</h2>
+
+<h3>1. <code>POST</code> / <code>DELETE</code> <code>/api/picks</code></h3>
+<p>New route <code>src/routes/api/picks/+server.ts</code>.</p>
+<ul>
+  <li><strong>POST</strong> — body <code>{ gameId: number, outcome: 'home'|'draw'|'away' }</code>. Upserts on the <code>(user_id, game_id)</code> conflict target. 401 if unauthenticated. Returns the stored pick.</li>
+  <li><strong>DELETE</strong> — body <code>{ gameId: number }</code>. Removes the pick.</li>
+</ul>
+
+<div class="note">
+  ✅ <strong>Use <code>locals.supabase</code>, never <code>supabaseAdmin</code>.</strong> The whole security model depends on these writes running under the user's JWT so Phase 3's RLS policies apply. Using the service-role client here would silently bypass the kickoff lock and defeat the feature. When RLS rejects a write, translate it into a <code>403</code> with "This game has already started" rather than leaking the Postgres error.
+</div>
+
+<h3>2. Load existing picks — <code>src/routes/scores/+page.server.ts</code></h3>
+<p>After the games query, when a user is present, one additional query:</p>
+<pre><code>const { data: picks } = await supabase
+  .from('picks')
+  .select('game_id, outcome, result')
+  .in('game_id', games.map(g =&gt; g.id));</code></pre>
+<p>Return as a <code>Record&lt;gameId, {outcome, result}&gt;</code> map for O(1) lookup in the template. Skip the query entirely for anonymous visitors. RLS already scopes it to the current user, so no <code>user_id</code> filter is needed — but include one anyway for index use and clarity.</p>
+
+<h3>3. <code>PickControl.svelte</code></h3>
+<p>New component in <code>src/lib/components/</code>. Props: the game, the current pick (if any), and whether the viewer is signed in. Renders three states:</p>
+<ul>
+  <li><strong>Signed in, game open</strong> — a pick affordance on each team row plus a slim <em>Draw</em> bar between them. Selected = filled primary (<code>#e8463a</code>); unselected = outline.</li>
+  <li><strong>Signed out, game open</strong> — a muted "Sign in to pick" link to <code>/login?redirect=/scores</code>.</li>
+  <li><strong>Game locked</strong> — renders the user's pick read-only if they made one, nothing otherwise.</li>
+</ul>
+<p>Interaction: clicking an unselected outcome picks it; clicking the selected one clears it. Update local <code>$state</code> optimistically, fire the request, and revert on failure with a brief inline error.</p>
+
+<h3>4. Wire into the scoreboard card</h3>
+<p>The scheduled-game card has no score in the right-hand column, so the pick controls occupy that space and the card's two-row rhythm is preserved.</p>
+
+<div class="note">
+  ⚠️ <strong>The card body is a <code>role="link"</code> that navigates to the box score.</strong> Every pick control must call <code>e.stopPropagation()</code> or picking will also navigate away. The team links in <code>scores/+page.svelte</code> already do exactly this — follow that existing pattern.
+</div>
+
+<h2>Implementation Notes</h2>
+
+<p><strong>Why <code>fetch</code> and not form actions.</strong> A busy October Saturday renders 100+ cards; form actions would mean 300+ <code>&lt;form&gt;</code> elements with <code>use:enhance</code>. The page already runs client-side JS for realtime scores, so a single endpoint plus local state is both lighter and more responsive. (Phase 2's <code>/account</code> uses form actions precisely because it is the opposite case — low frequency, benefits from progressive enhancement.)</p>
+
+<p><strong>Respect the existing realtime <code>$effect</code>.</strong> <code>scores/+page.svelte</code> keeps games in local <code>$state</code> re-seeded from <code>data.games</code> on navigation. Pick state must survive that re-seed — either key it separately from the games array or re-seed it in the same effect. Getting this wrong makes picks appear to vanish when changing date.</p>
+
+<p><strong>A game can lock while the page is open.</strong> A user sitting on the scoreboard at kickoff can still see a control the server will now reject. That's acceptable — RLS is authoritative — but the 403 must present as a clear "this game has started" message, not a generic failure. Optionally re-derive open/closed from <code>isGameOpen()</code> (Phase 3) on the realtime tick.</p>
+
+<p><strong>Accessibility.</strong> Pick controls are real <code>&lt;button&gt;</code> elements with <code>aria-pressed</code> reflecting selection and an <code>aria-label</code> naming the team and game. Keyboard users must be able to pick without triggering the card's navigation.</p>
+
+<p><strong>Mobile.</strong> The scoreboard is dense and heavily used on phones — controls need a ≥32px touch target without making cards taller. Verify at 375px width.</p>
+
+<h3>Key files to read before starting</h3>
+<ul>
+  <li><code>src/routes/scores/+page.svelte</code> — the <code>cardInner</code> snippet, the realtime subscription, and the <code>stopPropagation</code> pattern on team links</li>
+  <li><code>src/routes/scores/+page.server.ts</code> — where the picks query is added</li>
+  <li><code>src/routes/api/news/+server.ts</code> — the project's API-route conventions</li>
+  <li><code>src/lib/picks.ts</code> — <code>isGameOpen()</code> from Phase 3</li>
+  <li><code>docs/design.md</code> — accent color, spacing, density conventions</li>
+</ul>
+
+<h2>Completion Criteria</h2>
+<p>Every item below must be satisfied before proceeding to Phase 5.</p>
+<ul class="checklist">
+  <li class="done">Signed-in users see three pick controls (home / draw / away) on every unstarted game card</li>
+  <li class="done">Clicking an outcome persists it and it survives a page reload</li>
+  <li class="done">Clicking the selected outcome clears the pick</li>
+  <li class="done">Switching from one outcome to another updates rather than duplicating the row</li>
+  <li class="done">Picking does <strong>not</strong> navigate to the box score</li>
+  <li class="done">Picks persist correctly when navigating between dates and back</li>
+  <li class="done">Started, live, final, postponed and cancelled games show no pick controls</li>
+  <li class="done">Signed-out visitors see a "Sign in to pick" affordance that preserves the return path</li>
+  <li class="done">A <code>POST</code> for an already-started game returns 403 with a readable message</li>
+  <li class="done">An unauthenticated <code>POST</code> returns 401</li>
+  <li class="done">Controls are keyboard operable and expose <code>aria-pressed</code></li>
+  <li class="done">Cards remain usable at 375px width with touch targets ≥32px</li>
+  <li class="done">Anonymous page loads issue no picks query</li>
+  <li class="done"><code>npm run check</code> passes with no new type errors</li>
+</ul>
+
+<h2>How to Validate</h2>
+<ol>
+  <li><code>npm run dev</code>, sign in, and go to <code>/scores</code> with a 2026 date that has scheduled games — <code>?date=2026-08-12</code> is the season's first slate.</li>
+  <li>Pick the home team on one game, the draw on another, the away team on a third. Reload — all three persist with the right selections.</li>
+  <li>Click a selected control to clear it. Reload — it's gone.</li>
+  <li>Confirm in SQL: <code>select game_id, outcome, season_id, sport_code from picks where user_id = '&lt;uuid&gt;';</code> — <code>season_id</code> and <code>sport_code</code> populated by the trigger.</li>
+  <li>Click directly on a pick control and confirm the page does <em>not</em> navigate to the box score. Then click the card body and confirm it does.</li>
+  <li>Navigate to another date and back; picks still render.</li>
+  <li>Switch to Women's and confirm picks work there too and don't bleed across sports.</li>
+  <li>Sign out. The same page shows "Sign in to pick"; clicking it lands on <code>/login</code> and returns to <code>/scores</code> after signing in.</li>
+  <li><strong>Lock enforcement:</strong> force a game to look started —
+    <pre><code>update games set start_time = now() - interval '1 hour' where id = &lt;id&gt;;</code></pre>
+    reload, confirm the control is gone, then <code>curl</code> the endpoint directly for that game and confirm a 403.</li>
+  <li>Tab to a pick control and activate with Enter/Space — it picks without navigating.</li>
+  <li>Open devtools at 375px and confirm card density and touch targets.</li>
+  <li>Run <code>npm run check</code> and <code>npm run test</code>.</li>
+</ol>
+
+</body>
+</html>

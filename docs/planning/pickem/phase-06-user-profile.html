@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 6: User Profile &amp; Season Chart — Pick'em</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1.25rem; line-height: 1.65; color: #111; }
+    h1 { font-size: 1.6rem; border-bottom: 3px solid #e8463a; padding-bottom: .5rem; margin-bottom: .5rem; }
+    h2 { font-size: 1.1rem; color: #333; margin-top: 2rem; border-bottom: 1px solid #e5e5e5; padding-bottom: .25rem; }
+    h3 { font-size: 1rem; color: #444; }
+    .meta { display: flex; flex-wrap: wrap; gap: 1.5rem; background: #f7f7f7; padding: .75rem 1rem; border-radius: 6px; font-size: .875rem; margin-bottom: 1.75rem; color: #444; }
+    .meta strong { color: #111; }
+    .checklist { list-style: none; padding: 0; margin: 0; }
+    .checklist li { padding: .4rem 0 .4rem .25rem; border-bottom: 1px solid #f0f0f0; display: flex; gap: .75rem; align-items: flex-start; font-size: .95rem; }
+    .checklist li::before { content: "☐"; font-size: 1.1rem; color: #aaa; flex-shrink: 0; margin-top: .05rem; }
+    .ref { background: #fffbeb; border-left: 3px solid #f59e0b; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    .ref a { color: #92400e; font-weight: 500; }
+    .dep { background: #eff6ff; border-left: 3px solid #60a5fa; padding: .5rem .85rem; margin-bottom: 1.25rem; border-radius: 0 5px 5px 0; font-size: .875rem; color: #1e40af; }
+    .note { background: #f0fdf4; border-left: 3px solid #4ade80; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    code { background: #f3f4f6; padding: .15rem .4rem; border-radius: 3px; font-size: .875em; font-family: ui-monospace, monospace; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem 1.25rem; border-radius: 7px; overflow-x: auto; font-size: .875rem; }
+    pre code { background: none; padding: 0; font-size: inherit; }
+    a { color: #e8463a; }
+  </style>
+</head>
+<body>
+
+<div style="background:#f0fdf4;border:1.5px solid #4ade80;border-radius:7px;padding:.65rem 1.1rem;margin-bottom:1.5rem;font-size:.9rem;color:#166534;font-weight:500;">
+  ✅ Phase complete — all criteria satisfied. <em>Added beyond the plan: <code>get_recent_picks()</code>, because a direct read of <code>picks</code> returns nothing under RLS for a public profile.</em>
+</div>
+
+<h1>Phase 6: User Profile &amp; Season Chart</h1>
+
+<div class="meta">
+  <span><strong>Project:</strong> Pick'em</span>
+  <span><strong>Phase:</strong> 6 of 7</span>
+  <span><strong>Depends on:</strong> Phase 5 complete</span>
+</div>
+
+<div class="dep">
+  ⚠️ <strong>Prerequisite:</strong> Phase 5 (Automatic Grading) must be complete — this page displays graded results and has nothing to show without them.
+</div>
+
+<h2>Overview</h2>
+<p>The personal stats surface: a public profile at <code>/u/[username]</code> showing a user's record, their recent picks, and a season-long chart of their cumulative performance against the field average.</p>
+<p>The aggregate functions built here are also what Phase 7's leaderboard builds on, so the security pattern established in this phase — <code>security definer</code> functions exposing totals only — matters beyond this page.</p>
+
+<div class="ref">
+  📄 See <a href="references/pickem.md">pickem.md</a> — "Public read surfaces" defines the three RPC signatures and, importantly, why the chart's "average" is the pooled field rate rather than a mean of per-user percentages.
+</div>
+
+<h2>What Will Be Built</h2>
+
+<h3>1. <code>get_user_pick_summary(p_username, p_season_id, p_sport_code)</code></h3>
+<p><code>security definer</code>, granted to <code>anon</code> and <code>authenticated</code>. Returns wins, losses, voids, graded count, win %, season rank, best streak and current streak.</p>
+<p>Win % denominator is <code>wins + losses</code> — voids are excluded, never counted as losses.</p>
+
+<h3>2. <code>get_pick_timeline(p_username, p_season_id, p_sport_code)</code></h3>
+<p>One row per date on which the user has a graded pick:</p>
+<pre><code>contest_date, user_wins, user_losses,
+user_cum_wins, user_cum_pct, field_cum_pct</code></pre>
+
+<div class="note">
+  ✅ <strong><code>field_cum_pct</code> is the pooled rate</strong> — all users' cumulative wins ÷ all users' cumulative graded picks up to that date. <em>Not</em> the mean of individual users' percentages. With a handful of users early in a season, a per-user mean swings wildly on tiny samples; pooled is stable from the first week. This is a deliberate decision, not an implementation detail.
+</div>
+
+<h3>3. <code>/u/[username]</code> route</h3>
+<p><code>+page.server.ts</code> resolves the username via <code>public_profiles</code> (so unconfirmed generated usernames 404), then calls both RPCs. Season and sport are query params defaulting to the current season and MSO, matching the <code>/scores</code> convention.</p>
+<p>Page sections:</p>
+<ul>
+  <li><strong>Header</strong> — <code>@username</code>, W-L record, win %, rank</li>
+  <li><strong>Chart</strong> — cumulative win % vs. field average over the season</li>
+  <li><strong>Recent picks</strong> — a table of the last ~25 graded picks: date, matchup, picked outcome, actual result, ✓/✗</li>
+  <li><strong>Empty state</strong> — for a user with no graded picks yet, pointing at <code>/scores</code></li>
+</ul>
+
+<h3>4. <code>PickPerformanceChart.svelte</code></h3>
+<p>A hand-rolled SVG line chart following the existing pattern in <code>PlayerFormChart.svelte</code> — two series (user, field), a responsive <code>ResizeObserver</code> width, hover cross-highlighting, light/dark aware. <strong>No new charting dependency.</strong></p>
+
+<h3>5. Navigation and SEO</h3>
+<ul>
+  <li>Add <strong>My Picks</strong> to the navbar user dropdown, linking to the signed-in user's own profile.</li>
+  <li>Add <code>&lt;meta name="robots" content="noindex"&gt;</code> to the profile page.</li>
+  <li>Do <strong>not</strong> add <code>/u/</code> pages to <code>sitemap.xml</code>.</li>
+</ul>
+
+<div class="note">
+  ⚠️ <strong>User pages are public but deliberately unindexed.</strong> They're shareable by link — that's the point — but individual users shouldn't become search results. This is consistent with the privacy stance behind <code>username_is_generated</code>.
+</div>
+
+<h2>Implementation Notes</h2>
+
+<p><strong>Aggregates must not leak individual picks.</strong> The RPCs return only the requested user's own pick history plus <em>aggregate</em> field numbers. No function in this phase may return another identifiable user's individual picks — particularly not on unstarted games. Phase 3's RLS already prevents direct reads; don't reopen that hole through a <code>security definer</code> function.</p>
+
+<p><strong>Views and functions need explicit grants.</strong> Table grants don't cascade in this project. Every function needs <code>grant execute ... to anon, authenticated</code> or the page 401s for logged-out visitors.</p>
+
+<p><strong>Paginate the recent-picks query.</strong> PostgREST caps responses at 1000 rows and truncates silently. The recent-picks list is explicitly limited, but any future "all picks" view must paginate.</p>
+
+<p><strong>Rank ties.</strong> Use <code>rank()</code>, not <code>row_number()</code> — two users on identical records should share a rank rather than being ordered arbitrarily.</p>
+
+<p><strong>Chart edge cases</strong> that must not crash the page: a user with one graded pick (single point, no line), a user whose picks are all voids (0 graded — show the empty state), and the very first date of the season where the field average has a tiny denominator.</p>
+
+<h3>Key files to read before starting</h3>
+<ul>
+  <li><code>src/lib/components/PlayerFormChart.svelte</code> — the SVG chart pattern to follow: <code>ResizeObserver</code> sizing, hover index, dark mode</li>
+  <li><code>src/routes/players/</code> — an existing dynamic-param page with charts and a stats table</li>
+  <li><code>src/routes/scores/+page.server.ts</code> — season/sport query-param conventions to match</li>
+  <li><code>src/lib/components/TeamLogo.svelte</code> — for matchups in the picks table</li>
+  <li><code>docs/design.md</code> — table density and typography</li>
+</ul>
+
+<h2>Completion Criteria</h2>
+<p>Every item below must be satisfied before proceeding to Phase 7.</p>
+<ul class="checklist">
+  <li class="done"><code>/u/[username]</code> renders for a valid username and 404s for an unknown one</li>
+  <li class="done">A profile whose <code>username_is_generated</code> is still true returns 404</li>
+  <li class="done">Record, win % and rank match a hand-computed SQL check</li>
+  <li class="done">Win % excludes voids from the denominator</li>
+  <li class="done">The chart plots the user's cumulative win % against the pooled field average</li>
+  <li class="done">The chart is readable in light and dark mode and responsive down to 375px</li>
+  <li class="done">A user with a single graded pick renders without error</li>
+  <li class="done">A user with zero graded picks sees the empty state, not a broken chart</li>
+  <li class="done">Recent picks show matchup, picked outcome, actual result and ✓/✗</li>
+  <li class="done">Season and sport switching updates all sections</li>
+  <li class="done">The page is reachable signed-out and emits <code>noindex</code></li>
+  <li class="done"><code>/u/</code> pages are absent from <code>sitemap.xml</code></li>
+  <li class="done">A <strong>My Picks</strong> link is in the user dropdown</li>
+  <li class="done">No RPC returns another user's individual picks</li>
+  <li class="done"><code>npm run check</code> passes with no new type errors</li>
+</ul>
+
+<h2>How to Validate</h2>
+<ol>
+  <li>Seed a realistic history: insert picks for 2–3 test users across many 2025 dates with a mix of wins, losses, draws and voids, then run <code>grade_picks()</code>.</li>
+  <li>Visit <code>/u/&lt;username&gt;</code> and cross-check the header against SQL:
+    <pre><code>select count(*) filter (where result='win')  as wins,
+       count(*) filter (where result='loss') as losses,
+       count(*) filter (where result='void') as voids
+from picks p join public_profiles pp on pp.id = p.user_id
+where pp.username = '&lt;username&gt;';</code></pre>
+    Confirm win % = wins / (wins + losses).</li>
+  <li>Verify the chart's final field-average point equals the pooled rate:
+    <pre><code>select count(*) filter (where result='win')::numeric
+       / count(*) filter (where result in ('win','loss')) from picks;</code></pre></li>
+  <li>Hover the chart — cross-highlighting works and values match the table.</li>
+  <li>Toggle dark mode; confirm both series stay legible.</li>
+  <li>Resize to 375px; the chart and table remain usable.</li>
+  <li>Visit a nonexistent username → 404. Visit a backfilled account that hasn't confirmed → 404.</li>
+  <li>Create a user with exactly one graded pick → page renders. Create one with only voids → empty state.</li>
+  <li>Switch season to 2024 and sport to WSO; all sections update coherently.</li>
+  <li>Sign out and reload — the page still renders. View source and confirm <code>noindex</code>.</li>
+  <li>Fetch <code>/sitemap.xml</code> and confirm no <code>/u/</code> entries.</li>
+  <li>Clean up test picks. Run <code>npm run check</code> and <code>npm run test</code>.</li>
+</ol>
+
+</body>
+</html>

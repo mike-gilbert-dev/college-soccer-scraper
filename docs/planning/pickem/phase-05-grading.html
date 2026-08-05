@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 5: Automatic Grading — Pick'em</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1.25rem; line-height: 1.65; color: #111; }
+    h1 { font-size: 1.6rem; border-bottom: 3px solid #e8463a; padding-bottom: .5rem; margin-bottom: .5rem; }
+    h2 { font-size: 1.1rem; color: #333; margin-top: 2rem; border-bottom: 1px solid #e5e5e5; padding-bottom: .25rem; }
+    h3 { font-size: 1rem; color: #444; }
+    .meta { display: flex; flex-wrap: wrap; gap: 1.5rem; background: #f7f7f7; padding: .75rem 1rem; border-radius: 6px; font-size: .875rem; margin-bottom: 1.75rem; color: #444; }
+    .meta strong { color: #111; }
+    .checklist { list-style: none; padding: 0; margin: 0; }
+    .checklist li { padding: .4rem 0 .4rem .25rem; border-bottom: 1px solid #f0f0f0; display: flex; gap: .75rem; align-items: flex-start; font-size: .95rem; }
+    .checklist li::before { content: "☐"; font-size: 1.1rem; color: #aaa; flex-shrink: 0; margin-top: .05rem; }
+    .ref { background: #fffbeb; border-left: 3px solid #f59e0b; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    .ref a { color: #92400e; font-weight: 500; }
+    .dep { background: #eff6ff; border-left: 3px solid #60a5fa; padding: .5rem .85rem; margin-bottom: 1.25rem; border-radius: 0 5px 5px 0; font-size: .875rem; color: #1e40af; }
+    .note { background: #f0fdf4; border-left: 3px solid #4ade80; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    code { background: #f3f4f6; padding: .15rem .4rem; border-radius: 3px; font-size: .875em; font-family: ui-monospace, monospace; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem 1.25rem; border-radius: 7px; overflow-x: auto; font-size: .875rem; }
+    pre code { background: none; padding: 0; font-size: inherit; }
+    a { color: #e8463a; }
+  </style>
+</head>
+<body>
+
+<div style="background:#f0fdf4;border:1.5px solid #4ade80;border-radius:7px;padding:.65rem 1.1rem;margin-bottom:1.5rem;font-size:.9rem;color:#166534;font-weight:500;">
+  ✅ Phase complete — all criteria satisfied. Validated against all 5,276 finished 2025 D1 games with zero mismatches.
+</div>
+
+<h1>Phase 5: Automatic Grading</h1>
+
+<div class="meta">
+  <span><strong>Project:</strong> Pick'em</span>
+  <span><strong>Phase:</strong> 5 of 7</span>
+  <span><strong>Depends on:</strong> Phase 4 complete</span>
+</div>
+
+<div class="dep">
+  ⚠️ <strong>Prerequisite:</strong> Phase 4 (Pick Controls) must be complete — grading needs real picks to grade, and the result badges attach to the cards built there.
+</div>
+
+<h2>Overview</h2>
+<p>Turns stored picks into records. Adds the <code>grade_picks()</code> function, schedules it, and surfaces win/loss on the scoreboard cards.</p>
+<p>This is the highest-risk phase in the project: a silent bug here corrupts every user's record and every leaderboard downstream, and nobody notices until the numbers are already wrong. It is also the most verifiable — the 2025 season provides 5,276 finished games with known outcomes to test against.</p>
+
+<div class="ref">
+  📄 See <a href="references/pickem.md">pickem.md</a> — "Data model → Grading" has the function body, the shootout/cancelled/postponed decisions, and the rationale for a stored result column over a computed view.
+</div>
+
+<h2>What Will Be Built</h2>
+
+<h3>1. <code>grade_picks()</code></h3>
+<p>A <code>security definer</code> SQL function that updates every pick whose stored <code>result</code> disagrees with the current game state, returning the number of rows changed. Rules:</p>
+<ul>
+  <li><strong>final</strong> with scores → compare <code>actualOutcome</code> to <code>picks.outcome</code> → <code>win</code> or <code>loss</code></li>
+  <li><strong>shootout</strong> → the score is tied, so the outcome is <code>draw</code>; do not consult the shootout winner</li>
+  <li><strong>cancelled</strong> → <code>void</code></li>
+  <li><strong>postponed</strong> → leave ungraded; the row keeps its id and grades when the game is eventually played</li>
+  <li><strong>scheduled / live</strong> → leave ungraded</li>
+</ul>
+
+<div class="note">
+  ✅ <strong>Idempotency is the safety property.</strong> The <code>where result is distinct from &lt;computed&gt;</code> clause means re-running is a no-op unless something actually changed — which is also how a corrected score self-heals. The function must be safe to run every minute forever. Verify by running it twice and asserting the second call returns 0.
+</div>
+
+<h3>2. Schedule — pg_cron, pure SQL</h3>
+<pre><code>select cron.schedule('grade-picks', '*/10 * * * *',
+                     $$select public.grade_picks()$$);</code></pre>
+<p>No edge function, no HTTP, no Vault secret — grading is pure SQL, so it needs none of the machinery the ingest pipeline requires. Every 10 minutes self-gates to nothing when there's nothing to grade, and resolves picks within minutes of a final rather than waiting for the 08:00 UTC nightly chain.</p>
+
+<h3>3. Result badges on scoreboard cards</h3>
+<p>Extend <code>PickControl.svelte</code>'s locked state to show the graded outcome: a ✓ for a win, ✗ for a loss, and a muted "void" for cancelled games. The user's picked outcome stays visible so the card reads as "you picked the draw, and you were right."</p>
+
+<h3>4. Instant client-side result on live finals</h3>
+<p>The scoreboard already patches game rows via Supabase Realtime. When a game flips to <code>final</code> in an open tab, derive the result immediately with <code>actualOutcome()</code> from <code>src/lib/picks.ts</code> rather than waiting up to 10 minutes for the cron. The stored result remains authoritative on reload; this is presentation only.</p>
+
+<h3>5. Vitest coverage</h3>
+<p>Extend <code>src/lib/picks.test.ts</code> with a <code>gradePick(outcome, game)</code> helper mirroring the SQL, covering every branch: correct home/draw/away, incorrect, shootout-as-draw, cancelled, postponed, and ungraded states.</p>
+
+<h3>6. Backfill</h3>
+<p>Run <code>grade_picks()</code> once after deploying to grade any picks made during Phase 4.</p>
+
+<h2>Implementation Notes</h2>
+
+<p><strong>The SQL is authoritative; the TS mirrors it.</strong> Two implementations of the same rules is a real risk — they can drift. The TS exists only for instant UI feedback. Any rule change must land in both, and the SQL wins on reload. Consider a comment in each pointing at the other.</p>
+
+<p><strong>Validate against 2025, not synthetic data.</strong> The 2025 season has 5,276 finals including 1,149 draws and 68 shootouts. Insert synthetic picks across a representative sample and assert grading matches independently-computed expectations — this catches sign errors and shootout mishandling that hand-written fixtures miss.</p>
+
+<p><strong>Watch for a subtle draw bug.</strong> <code>home_score = away_score</code> is NULL — not true — when both are null, so ungraded games correctly fall out of the comparison. Make sure the <code>case</code> expression checks <code>home_score is not null</code> before treating equal scores as a draw, or a scoreless scheduled game could grade as a draw.</p>
+
+<p><strong>Don't chain this to the ratings cron.</strong> Grading is independent of ratings and much cheaper; a separate 10-minute job is simpler and fails independently.</p>
+
+<h3>Key files to read before starting</h3>
+<ul>
+  <li><code>supabase/migrations/20260621000002_schedule_nightly_ratings.sql</code> — the project's pg_cron scheduling pattern</li>
+  <li><code>supabase/migrations/20260723000000_games_shootout.sql</code> — why a shootout grades as a draw</li>
+  <li><code>src/lib/picks.ts</code> — <code>actualOutcome()</code> from Phase 3, reused here</li>
+  <li><code>src/routes/scores/+page.svelte</code> — the realtime handler where instant results hook in</li>
+  <li><code>CLAUDE.md</code> — the cron section, which needs a new entry for this job</li>
+</ul>
+
+<h2>Completion Criteria</h2>
+<p>Every item below must be satisfied before proceeding to Phase 6.</p>
+<ul class="checklist">
+  <li class="done"><code>grade_picks()</code> exists and returns a count of rows graded</li>
+  <li class="done">Correct picks grade to <code>win</code>, incorrect to <code>loss</code></li>
+  <li class="done">A pick of <code>draw</code> on a drawn game grades to <code>win</code></li>
+  <li class="done">A shootout game grades as a draw — a <code>draw</code> pick wins, a team pick loses</li>
+  <li class="done">Cancelled games grade to <code>void</code>; postponed games stay ungraded</li>
+  <li class="done">Scheduled and live games stay ungraded</li>
+  <li class="done">Running <code>grade_picks()</code> twice in a row grades 0 rows the second time</li>
+  <li class="done">Correcting a game's score and re-running flips the affected picks</li>
+  <li class="done">The <code>grade-picks</code> cron job is registered and visible in <code>cron.job</code></li>
+  <li class="done">Graded picks show ✓ / ✗ on the scoreboard card with the picked outcome still visible</li>
+  <li class="done">A live game going final in an open tab shows the result without a reload</li>
+  <li class="done">Vitest covers every grading branch and passes</li>
+  <li class="done"><code>CLAUDE.md</code> documents the new cron job alongside the existing ones</li>
+</ul>
+
+<h2>How to Validate</h2>
+<ol>
+  <li>Apply the migration and confirm the job:
+    <pre><code>select jobname, schedule, command from cron.job where jobname = 'grade-picks';</code></pre></li>
+  <li><strong>Bulk validation against 2025.</strong> Insert one synthetic pick per outcome across a sample of 2025 finals, run <code>grade_picks()</code>, then verify against an independent computation:
+    <pre><code>select p.result,
+       case when g.home_score &gt; g.away_score then 'home'
+            when g.away_score &gt; g.home_score then 'away'
+            else 'draw' end = p.outcome::text as should_be_win,
+       count(*)
+from picks p join games g on g.id = p.game_id
+where g.status = 'final'
+group by 1, 2;</code></pre>
+    Every row must be <code>win/true</code> or <code>loss/false</code>. Any <code>win/false</code> or <code>loss/true</code> is a bug.</li>
+  <li><strong>Draw coverage:</strong> confirm picks on the 1,149 drawn 2025 games grade correctly — <code>draw</code> picks win, team picks lose.</li>
+  <li><strong>Shootout coverage:</strong> pick both the shootout winner and the draw on a shootout game; the draw wins and the team pick loses.</li>
+  <li><strong>Idempotency:</strong> run <code>select grade_picks();</code> twice — second call returns 0.</li>
+  <li><strong>Score correction:</strong> change a final game's score, re-run, confirm affected picks flip and <code>graded_at</code> updates.</li>
+  <li><strong>Cancelled:</strong> set a game to <code>cancelled</code>, re-run, confirm <code>void</code>.</li>
+  <li><strong>Postponed:</strong> set a game to <code>postponed</code>, re-run, confirm it stays ungraded; set it back to final and confirm it grades.</li>
+  <li><strong>UI:</strong> load <code>/scores</code> on a date with graded picks and confirm ✓/✗ badges.</li>
+  <li><strong>Realtime:</strong> with <code>/scores</code> open, update a picked game to <code>final</code> with a score in SQL; the badge appears without reload.</li>
+  <li>Clean up all synthetic picks: <code>delete from picks where user_id = '&lt;test-uuid&gt;';</code></li>
+  <li>Run <code>npm run test</code> and <code>npm run check</code>.</li>
+</ol>
+
+</body>
+</html>

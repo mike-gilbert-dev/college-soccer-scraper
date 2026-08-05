@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 1: Vitest Harness &amp; Username Backend — Pick'em</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1.25rem; line-height: 1.65; color: #111; }
+    h1 { font-size: 1.6rem; border-bottom: 3px solid #e8463a; padding-bottom: .5rem; margin-bottom: .5rem; }
+    h2 { font-size: 1.1rem; color: #333; margin-top: 2rem; border-bottom: 1px solid #e5e5e5; padding-bottom: .25rem; }
+    h3 { font-size: 1rem; color: #444; }
+    .meta { display: flex; flex-wrap: wrap; gap: 1.5rem; background: #f7f7f7; padding: .75rem 1rem; border-radius: 6px; font-size: .875rem; margin-bottom: 1.75rem; color: #444; }
+    .meta strong { color: #111; }
+    .checklist { list-style: none; padding: 0; margin: 0; }
+    .checklist li { padding: .4rem 0 .4rem .25rem; border-bottom: 1px solid #f0f0f0; display: flex; gap: .75rem; align-items: flex-start; font-size: .95rem; }
+    .checklist li::before { content: "☐"; font-size: 1.1rem; color: #aaa; flex-shrink: 0; margin-top: .05rem; }
+    .ref { background: #fffbeb; border-left: 3px solid #f59e0b; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    .ref a { color: #92400e; font-weight: 500; }
+    .dep { background: #eff6ff; border-left: 3px solid #60a5fa; padding: .5rem .85rem; margin-bottom: 1.25rem; border-radius: 0 5px 5px 0; font-size: .875rem; color: #1e40af; }
+    .note { background: #f0fdf4; border-left: 3px solid #4ade80; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    code { background: #f3f4f6; padding: .15rem .4rem; border-radius: 3px; font-size: .875em; font-family: ui-monospace, monospace; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem 1.25rem; border-radius: 7px; overflow-x: auto; font-size: .875rem; }
+    pre code { background: none; padding: 0; font-size: inherit; }
+    a { color: #e8463a; }
+  </style>
+</head>
+<body>
+
+<div style="background:#f0fdf4;border:1.5px solid #4ade80;border-radius:7px;padding:.65rem 1.1rem;margin-bottom:1.5rem;font-size:.9rem;color:#166534;font-weight:500;">
+  ✅ Phase complete — all criteria satisfied.
+</div>
+
+<h1>Phase 1: Vitest Harness &amp; Username Backend</h1>
+
+<div class="meta">
+  <span><strong>Project:</strong> Pick'em</span>
+  <span><strong>Phase:</strong> 1 of 7</span>
+  <span><strong>Depends on:</strong> None (first phase)</span>
+</div>
+
+<h2>Overview</h2>
+<p>Establishes two foundations at once: the repo's first automated test setup, and the username identity layer that every public Pick'em surface depends on. Usernames come first because leaderboards and profile pages need a stable, non-email display identity, and because making the column <code>NOT NULL</code> is far cheaper with three existing accounts than it will be later.</p>
+<p>This phase is backend-only — no UI. Phase 2 builds the screens that drive these RPCs.</p>
+
+<div class="ref">
+  📄 See <a href="references/pickem.md">pickem.md</a> — the "Data model → profiles" and "Security model → Username changes go through an RPC" sections contain the agreed DDL, the <code>username_is_generated</code> rationale, and the reserved-word list.
+</div>
+
+<h2>What Will Be Built</h2>
+
+<h3>1. Vitest harness (new to this repo)</h3>
+<p>Add <code>vitest</code> as a dev dependency and configure it inside the existing <code>vite.config.ts</code> (a <code>test</code> block — no separate config file). Add scripts to <code>package.json</code>:</p>
+<pre><code>"test":       "vitest run",
+"test:watch": "vitest"</code></pre>
+<p>Tests live beside the code as <code>*.test.ts</code>. This phase only needs the node environment — no jsdom, no component testing, no new Svelte testing libraries. Keep the footprint minimal; the goal is testable pure logic, not a full UI test rig.</p>
+
+<h3>2. <code>src/lib/username.ts</code> — shared validation module</h3>
+<p>A dependency-free module used by the client (live availability feedback), the server action, and the tests. It must not import anything from <code>$app</code> or Supabase so it stays trivially testable.</p>
+<pre><code>export const USERNAME_MIN = 3;
+export const USERNAME_MAX = 20;
+export const USERNAME_PATTERN = /^[A-Za-z0-9_]{3,20}$/;
+export const RESERVED_USERNAMES: readonly string[] = [ ... ];
+
+export type UsernameError =
+  | 'too_short' | 'too_long' | 'invalid_chars' | 'reserved';
+
+/** Returns null when valid, otherwise the reason it failed. */
+export function validateUsername(raw: string): UsernameError | null;
+
+/** Email local-part -> candidate username. Used by the backfill and tests. */
+export function deriveUsernameFromEmail(email: string): string;</code></pre>
+<p>Reserved list: <code>admin</code>, <code>administrator</code>, <code>moderator</code>, <code>mod</code>, <code>staff</code>, <code>support</code>, <code>system</code>, <code>root</code>, <code>null</code>, <code>undefined</code>, <code>anonymous</code>, <code>deleted</code>, <code>collegesoccer</code>, <code>csio</code>, <code>ncaa</code>. Compare case-insensitively.</p>
+
+<h3>3. Migration — <code>supabase/migrations/&lt;ts&gt;_profiles_username.sql</code></h3>
+<p>Follow the exact DDL in the reference doc:</p>
+<ul>
+  <li>Add <code>username text</code>, <code>username_changed_at timestamptz</code>, <code>username_is_generated boolean not null default false</code> to <code>profiles</code>.</li>
+  <li>Backfill from <code>auth.users.email</code> local-part, setting <code>username_is_generated = true</code>.</li>
+  <li><code>alter column username set not null</code> + format check constraint.</li>
+  <li>Unique index on <code>lower(username)</code>.</li>
+  <li>Create <code>username_history</code> table + lookup index.</li>
+  <li>Replace <code>handle_new_user()</code> to read <code>new.raw_user_meta_data-&gt;&gt;'username'</code>.</li>
+</ul>
+
+<div class="note">
+  ✅ <strong>Backfill verified against the live database.</strong> All 3 existing accounts derive to valid, non-colliding usernames (lengths 11, 8, 15; all alphanumeric; all confirmed). No disambiguation suffix or length padding is required. <strong>Re-run the verification query before applying</strong> — if any new account has been created since, the backfill needs a collision suffix.
+</div>
+
+<h3>4. RPCs</h3>
+<p>Both <code>security definer</code> with <code>set search_path = ''</code>, granted <code>execute</code> to <code>authenticated</code>:</p>
+<ul>
+  <li><code>username_available(p_username text) returns boolean</code> — false if taken, or if held in <code>username_history</code> within 30 days by a <em>different</em> profile.</li>
+  <li><code>set_username(p_username text) returns text</code> — returns <code>'ok' | 'taken' | 'reserved' | 'invalid' | 'cooldown'</code>. Validates format and reserved words, enforces the 30-day cooldown, writes the old name to <code>username_history</code>, updates the profile, sets <code>username_changed_at</code>, and clears <code>username_is_generated</code>. All in one transaction.</li>
+</ul>
+
+<div class="note">
+  ✅ <strong>Confirming a generated username must not start the cooldown.</strong> When <code>username_is_generated</code> is true, <code>set_username</code> skips the cooldown check and leaves <code>username_changed_at</code> null — a user must not be locked into a name they never chose.
+</div>
+
+<h3>5. <code>public_profiles</code> view</h3>
+<pre><code>create view public.public_profiles as
+  select id, username from public.profiles where not username_is_generated;
+grant select on public.public_profiles to anon, authenticated;</code></pre>
+
+<h2>Implementation Notes</h2>
+
+<p><strong>Do not grant <code>UPDATE</code> on <code>profiles</code> to <code>authenticated</code>.</strong> The table holds <code>is_admin</code>; a direct update grant would let any user escalate privileges or bypass the cooldown. All writes go through <code>set_username</code>. The existing grants (<code>SELECT</code> to <code>authenticated</code>, <code>ALL</code> to <code>service_role</code>) stay exactly as they are.</p>
+
+<p><strong>Views need their own grants.</strong> Table-level grants do not cascade to views in this project — <code>public_profiles</code> needs its own explicit <code>GRANT SELECT</code> or it will 401 for anon and authenticated alike.</p>
+
+<p><strong>Duplicated validation is intentional.</strong> The rules live in both <code>src/lib/username.ts</code> and the SQL check constraint. TS gives fast feedback and testability; SQL is the security backstop that a crafted request cannot bypass. If the rules change, change both — the tests should assert the pattern string matches the constraint.</p>
+
+<p><strong><code>handle_new_user</code> runs on every <code>auth.users</code> insert.</strong> With <code>username NOT NULL</code>, a signup that supplies no username metadata will fail at the trigger. Phase 2's register form always supplies one. If a future OAuth or magic-link flow is added, the trigger needs a generated fallback rather than raising — noted as a known risk in the reference doc.</p>
+
+<h3>Key files to read before starting</h3>
+<ul>
+  <li><code>supabase/migrations/20260606000005_profiles.sql</code> — the existing table, trigger, grants and RLS policy this phase extends</li>
+  <li><code>src/hooks.server.ts</code> — how <code>profiles</code> is read per-request for <code>is_admin</code>; confirms the service-role read path</li>
+  <li><code>vite.config.ts</code> — where the Vitest block is added</li>
+  <li><code>CLAUDE.md</code> — "There is no test suite yet" needs updating once Vitest lands</li>
+</ul>
+
+<h2>Completion Criteria</h2>
+<p>Every item below must be satisfied before proceeding to Phase 2.</p>
+<ul class="checklist">
+  <li class="done"><code>npm run test</code> runs and passes with zero failures</li>
+  <li class="done"><code>src/lib/username.ts</code> exists and is covered by tests for: valid names, too short, too long, invalid characters, reserved words (case-insensitive), and email-derivation including local-parts containing dots and plus-addressing</li>
+  <li class="done">Migration applies cleanly to a local <code>supabase db reset</code> with no errors</li>
+  <li class="done">All existing profiles have a non-null username; <code>select count(*) from profiles where username is null</code> returns 0</li>
+  <li class="done">All backfilled profiles have <code>username_is_generated = true</code></li>
+  <li class="done"><code>username</code> is <code>NOT NULL</code> and the unique index on <code>lower(username)</code> exists</li>
+  <li class="done"><code>username_available()</code> returns false for an existing name in a different letter case</li>
+  <li class="done"><code>set_username()</code> returns <code>'reserved'</code> for <code>admin</code> and <code>'invalid'</code> for <code>ab</code></li>
+  <li class="done"><code>set_username()</code> returns <code>'cooldown'</code> on a second change within 30 days for a profile whose name was user-chosen</li>
+  <li class="done">Confirming a generated username succeeds and does <em>not</em> set <code>username_changed_at</code></li>
+  <li class="done"><code>public_profiles</code> excludes rows where <code>username_is_generated</code> is true, and is readable by <code>anon</code></li>
+  <li class="done"><code>authenticated</code> still has no <code>UPDATE</code> grant on <code>profiles</code></li>
+  <li class="done"><code>CLAUDE.md</code> updated: test commands documented, "no test suite" line removed</li>
+</ul>
+
+<h2>How to Validate</h2>
+<ol>
+  <li>Run <code>npm run test</code> — all username module tests pass.</li>
+  <li>Before applying the migration, re-run the backfill verification:
+    <pre><code>select u.email, lower(regexp_replace(split_part(u.email,'@',1),'[^A-Za-z0-9_]','','g')) as derived
+from auth.users u order by u.created_at;</code></pre>
+    Confirm every derived value is 3–20 chars and all are distinct.</li>
+  <li>Apply the migration (<code>npm run db:push</code>, or <code>db:reset</code> locally).</li>
+  <li>Confirm the backfill:
+    <pre><code>select id, username, username_is_generated, username_changed_at from public.profiles;</code></pre>
+    Expect 3 rows, all with usernames, all <code>username_is_generated = true</code>, all <code>username_changed_at</code> null.</li>
+  <li>Exercise the RPCs as an authenticated user (Supabase SQL editor with a set <code>request.jwt.claims</code>, or via the browser client once Phase 2 exists):
+    <ul>
+      <li><code>select username_available('ILGILBERT30')</code> → false (case-insensitive collision)</li>
+      <li><code>select username_available('brandnewname')</code> → true</li>
+      <li><code>select set_username('admin')</code> → <code>'reserved'</code></li>
+      <li><code>select set_username('ab')</code> → <code>'invalid'</code></li>
+      <li><code>select set_username('validname')</code> → <code>'ok'</code>; re-run with another name → <code>'cooldown'</code></li>
+    </ul>
+  </li>
+  <li>Confirm <code>select * from public_profiles</code> returns only profiles whose username has been confirmed.</li>
+  <li>Attempt <code>update profiles set is_admin = true</code> as an authenticated non-admin — must be denied.</li>
+</ol>
+
+</body>
+</html>

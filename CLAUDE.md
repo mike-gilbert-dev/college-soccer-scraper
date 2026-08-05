@@ -10,9 +10,16 @@ npm run build        # production build
 npm run preview      # preview production build
 npm run check        # type-check with svelte-check
 npm run check:watch  # type-check in watch mode
+npm run test         # run the Vitest suite once
+npm run test:watch   # Vitest in watch mode
 ```
 
-There is no test suite yet.
+Tests are **Vitest**, configured in the `test` block of `vite.config.ts` (node
+environment, `src/**/*.test.ts`). The suite covers pure logic modules only —
+username rules, pick grading — not Svelte components; there is no jsdom or
+component-testing setup. Where logic is duplicated in SQL (e.g. username format
+rules exist in both `src/lib/username.ts` and a check constraint), the SQL is
+authoritative and the TS mirror is what the tests assert against.
 
 ## Architecture
 
@@ -136,6 +143,13 @@ the Vercel endpoint avoids a duplicate rating engine in Deno.
 - **Auth:** `Authorization: Bearer $CRON_SECRET` ([`src/lib/server/cron-auth.ts`](src/lib/server/cron-auth.ts)); the secret is in Vault (`vercel_cron_secret`) for pg_net and in Vercel's env for the endpoint.
 - `?phase` on that route: `both` (default) | `ingest` (skip ratings) | `ratings` (skip ingest).
 
+## Pick'em grading (pg_cron, pure SQL)
+
+A third pg_cron job `grade-picks` runs **every 10 minutes** calling
+[`grade_picks()`](supabase/migrations/20260804000003_grade_picks.sql). Unlike the
+ingest/ratings jobs it needs no edge function, no HTTP and no Vault secret —
+grading is pure SQL. Full details in the **Pick'em** section below.
+
 ### Retired: Vercel cron schedule
 The Vercel cron in [`src/routes/api/cron/nightly/+server.ts`](src/routes/api/cron/nightly/+server.ts) was the first cut at the *ingest*. Its schedule is removed (`vercel.json` `crons: []`) because the chatty ingest exceeded Hobby's 60s — that moved to the Supabase edge function. The route itself still serves `?phase=ratings` (used above) and works as a manual ingest fallback over a narrow window.
 
@@ -249,3 +263,85 @@ via [`/api/news`](src/routes/api/news/+server.ts). Article detail pages live at
 - **SEO:** published articles are added to
   [`sitemap.xml`](src/routes/sitemap.xml/+server.ts) (drafts excluded); detail pages emit OG/article
   meta tags. `/scores` is also in the sitemap.
+
+## Pick'em
+
+Logged-in users predict the outcome of any D1 game that hasn't kicked off, from the
+game card on [`/scores`](src/routes/scores). Picks grade themselves once the game is
+final. Design rationale (including the data that drove each decision) is in
+[`docs/pickem.md`](docs/pickem.md); the build plan is in [`docs/planning/pickem/`](docs/planning/pickem).
+
+**Picks are 3-way — home / draw / away.** 2025 D1 finals were **22.3% draws (MSO)**
+and **21.5% (WSO)** — 1,149 of 5,276 games. Treating draws as a push would have
+voided roughly one pick in five.
+
+### Schema ([`20260804000002_picks.sql`](supabase/migrations/20260804000002_picks.sql))
+- `picks` — one row per `(user_id, game_id)`. Stores an **outcome enum, never a team
+  id**: that keeps 2-way vs 3-way a config change and avoids depending on
+  `team_seasons.id`, which [`20260609000001`](supabase/migrations/20260609000001_split_team_seasons_by_sport.sql)
+  has already rewritten once.
+- `season_id`, `sport_code`, `division` are denormalized off the game by the
+  `picks_fill_game_context` trigger, so a client cannot mis-attribute a pick to the
+  wrong season, sport or division to game a leaderboard.
+- **Records are per season AND per sport.** A 22%-draw men's record and a women's
+  record don't combine into a meaningful number. There is no "overall" board.
+
+### The kickoff lock is an RLS boundary
+`game_is_open()` is called from the `WITH CHECK` of the insert/update/delete
+policies — **not** just the UI, because a lock that only exists in the client isn't
+a lock. Users can only ever `SELECT` their own picks.
+
+Consequently [`/api/picks`](src/routes/api/picks/+server.ts) must use
+`locals.supabase` (the user's JWT), **never `supabaseAdmin`** — service_role would
+silently bypass the lock. RLS rejections (Postgres `42501`) are translated to a
+readable 403.
+
+### Grading ([`grade_picks()`](supabase/migrations/20260804000003_grade_picks.sql))
+`final` + scores → `win`/`loss`; `cancelled` → `void`; `postponed`, `scheduled`,
+`live` → ungraded. A `final` row whose score hasn't been scraped yet is skipped, not
+graded as a 0–0 draw.
+
+- **A shootout is a draw.** A PK game keeps its tied score and the site counts it as
+  a tie in W-L-T, Elo and RPI ([`20260723000000`](supabase/migrations/20260723000000_games_shootout.sql)),
+  so `shootout_winner_team_season_id` is deliberately not consulted.
+- **Idempotent.** `result IS DISTINCT FROM` means a re-run changes nothing unless a
+  game changed — which is how a corrected score self-heals, and why a 10-minute
+  schedule is safe. `final` → `postponed` resets the pick to ungraded rather than
+  leaving a stale result.
+- **Mirrored in TypeScript.** [`src/lib/picks.ts`](src/lib/picks.ts) duplicates these
+  rules so the scoreboard shows a ✓/✗ the moment a live game goes final instead of
+  waiting for the cron. **The SQL is authoritative** — change one, change the other.
+- Manual run: `select public.grade_picks();` returns rows changed.
+
+### Read paths are all SECURITY DEFINER functions
+RLS restricts `picks` to their owner, so a public profile or leaderboard **cannot**
+read the table directly — a direct query returns zero rows for anon and for anyone
+viewing someone else's profile. Every public read goes through
+[`20260804000004`](supabase/migrations/20260804000004_pick_stats_fns.sql) /
+[`20260804000005`](supabase/migrations/20260804000005_leaderboard_fns.sql):
+
+| Function | Returns |
+|---|---|
+| `get_user_pick_summary` | record, win %, rank, streaks |
+| `get_pick_timeline` | per-date cumulative user % vs. **pooled** field % |
+| `get_recent_picks` | last N **graded** picks (`result IS NOT NULL` is a hard requirement — it's what stops an unstarted pick leaking) |
+| `get_leaderboard` | ranked aggregates, `'wins'` or `'pct'` board |
+| `get_user_leaderboard_position` | your rank + picks needed to qualify |
+
+All join `public_profiles`, which excludes un-confirmed generated usernames — an
+email-derived name never reaches a public surface. None returns an individual pick.
+
+- **The field average is the POOLED rate** (all wins ÷ all decided picks), not the
+  mean of per-user percentages, which swings wildly on small samples early in a season.
+- **Win % excludes voids** from the denominator, and the **25-pick qualifier counts
+  decided picks (`w + l`), not voids** — otherwise 25 cancelled games plus one real
+  pick would qualify someone on a one-game sample. The qualifier is an RPC parameter,
+  so retuning it needs no migration.
+- Leaderboards use `rank()`, not `row_number()`: identical records share a rank.
+- **Paginate explicitly.** PostgREST caps responses at 1000 rows and truncates
+  silently.
+
+### Routes
+`/pickem` (leaderboard, in the sitemap) · `/u/[username]` (profile — public and
+shareable but `noindex`, and deliberately **not** in the sitemap) · `/account` ·
+`/api/picks`.

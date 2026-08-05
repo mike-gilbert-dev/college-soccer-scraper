@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 7: Leaderboard — Pick'em</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1.25rem; line-height: 1.65; color: #111; }
+    h1 { font-size: 1.6rem; border-bottom: 3px solid #e8463a; padding-bottom: .5rem; margin-bottom: .5rem; }
+    h2 { font-size: 1.1rem; color: #333; margin-top: 2rem; border-bottom: 1px solid #e5e5e5; padding-bottom: .25rem; }
+    h3 { font-size: 1rem; color: #444; }
+    .meta { display: flex; flex-wrap: wrap; gap: 1.5rem; background: #f7f7f7; padding: .75rem 1rem; border-radius: 6px; font-size: .875rem; margin-bottom: 1.75rem; color: #444; }
+    .meta strong { color: #111; }
+    .checklist { list-style: none; padding: 0; margin: 0; }
+    .checklist li { padding: .4rem 0 .4rem .25rem; border-bottom: 1px solid #f0f0f0; display: flex; gap: .75rem; align-items: flex-start; font-size: .95rem; }
+    .checklist li::before { content: "☐"; font-size: 1.1rem; color: #aaa; flex-shrink: 0; margin-top: .05rem; }
+    .ref { background: #fffbeb; border-left: 3px solid #f59e0b; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    .ref a { color: #92400e; font-weight: 500; }
+    .dep { background: #eff6ff; border-left: 3px solid #60a5fa; padding: .5rem .85rem; margin-bottom: 1.25rem; border-radius: 0 5px 5px 0; font-size: .875rem; color: #1e40af; }
+    .note { background: #f0fdf4; border-left: 3px solid #4ade80; padding: .5rem .85rem; margin: .75rem 0; border-radius: 0 5px 5px 0; font-size: .875rem; }
+    code { background: #f3f4f6; padding: .15rem .4rem; border-radius: 3px; font-size: .875em; font-family: ui-monospace, monospace; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem 1.25rem; border-radius: 7px; overflow-x: auto; font-size: .875rem; }
+    pre code { background: none; padding: 0; font-size: inherit; }
+    a { color: #e8463a; }
+  </style>
+</head>
+<body>
+
+<div style="background:#f0fdf4;border:1.5px solid #4ade80;border-radius:7px;padding:.65rem 1.1rem;margin-bottom:1.5rem;font-size:.9rem;color:#166534;font-weight:500;">
+  ✅ Phase complete — all criteria satisfied. <em>Fixed during the build: the win% qualifier now counts decided picks, not voids.</em>
+</div>
+
+<h1>Phase 7: Leaderboard</h1>
+
+<div class="meta">
+  <span><strong>Project:</strong> Pick'em</span>
+  <span><strong>Phase:</strong> 7 of 7</span>
+  <span><strong>Depends on:</strong> Phase 6 complete</span>
+</div>
+
+<div class="dep">
+  ⚠️ <strong>Prerequisite:</strong> Phase 6 (User Profile) must be complete — the leaderboard links into profile pages and reuses its aggregate patterns.
+</div>
+
+<h2>Overview</h2>
+<p>The competitive surface that ties the feature together: a public leaderboard at <code>/pickem</code> ranking users by total wins and by win percentage, filterable by season and sport.</p>
+<p>This is the last phase. When it ships, the loop is closed — pick on the scoreboard, get graded automatically, track yourself on your profile, compare against everyone else here.</p>
+
+<div class="ref">
+  📄 See <a href="references/pickem.md">pickem.md</a> — "Public read surfaces" has the <code>get_leaderboard</code> signature and explains why leaderboards are <code>security definer</code> functions rather than views.
+</div>
+
+<h2>What Will Be Built</h2>
+
+<h3>1. <code>get_leaderboard(...)</code></h3>
+<pre><code>get_leaderboard(
+  p_season_id  bigint,
+  p_sport_code text,
+  p_board      text,     -- 'wins' | 'pct'
+  p_min_picks  int,      -- qualifier, default 25
+  p_limit      int,
+  p_offset     int
+) returns table (
+  rank int, username text, wins int, losses int,
+  voids int, graded int, win_pct numeric
+)</code></pre>
+<p><code>security definer</code>, granted to <code>anon</code> and <code>authenticated</code>. Joins <code>picks</code> to <code>public_profiles</code>, so users who haven't confirmed a generated username are excluded automatically.</p>
+<ul>
+  <li><code>'wins'</code> board — ranked by raw win count, no minimum.</li>
+  <li><code>'pct'</code> board — ranked by win %, only users with <code>graded &gt;= p_min_picks</code>.</li>
+</ul>
+
+<div class="note">
+  ✅ <strong>The qualifier is 25 graded picks per season per sport.</strong> This is a starting guess, not a derived number — revisit once there's real usage data. If most active users finish with 60+ graded picks, 25 is too permissive. Keep it a parameter so it can change without a migration.
+</div>
+
+<h3>2. <code>get_user_leaderboard_position(...)</code></h3>
+<p>Returns the signed-in user's rank and how many more graded picks they need to qualify for the percentage board. This powers a personal strip above the table so an unqualified user still sees where they stand — the reason two boards were chosen over a single one.</p>
+
+<h3>3. <code>/pickem</code> route</h3>
+<ul>
+  <li><strong>Board tabs</strong> — Most Wins / Best Win %</li>
+  <li><strong>Season + sport selectors</strong> — matching the <code>/scores</code> control conventions</li>
+  <li><strong>Table</strong> — rank, <code>@username</code> (linking to <code>/u/[username]</code>), W-L, win %, graded count. Highlight the signed-in user's own row.</li>
+  <li><strong>Personal strip</strong> — "You're 7th with 34-19 (64.2%)" or "You need 11 more graded picks to qualify"</li>
+  <li><strong>Pagination</strong> — explicit <code>limit</code>/<code>offset</code>, 50 per page</li>
+  <li><strong>Empty state</strong> — before anyone has graded picks, explain the game and link to <code>/scores</code></li>
+</ul>
+
+<h3>4. Navigation and SEO</h3>
+<ul>
+  <li>Add <strong>Pick'em</strong> to the navbar, desktop and mobile.</li>
+  <li>Add <code>/pickem</code> to <code>sitemap.xml</code> — per CLAUDE.md, adding a route requires updating the sitemap. Unlike <code>/u/</code> pages, the leaderboard <em>should</em> be indexed.</li>
+  <li>Standard title/description/OG tags.</li>
+</ul>
+
+<h3>5. Documentation</h3>
+<p>Add a Pick'em section to <code>CLAUDE.md</code> covering the schema, the RLS lock, the grading cron, and the routes — matching how the news and roster pipelines are documented. Update <code>docs/pickem.md</code> to reflect anything that changed during the build.</p>
+
+<h2>Implementation Notes</h2>
+
+<p><strong>Paginate explicitly.</strong> PostgREST caps responses at 1000 rows and truncates silently rather than erroring. The leaderboard is the most likely place in this feature to hit that ceiling as usage grows — the <code>limit</code>/<code>offset</code> parameters aren't optional polish.</p>
+
+<p><strong>Use <code>rank()</code>, not <code>row_number()</code>.</strong> Users with identical records must share a rank. With small user counts, ties will be common and arbitrary ordering looks broken.</p>
+
+<p><strong>Aggregates only.</strong> Same constraint as Phase 6 — the leaderboard exposes totals, never another user's individual picks. Deliberately verify this: it's the last place a <code>security definer</code> function could leak.</p>
+
+<p><strong>Watch the win % sort with zero denominators.</strong> A user whose graded picks are all voids has <code>wins + losses = 0</code>. They must be excluded from the percentage board rather than sorting as 0% or NULL-first.</p>
+
+<p><strong>Performance.</strong> The aggregate scans <code>picks</code> grouped by user; <code>picks_user_season_idx</code> covers it. Check <code>explain analyze</code> at realistic volume (thousands of picks) — if it degrades, materialize per-user season totals rather than adding caching to the page.</p>
+
+<h3>Key files to read before starting</h3>
+<ul>
+  <li><code>src/routes/ratings/</code> — the closest existing page: a ranked, sortable, season/sport-filtered table</li>
+  <li><code>src/routes/stats/</code> — leaderboard-style table conventions</li>
+  <li><code>src/routes/sitemap.xml/+server.ts</code> — must be updated for <code>/pickem</code></li>
+  <li><code>src/lib/components/Navbar.svelte</code> — desktop and mobile link lists</li>
+  <li><code>CLAUDE.md</code> — the documentation pattern to match</li>
+</ul>
+
+<h2>Completion Criteria</h2>
+<p>This is the final phase — every item must be satisfied for the feature to be considered complete.</p>
+<ul class="checklist">
+  <li class="done"><code>/pickem</code> renders both boards with correct rankings</li>
+  <li class="done">Most Wins ranks by raw win count with no minimum</li>
+  <li class="done">Best Win % excludes users below 25 graded picks</li>
+  <li class="done">Users with identical records share a rank</li>
+  <li class="done">Users with only voids are excluded from the percentage board</li>
+  <li class="done">Unconfirmed generated usernames never appear</li>
+  <li class="done">The signed-in user's row is highlighted</li>
+  <li class="done">An unqualified user sees how many more picks they need</li>
+  <li class="done">Usernames link to working <code>/u/[username]</code> pages</li>
+  <li class="done">Season and sport filters update the board correctly</li>
+  <li class="done">Pagination works and no query silently truncates at 1000 rows</li>
+  <li class="done">The empty state renders sensibly with no graded picks anywhere</li>
+  <li class="done">The page is fully usable signed-out</li>
+  <li class="done">No leaderboard function exposes an individual pick</li>
+  <li class="done"><code>/pickem</code> is present in <code>sitemap.xml</code></li>
+  <li class="done">Pick'em appears in the navbar on desktop and mobile</li>
+  <li class="done">Readable at 375px in light and dark mode</li>
+  <li class="done"><code>CLAUDE.md</code> documents the Pick'em system</li>
+  <li class="done"><code>npm run check</code> and <code>npm run test</code> both pass</li>
+</ul>
+
+<h2>How to Validate</h2>
+<ol>
+  <li>Seed 5–6 test users with varied volumes — some above 25 graded picks, some below, at least two with identical records, one with only voids. Run <code>grade_picks()</code>.</li>
+  <li>Visit <code>/pickem</code> and cross-check the Most Wins board:
+    <pre><code>select pp.username,
+       count(*) filter (where p.result='win')  as wins,
+       count(*) filter (where p.result='loss') as losses
+from picks p join public_profiles pp on pp.id = p.user_id
+where p.season_id = &lt;id&gt; and p.sport_code = 'MSO'
+group by 1 order by wins desc;</code></pre></li>
+  <li>Switch to Best Win % — confirm sub-25 users are absent and ordering is by percentage.</li>
+  <li>Confirm the two identical-record users share a rank, and the voids-only user is off the percentage board.</li>
+  <li>Sign in as a qualified user → own row highlighted, personal strip shows the rank. Sign in as an unqualified one → strip shows picks needed.</li>
+  <li>Click a username → lands on their profile.</li>
+  <li>Switch season and sport; both boards update.</li>
+  <li>Page through results; confirm no duplicates or gaps at the boundary.</li>
+  <li>Sign out and reload — the board still renders.</li>
+  <li>Confirm an unconfirmed backfilled account is absent from both boards.</li>
+  <li>Attempt to read another user's picks through every new function — none should return one.</li>
+  <li>Fetch <code>/sitemap.xml</code> and confirm <code>/pickem</code> is listed.</li>
+  <li>Check 375px, light and dark mode.</li>
+  <li>Run <code>explain analyze</code> on <code>get_leaderboard</code> at seeded volume.</li>
+  <li><strong>Full end-to-end:</strong> as a fresh user — register with a username, pick games on <code>/scores</code>, let grading run, view <code>/u/[username]</code>, find yourself on <code>/pickem</code>.</li>
+  <li>Clean up test data. Run <code>npm run check</code> and <code>npm run test</code>.</li>
+</ol>
+
+</body>
+</html>

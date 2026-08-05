@@ -2,17 +2,27 @@
 	import { enhance } from '$app/forms';
 	import { Button, Input, Label, Alert } from 'flowbite-svelte';
 	import PasswordInput from '$lib/components/PasswordInput.svelte';
+	import UsernameField from '$lib/components/UsernameField.svelte';
 	import type { ActionData } from './$types';
 	import posthog from 'posthog-js';
 
 	let { form }: { form: ActionData } = $props();
 
+	let username = $state('');
+
 	function handleSubmit() {
-		return async ({ result, update }: { result: import('@sveltejs/kit').ActionResult; update: () => Promise<void> }) => {
+		return async ({
+			result,
+			update
+		}: {
+			result: import('@sveltejs/kit').ActionResult;
+			update: (options?: { reset?: boolean; invalidateAll?: boolean }) => Promise<void>;
+		}) => {
 			if (result.type === 'success') {
 				posthog.capture('user_registered');
 			}
-			await update();
+			// reset:false so a rejected signup keeps what the user typed.
+			await update({ reset: result.type === 'success' });
 		};
 	}
 </script>
@@ -35,6 +45,8 @@
 		{/if}
 
 		<form method="POST" use:enhance={handleSubmit} class="flex flex-col gap-4">
+			<UsernameField bind:value={username} />
+
 			<div>
 				<Label for="email" class="mb-1 text-[11px] uppercase tracking-wider font-semibold text-gray-500 dark:text-gray-400">
 					Email
@@ -47,7 +59,11 @@
 					autocomplete="email"
 					size="sm"
 					class="text-sm"
+					value={form?.email ?? ''}
 				/>
+				<p class="mt-1 text-xs text-gray-400 dark:text-gray-500">
+					Never shown publicly — other users only ever see your username.
+				</p>
 			</div>
 
 			<div>
