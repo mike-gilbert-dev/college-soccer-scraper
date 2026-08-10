@@ -1479,7 +1479,7 @@
 					</div>
 
 					<p class="text-xs text-gray-500 dark:text-gray-400">
-						<span class="font-semibold text-gray-700 dark:text-gray-300">Refresh membership</span> re-derives which teams genuinely belong to this division (filtering out non-D1 opponents from standings and ratings). It runs automatically on every recompute — use this for scopes you only view standings on.
+						<span class="font-semibold text-gray-700 dark:text-gray-300">Refresh membership</span> re-derives which teams genuinely belong to this division (filtering out non-D1 opponents from standings and ratings). It is <span class="font-semibold text-gray-700 dark:text-gray-300">manual only</span> — no recompute, nightly or otherwise, touches it. Membership comes from <em>final</em> games (a conference qualifies once one of its teams has 5+), so run it a few weeks into the season: on a schedule-only or just-started season it marks every team a non-member and empties standings and ratings until you re-run it.
 					</p>
 
 					{#if rmResult}

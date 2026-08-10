@@ -143,6 +143,21 @@ the Vercel endpoint avoids a duplicate rating engine in Deno.
 - **Auth:** `Authorization: Bearer $CRON_SECRET` ([`src/lib/server/cron-auth.ts`](src/lib/server/cron-auth.ts)); the secret is in Vault (`vercel_cron_secret`) for pg_net and in Vercel's env for the endpoint.
 - `?phase` on that route: `both` (default) | `ingest` (skip ratings) | `ratings` (skip ingest).
 
+### Division membership is manual, never automatic
+Ratings and standings only include teams with `team_seasons.division_member`
+([`20260618000001`](supabase/migrations/20260618000001_division_member.sql)) — the NCAA
+per-division feed includes non-D1 opponents, and `conferences.division` is polluted the same
+way, so real membership is **derived from play**: a conference counts once one of its teams has
+5+ *final* games.
+
+That derivation is only valid mid-season, so `recomputeRatings` does **not** call
+`refresh_division_members` — it used to, which meant the nightly job would flag every team a
+non-member each night from opening day until the threshold was met, blanking standings and
+ratings for the first few weeks. The column's `DEFAULT true` is the correct pre-season state;
+leave it alone until there are results. Refresh is a human action: `/admin` → Ratings →
+**Refresh membership** (or `POST /api/ratings/refresh-members`), run a few weeks in and after
+any scope gains a lot of new teams.
+
 ## Pick'em grading (pg_cron, pure SQL)
 
 A third pg_cron job `grade-picks` runs **every 10 minutes** calling

@@ -207,14 +207,17 @@ export async function recomputeRatings(args: RecomputeArgs): Promise<RecomputeRe
 	const { sportCode, division, seasonId } = args;
 	const systems = args.systems ?? ['elo'];
 
-	// Keep the division-membership flag current, then rate only genuine members
-	// and only games between two members (non-D1 games are excluded entirely).
-	await supabaseAdmin.rpc('refresh_division_members', {
-		p_sport_code: sportCode,
-		p_division: division,
-		p_season_id: seasonId
-	});
-
+	// Rate only genuine division members, and only games between two members
+	// (non-D1 games are excluded entirely).
+	//
+	// Membership is deliberately NOT refreshed here. refresh_division_members
+	// derives it from *final* games — a conference qualifies only once one of its
+	// teams has 5+ results — so running it early in a season (or on a schedule-only
+	// one) finds no qualifying conference and flags every team a non-member,
+	// emptying standings and ratings. Recompute runs unattended every night from
+	// the first day of the season, which is exactly when that is wrong. Refreshing
+	// is a human call: /admin -> Ratings -> "Refresh membership", once the season
+	// is far enough along.
 	const [allGames, teamSeasons] = await Promise.all([
 		loadFinalGames(sportCode, division, seasonId),
 		loadScopeTeamSeasons(sportCode, division, seasonId)
