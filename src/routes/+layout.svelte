@@ -1,6 +1,5 @@
 <script lang="ts">
 	import '../app.css';
-	import favicon from '$lib/assets/favicon.svg';
 	import Navbar from '$lib/components/Navbar.svelte';
 	import UsernameBanner from '$lib/components/UsernameBanner.svelte';
 	import { createSupabaseBrowserClient } from '$lib/supabase';
@@ -8,7 +7,7 @@
 	import { onMount } from 'svelte';
 	import { dev } from '$app/environment';
 	import { injectAnalytics } from '@vercel/analytics/sveltekit';
-  import { Alert } from 'flowbite-svelte';
+  	import { Alert } from 'flowbite-svelte';
 	import posthog from 'posthog-js';
 
 	let { data, children } = $props();
@@ -44,7 +43,6 @@
 </script>
 
 <svelte:head>
-	<link rel="icon" href={favicon} />
 	<title>CollegeSoccer.IO — NCAA Soccer Scores, Stats & More</title>
 	<meta property="og:site_name" content="CollegeSoccer.IO" />
 </svelte:head>
