@@ -252,6 +252,8 @@ export async function ingestDate(params: {
 						division,
 						broadcaster_name: contest.broadcasterName ?? null,
 						round_description: contest.roundDescription ?? null,
+						// Empty string for scheduled games; NULL is the "no period" value.
+						current_period: contest.currentPeriod?.trim() || null,
 						last_fetched_at: new Date().toISOString()
 					},
 					{ onConflict: 'ncaa_contest_id' }

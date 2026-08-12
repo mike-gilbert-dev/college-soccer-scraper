@@ -81,6 +81,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 			neutral_site,
 			broadcaster_name,
 			round_description,
+			current_period,
 			home_team_season:team_seasons!home_team_season_id(
 				team:teams(name, short_name, ncaa_team_id, logo_url_dark, logo_url_light),
 				conference:conferences(name, short_name)

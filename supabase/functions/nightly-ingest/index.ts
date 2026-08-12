@@ -259,6 +259,9 @@ async function ingestDate(
 			division,
 			broadcaster_name: c.broadcasterName ?? null,
 			round_description: c.roundDescription ?? null,
+			// Scheduled games carry an empty string here, not null — store NULL so
+			// "no period" is one value everywhere instead of two.
+			current_period: c.currentPeriod?.trim() || null,
 			last_fetched_at: nowIso
 		});
 	}

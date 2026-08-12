@@ -31,6 +31,7 @@
 		neutral_site: boolean;
 		broadcaster_name: string | null;
 		round_description: string | null;
+		current_period: string | null;
 		home_team_season: TeamSeason;
 		away_team_season: TeamSeason;
 	};
@@ -59,18 +60,20 @@
 		return 2; // final / postponed / cancelled
 	}
 
-	// Divider groups. Live and upcoming collapse into one "still to come" block,
-	// so a rule falls before the finals and again before TBD — never between live
-	// and upcoming. Returning a group (not the rank) keeps that intent explicit.
-	function slateSection(g: Game): number {
-		const r = slateRank(g);
-		return r <= 1 ? 0 : r - 1; // 0 = live + upcoming, 1 = finished, 2 = TBD
-	}
+	// Divider groups are the sort buckets themselves: a rule falls at every change
+	// of slateRank, so live games are fenced off from the upcoming slate as well
+	// as from the finals. Indexed by rank, so SECTIONS[slateRank(g)] is the group
+	// a card belongs to — the same list drives the dividers and the filters.
+	const SECTIONS = [
+		{ key: 'live',     label: 'Live' },
+		{ key: 'upcoming', label: 'Upcoming' },
+		{ key: 'final',    label: 'Final' },
+		{ key: 'tbd',      label: 'TBD' }
+	] as const;
+	type SectionKey = (typeof SECTIONS)[number]['key'];
 
-	// Section 0 never renders a divider (it's always the top of the slate), so
-	// only the lower two need a label.
 	function sectionLabel(section: number): string {
-		return section === 2 ? 'TBD' : 'Final';
+		return SECTIONS[section].label;
 	}
 
 	const sortedGames = $derived(
@@ -89,6 +92,48 @@
 			return a.id - b.id; // stable tiebreak so equal kickoffs don't shuffle
 		})
 	);
+
+	// Status filters. Like the pick'em toggle this is a viewing preference, not
+	// page state, so it's persisted rather than put in the URL — the URL belongs
+	// to the slate being viewed, and a shared /scores link should show the whole
+	// slate rather than whatever the sender had hidden.
+	const FILTER_PREF = 'scores:sections';
+	let shown = $state<Record<SectionKey, boolean>>({ live: true, upcoming: true, final: true, tbd: true });
+
+	function toggleSection(key: SectionKey) {
+		shown[key] = !shown[key];
+		try {
+			localStorage.setItem(
+				FILTER_PREF,
+				SECTIONS.filter((s) => shown[s.key]).map((s) => s.key).join(',')
+			);
+		} catch {
+			// Storage can be unavailable (private mode); filtering still works for the session.
+		}
+	}
+
+	function showAllSections() {
+		for (const s of SECTIONS) shown[s.key] = true;
+		try {
+			localStorage.setItem(FILTER_PREF, SECTIONS.map((s) => s.key).join(','));
+		} catch {
+			// ignore
+		}
+	}
+
+	// Counts come off the unfiltered slate, so a hidden group still shows how many
+	// games turning it back on would reveal.
+	const sectionCounts = $derived(
+		games.reduce(
+			(acc, g) => {
+				acc[SECTIONS[slateRank(g)].key]++;
+				return acc;
+			},
+			{ live: 0, upcoming: 0, final: 0, tbd: 0 } as Record<SectionKey, number>
+		)
+	);
+
+	const visibleGames = $derived(sortedGames.filter((g) => shown[SECTIONS[slateRank(g)].key]));
 
 	// Pick'em state is kept OUT of the games array so the realtime patching above
 	// and the date/sport re-seed can't wipe it. Keyed by game id.
@@ -174,9 +219,16 @@
 	// on other dates won't match and are ignored — no server-side filter needed.
 	onMount(() => {
 		// Read after hydration — SSR has no localStorage, so the server and the
-		// first client render must agree on `false`.
+		// first client render must agree on the defaults (pick'em off, all
+		// sections shown).
 		try {
 			pickemOn = localStorage.getItem(PICKEM_PREF) === '1';
+
+			const saved = localStorage.getItem(FILTER_PREF);
+			if (saved !== null) {
+				const keys = saved.split(',');
+				for (const s of SECTIONS) shown[s.key] = keys.includes(s.key);
+			}
 		} catch {
 			// ignore
 		}
@@ -196,6 +248,7 @@
 						shootout_winner_team_season_id: number | null;
 						status: string;
 						start_time: string | null;
+						current_period: string | null;
 					};
 					const idx = games.findIndex((g) => g.id === row.id);
 					if (idx === -1) return;
@@ -206,7 +259,8 @@
 						shootout: row.shootout ?? false,
 						shootout_winner_team_season_id: row.shootout_winner_team_season_id,
 						status: row.status,
-						start_time: row.start_time
+						start_time: row.start_time,
+						current_period: row.current_period
 					};
 				}
 			)
@@ -287,6 +341,11 @@
 
 	// 'primary' is the brand accent (#e8463a, design.md) — not Tailwind's default
 	// red, which is only remapped for loss/error semantics elsewhere.
+	//
+	// Flowbite's primary Badge is a *tint* of that accent (primary-100/900), which
+	// next to the solid primary-500 date-nav buttons reads as a dimmer, muddier red
+	// rather than the same accent. The Live badge overrides the fill at the call
+	// site to match those buttons exactly; Final keeps the stock gray tint.
 	function statusColor(s: string): 'gray' | 'primary' {
 		if (s === 'live') return 'primary';
 		return 'gray';
@@ -335,6 +394,39 @@
 	<meta name="twitter:title" content={pageTitle} />
 	<meta name="twitter:description" content={pageDesc} />
 </svelte:head>
+
+<!-- Status filters, shared by the mobile strip (wrapping row) and the desktop
+     sidebar (stacked list). The count sits hard right on desktop via ml-auto,
+     which is a no-op in the shrink-wrapped mobile chips. -->
+{#snippet sectionFilters(cls: string)}
+	<div class="flex gap-x-3 gap-y-1 {cls}">
+		{#each SECTIONS as s}
+			{@const on = shown[s.key]}
+			<button
+				type="button"
+				role="checkbox"
+				aria-checked={on}
+				aria-label="Show {s.label} games ({sectionCounts[s.key]})"
+				onclick={() => toggleSection(s.key)}
+				class="flex items-center gap-1.5 text-[11px] rounded px-0.5 py-px hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+			>
+				<span
+					class="shrink-0 h-3 w-3 rounded-[3px] border flex items-center justify-center transition-colors
+						{on ? 'bg-primary-500 border-primary-500' : 'border-gray-300 dark:border-gray-600'}"
+				>
+					{#if on}
+						<svg viewBox="0 0 10 10" class="h-2 w-2 text-white" aria-hidden="true">
+							<path d="M1 5.2 3.6 8 9 2" fill="none" stroke="currentColor" stroke-width="2"
+								stroke-linecap="round" stroke-linejoin="round" />
+						</svg>
+					{/if}
+				</span>
+				<span class={on ? 'text-gray-700 dark:text-gray-300' : 'text-gray-400 dark:text-gray-500'}>{s.label}</span>
+				<span class="ml-auto pl-1 tabular-nums text-[10px] text-gray-400 dark:text-gray-500">{sectionCounts[s.key]}</span>
+			</button>
+		{/each}
+	</div>
+{/snippet}
 
 <!-- One switch, two placements: the mobile strip and the desktop sidebar. -->
 {#snippet pickemToggle(cls: string)}
@@ -392,6 +484,12 @@
 			{@render pickemToggle('ml-auto')}
 		</div>
 
+		<!-- Mobile: filters get their own row — four chips plus the strip above
+		     would wrap into an unreadable jumble on a narrow phone. -->
+		<div class="md:hidden border-t border-gray-200 dark:border-gray-700 px-2 py-1.5">
+			{@render sectionFilters('flex-wrap')}
+		</div>
+
 		<!-- Desktop: vertical sidebar -->
 		<div class="hidden md:block">
 			<!-- Gender toggle -->
@@ -421,6 +519,12 @@
 						<option value={s.label}>{s.label}</option>
 					{/each}
 				</select>
+			</div>
+
+			<!-- Show / hide by status -->
+			<div class="border-b border-gray-200 dark:border-gray-700 px-2 py-2">
+				<p class="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-1">Show</p>
+				{@render sectionFilters('flex-col')}
 			</div>
 
 			<!-- Pick'em -->
@@ -505,8 +609,21 @@
 										<span title="Decided by penalty-kick shootout (counts as a tie)"
 											class="rounded-sm bg-gray-500/15 px-1 py-px text-[9px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">PK</span>
 									{/if}
+									{#if isLive && game.current_period}
+										<!-- Feed's `currentPeriod`, already uppercase ("1ST HALF"). The
+										     matching `contestClock` is deliberately not shown: it only
+										     refreshes on the one-minute live cron, so a ticking-looking
+										     clock would sit frozen and up to a minute stale. -->
+										<span class="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+											{game.current_period}
+										</span>
+									{/if}
 									{#if isFinal || isLive}
-										<Badge color={statusColor(game.status)} class="text-[10px] px-1.5 py-0 font-semibold">
+										<Badge
+											color={statusColor(game.status)}
+											class="text-[10px] px-1.5 py-0 font-semibold
+												{isLive ? 'bg-primary-500 text-white dark:bg-primary-500 dark:text-white' : ''}"
+										>
 											{statusLabel(game.status)}
 										</Badge>
 									{:else}
@@ -589,18 +706,33 @@
 							{/if}
 			{/snippet}
 
+			{#if visibleGames.length === 0}
+				<div class="py-12 text-center">
+					<p class="text-sm font-semibold text-gray-800 dark:text-gray-200">Nothing to show</p>
+					<p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+						All {games.length} {games.length === 1 ? 'game' : 'games'} on this date are hidden by your filters.
+					</p>
+					<button
+						onclick={showAllSections}
+						class="mt-3 text-xs font-semibold text-primary-600 dark:text-primary-400 hover:underline"
+					>Show all</button>
+				</div>
+			{/if}
+
 			<ul class="grid grid-cols-1 lg:grid-cols-2 gap-2 mt-2">
-				{#each sortedGames as game, i}
+				{#each visibleGames as game, i}
 					{@const isLive = game.status === 'live'}
 					<!-- Rule at each section change. Comparing against the previous card means
 					     a divider only exists where both sides do, so an all-final slate (or one
-					     with no TBD games) never renders a stray leading rule. Decorative only —
+					     with no TBD games) never renders a stray leading rule. The one exception
+					     is a leading "Live" rule, which needs no card above it to be meaningful —
+					     it's what the following "Upcoming" rule is dividing from. Decorative only —
 					     each card already states its own status. -->
-					{#if i > 0 && slateSection(game) !== slateSection(sortedGames[i - 1])}
-						<li aria-hidden="true" class="lg:col-span-2 mt-1 flex items-center gap-2">
+					{#if i === 0 ? isLive : slateRank(game) !== slateRank(visibleGames[i - 1])}
+						<li aria-hidden="true" class="lg:col-span-2 flex items-center gap-2 {i > 0 ? 'mt-1' : ''}">
 							<span class="h-px flex-1 bg-gray-200 dark:bg-gray-700"></span>
 							<span class="text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
-								{sectionLabel(slateSection(game))}
+								{sectionLabel(slateRank(game))}
 							</span>
 							<span class="h-px flex-1 bg-gray-200 dark:bg-gray-700"></span>
 						</li>
