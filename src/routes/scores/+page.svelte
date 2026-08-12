@@ -460,8 +460,13 @@
 										<Badge color={statusColor(game.status)} class="text-[10px] px-1.5 py-0 font-semibold">
 											{statusLabel(game.status)}
 										</Badge>
-									{:else if game.start_time}
-										<span class="text-[11px] text-gray-400 dark:text-gray-500">{formatTime(game.start_time)}</span>
+									{:else}
+										<!-- No start_time = NCAA hasn't set a kickoff yet (feed flags it TBA and
+										     ships a placeholder epoch, which the ingest discards). Label it rather
+										     than rendering blank space, which reads as a broken card. -->
+										<span class="text-[11px] text-gray-400 dark:text-gray-500">
+											{formatTime(game.start_time) || 'TBD'}
+										</span>
 									{/if}
 								</div>
 							</div>

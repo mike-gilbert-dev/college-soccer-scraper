@@ -10,7 +10,9 @@
 // Trigger ratings recompute separately (Phase 2) — this function does not rate.
 //
 // Modes:
-//   default     — rolling multi-day window (?days=, default 2) or a single ?date=.
+//   default     — rolling window: today + the previous ?days-1 (default 2 total, for
+//                 score corrections) + the next ?ahead days (default 7, for schedule
+//                 changes and newly-published slates). Or a single ?date=.
 //   ?mode=live  — today only, for in-game score updates. Self-gates on whether any
 //                 game is in (or near) its play window, and skips the Storage archive
 //                 + per-run success logging so it's cheap to run every minute.
@@ -42,6 +44,8 @@ interface ContestTeam {
 interface Contest {
 	contestId: number;
 	startTimeEpoch: number;
+	hasStartTime?: boolean;
+	tba?: boolean;
 	statusCodeDisplay: string;
 	currentPeriod?: string | null;
 	finalMessage?: string | null;
@@ -88,6 +92,23 @@ function normalizeStatus(s: string): string {
 		default:
 			return 'scheduled';
 	}
+}
+
+/**
+ * Whether the feed actually knows this game's kickoff.
+ *
+ * A TBD game still ships a *placeholder* `startTimeEpoch` — almost always
+ * midnight or 01:00 ET — so the timestamp alone can't be trusted. Only the
+ * `hasStartTime` / `tba` flags separate it from a genuine late kickoff:
+ * Hawaii's 7:00 PM local IS 1:00 AM ET, and those contests carry the exact
+ * same `startTime: "01:00"` as the placeholder ones. Filtering on the clock
+ * instead of the flags would blank every Hawaii / Alaska / late-Pacific game.
+ *
+ * Written as `!== false` / `!== true` so a feed that stops sending the fields
+ * keeps the old behaviour instead of silently nulling every real kickoff.
+ */
+function hasKnownStartTime(c: Contest): boolean {
+	return !!c.startTimeEpoch && c.hasStartTime !== false && c.tba !== true;
 }
 
 function dedupeBy<T>(rows: T[], key: (r: T) => string | number): T[] {
@@ -225,7 +246,7 @@ async function ingestDate(
 			ncaa_contest_id: String(c.contestId),
 			season_id: season.id,
 			contest_date: contestDate,
-			start_time: c.startTimeEpoch ? new Date(c.startTimeEpoch * 1000).toISOString() : null,
+			start_time: hasKnownStartTime(c) ? new Date(c.startTimeEpoch * 1000).toISOString() : null,
 			home_team_season_id: homeTs,
 			away_team_season_id: awayTs,
 			home_score: home.score,
@@ -263,6 +284,9 @@ Deno.serve(async (req) => {
 	const url = new URL(req.url);
 	const isLive = url.searchParams.get('mode') === 'live';
 	const days = Math.max(1, parseInt(url.searchParams.get('days') ?? '2', 10) || 2);
+	// Days of lookahead. `?ahead=0` disables it; garbage falls back to the default.
+	const aheadRaw = parseInt(url.searchParams.get('ahead') ?? '7', 10);
+	const ahead = Number.isFinite(aheadRaw) ? Math.max(0, aheadRaw) : 7;
 	const forcedDate = url.searchParams.get('date'); // YYYY-MM-DD (ignored in live mode)
 	const sportParam = url.searchParams.get('sport');
 	const divisionParam = url.searchParams.get('division');
@@ -317,7 +341,7 @@ Deno.serve(async (req) => {
 		}
 	}
 
-	// Build date window, clamped to the season start. Live mode is today-only.
+	// Build date window, clamped to the season's start and end. Live mode is today-only.
 	const dates: string[] = [];
 	if (isLive) {
 		dates.push(today);
@@ -325,6 +349,8 @@ Deno.serve(async (req) => {
 		dates.push(forcedDate);
 	} else {
 		const start = new Date(`${today}T00:00:00Z`);
+		// Backwards: today + the previous `days - 1`, to pick up score corrections on
+		// games that have already been played.
 		for (let i = 0; i < days; i++) {
 			const d = new Date(start);
 			d.setUTCDate(d.getUTCDate() - i);
@@ -333,6 +359,19 @@ Deno.serve(async (req) => {
 			dates.push(iso);
 		}
 		dates.reverse();
+		// Forwards: the next `ahead` days. NCAA keeps editing the schedule after a date
+		// first appears in the feed — kickoffs move, and whole slates get published days
+		// later — so a backwards-only window is a one-shot read of each date at 08:00 UTC
+		// on game day, and every later change stayed invisible until the date had already
+		// been played. It's also what keeps *unplayed* games in the DB at all, which
+		// pick'em and the team schedule pages depend on.
+		for (let i = 1; i <= ahead; i++) {
+			const d = new Date(start);
+			d.setUTCDate(d.getUTCDate() + i);
+			const iso = isoDay(d);
+			if (season.end_date && iso > season.end_date) break;
+			dates.push(iso);
+		}
 	}
 
 	const startedAt = Date.now();
@@ -341,6 +380,7 @@ Deno.serve(async (req) => {
 		mode: isLive ? 'live' : 'window',
 		season: season.label,
 		anchor,
+		window: dates,
 		targets: [] as unknown[]
 	};
 
