@@ -43,6 +43,53 @@
 		games = (data.games as unknown as Game[]) ?? [];
 	});
 
+	// Slate ordering: live → upcoming → finished → TBD, each by kickoff.
+	//
+	// Done here rather than in the PostgREST query because the order depends on
+	// `status`, which realtime mutates in place: a game going live has to jump to
+	// the top without a reload, and a game going final has to drop to the bottom.
+	// A server-side ORDER BY would only be right until the first live update.
+	// SSR runs this too, so the first paint is already correctly ordered.
+	function slateRank(g: Game): number {
+		if (g.status === 'live') return 0;
+		// A TBD kickoff only means anything while the game is still ahead of us —
+		// a played-out game with no recorded time belongs with the finals, not
+		// stranded at the bottom of the page.
+		if (g.status === 'scheduled') return g.start_time ? 1 : 3;
+		return 2; // final / postponed / cancelled
+	}
+
+	// Divider groups. Live and upcoming collapse into one "still to come" block,
+	// so a rule falls before the finals and again before TBD — never between live
+	// and upcoming. Returning a group (not the rank) keeps that intent explicit.
+	function slateSection(g: Game): number {
+		const r = slateRank(g);
+		return r <= 1 ? 0 : r - 1; // 0 = live + upcoming, 1 = finished, 2 = TBD
+	}
+
+	// Section 0 never renders a divider (it's always the top of the slate), so
+	// only the lower two need a label.
+	function sectionLabel(section: number): string {
+		return section === 2 ? 'TBD' : 'Final';
+	}
+
+	const sortedGames = $derived(
+		[...games].sort((a, b) => {
+			const ra = slateRank(a);
+			const rb = slateRank(b);
+			if (ra !== rb) return ra - rb;
+
+			// Within a bucket: earliest kickoff first, unknown times last.
+			if (a.start_time && b.start_time) {
+				const d = Date.parse(a.start_time) - Date.parse(b.start_time);
+				if (d) return d;
+			} else if (!a.start_time !== !b.start_time) {
+				return a.start_time ? -1 : 1;
+			}
+			return a.id - b.id; // stable tiebreak so equal kickoffs don't shuffle
+		})
+	);
+
 	// Pick'em state is kept OUT of the games array so the realtime patching above
 	// and the date/sport re-seed can't wipe it. Keyed by game id.
 	type UserPick = { outcome: PickOutcome; result: PickResult | null };
@@ -238,8 +285,10 @@
 		};
 	}
 
-	function statusColor(s: string): 'gray' | 'red' {
-		if (s === 'live') return 'red';
+	// 'primary' is the brand accent (#e8463a, design.md) — not Tailwind's default
+	// red, which is only remapped for loss/error semantics elsewhere.
+	function statusColor(s: string): 'gray' | 'primary' {
+		if (s === 'live') return 'primary';
 		return 'gray';
 	}
 
@@ -541,8 +590,21 @@
 			{/snippet}
 
 			<ul class="grid grid-cols-1 lg:grid-cols-2 gap-2 mt-2">
-				{#each games as game}
+				{#each sortedGames as game, i}
 					{@const isLive = game.status === 'live'}
+					<!-- Rule at each section change. Comparing against the previous card means
+					     a divider only exists where both sides do, so an all-final slate (or one
+					     with no TBD games) never renders a stray leading rule. Decorative only —
+					     each card already states its own status. -->
+					{#if i > 0 && slateSection(game) !== slateSection(sortedGames[i - 1])}
+						<li aria-hidden="true" class="lg:col-span-2 mt-1 flex items-center gap-2">
+							<span class="h-px flex-1 bg-gray-200 dark:bg-gray-700"></span>
+							<span class="text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+								{sectionLabel(slateSection(game))}
+							</span>
+							<span class="h-px flex-1 bg-gray-200 dark:bg-gray-700"></span>
+						</li>
+					{/if}
 					<li class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded overflow-hidden">
 						{#if isLive}
 							<!-- Live games don't link into the box score — player stats aren't scraped
