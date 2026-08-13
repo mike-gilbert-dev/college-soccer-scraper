@@ -26,7 +26,13 @@ export type PlayerStat = {
 	player_name: string;
 };
 
-export const load: PageServerLoad = async ({ params, url }) => {
+export const load: PageServerLoad = async ({ params, url, depends }) => {
+	// Live games patch `game` (score/status/period) via a direct realtime match
+	// on `games`, same as /scores. `player_game_stats` rows need player/team
+	// joins the realtime payload doesn't carry, so those re-run this load
+	// instead — see the `boxscore:stats` invalidate call in +page.svelte.
+	depends('boxscore:stats');
+
 	const sport      = url.searchParams.get('sport')    ?? 'MSO';
 	const division   = parseInt(url.searchParams.get('division') ?? '1', 10);
 	const seasonLabel = url.searchParams.get('season') ?? '';
@@ -43,6 +49,7 @@ export const load: PageServerLoad = async ({ params, url }) => {
 			shootout,
 			shootout_winner_team_season_id,
 			status,
+			current_period,
 			home_team_season_id,
 			away_team_season_id,
 			home_team_season:team_seasons!home_team_season_id(
@@ -128,6 +135,7 @@ export const load: PageServerLoad = async ({ params, url }) => {
 
 	return {
 		game: {
+			id: game.id,
 			ncaa_contest_id: game.ncaa_contest_id,
 			contest_date: game.contest_date,
 			home_score: game.home_score,
@@ -140,6 +148,7 @@ export const load: PageServerLoad = async ({ params, url }) => {
 				? game.shootout_winner_team_season_id === game.away_team_season_id
 				: null,
 			status: game.status,
+			current_period: game.current_period as string | null,
 		},
 		homeTeam,
 		awayTeam,

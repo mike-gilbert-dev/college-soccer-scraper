@@ -4,6 +4,7 @@ import {
 	fetchContests,
 	fetchBoxScore,
 	normalizeStatus,
+	normalizePosition,
 	formatNcaaDate,
 	dateRange,
 	sleep,
@@ -171,7 +172,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 			// Find GKs who played — GK stats are team-level, attributed only to a sole GK.
 			const participatingGks = teamDetail.playerStats.filter(
-				pl => pl.participated && pl.position === 'GK'
+				pl => pl.participated && normalizePosition(pl.position) === 'GK'
 			);
 			const soleGkName =
 				participatingGks.length === 1
@@ -187,6 +188,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 					pl.lastName
 				);
 				const fullName = `${pl.firstName} ${pl.lastName}`;
+				const position = normalizePosition(pl.position);
 
 				// Upsert master player record
 				const { data: playerRow } = await supabaseAdmin
@@ -208,7 +210,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 							player_id: playerRow.id,
 							team_season_id: teamSeasonId,
 							jersey_number: pl.number,
-							position: pl.position ?? null,
+							position,
 							class_year: null // not in box score API
 						},
 						{ onConflict: 'player_id,team_season_id' }
@@ -218,7 +220,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 				if (!playerSeason) continue;
 
 				// GK stats: only populate when this player is the sole GK who played.
-				const isSoleGk = pl.position === 'GK' && fullName === soleGkName;
+				const isSoleGk = position === 'GK' && fullName === soleGkName;
 				const gk = teamDetail.teamStats.goalie;
 
 				const { error: statsErr } = await supabaseAdmin

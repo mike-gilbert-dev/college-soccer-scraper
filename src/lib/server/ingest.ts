@@ -1,6 +1,7 @@
 import { readGameContests, readStoredBoxScore } from '$lib/server/ncaa-archive';
 import {
 	normalizeStatus,
+	normalizePosition,
 	shootoutWinnerSide,
 	syntheticPlayerId,
 	type NcaaContestTeam,
@@ -137,7 +138,7 @@ export async function ingestDate(params: {
 			const teamSeasonId = teamIdentity.isHome ? homeTeamSeasonId : awayTeamSeasonId;
 
 			const participatingGks = teamDetail.playerStats.filter(
-				(pl) => pl.participated && pl.position === 'GK'
+				(pl) => pl.participated && normalizePosition(pl.position) === 'GK'
 			);
 			const soleGkName =
 				participatingGks.length === 1
@@ -149,6 +150,7 @@ export async function ingestDate(params: {
 
 				const ncaaPlayerId = syntheticPlayerId(teamDetail.teamId, pl.firstName, pl.lastName);
 				const fullName = `${pl.firstName} ${pl.lastName}`;
+				const position = normalizePosition(pl.position);
 
 				// Insert new players only — never overwrite an existing (possibly
 				// externally-normalized) name. Returns the id either way.
@@ -166,7 +168,7 @@ export async function ingestDate(params: {
 							player_id: playerRow.id,
 							team_season_id: teamSeasonId,
 							jersey_number: pl.number,
-							position: pl.position ?? null,
+							position,
 							class_year: null
 						},
 						{ onConflict: 'player_id,team_season_id' }
@@ -175,7 +177,7 @@ export async function ingestDate(params: {
 					.single();
 				if (!playerSeason) continue;
 
-				const isSoleGk = pl.position === 'GK' && fullName === soleGkName;
+				const isSoleGk = position === 'GK' && fullName === soleGkName;
 				const gk = teamDetail.teamStats.goalie;
 
 				const { error: statsErr } = await supabaseAdmin.from('player_game_stats').upsert(

@@ -1,14 +1,29 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import { invalidate } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import TeamLogo from '$lib/components/TeamLogo.svelte';
 	import GameBoxscore from '$lib/components/GameBoxscore.svelte';
+	import { createSupabaseBrowserClient } from '$lib/supabase';
 	import type { PageData } from './$types';
 	import posthog from 'posthog-js';
 
 	let { data }: { data: PageData } = $props();
 
-	const game       = $derived(data.game);
+	// Locally mutable copies so live updates can patch them in place, same
+	// pattern as /scores. `game` (score/status/period) is patched directly from
+	// the realtime payload; `homeStats`/`awayStats` come from a joined query the
+	// payload can't carry, so those re-seed via `invalidate('boxscore:stats')`
+	// instead — see onMount below.
+	let game = $state(data.game);
+	let homeStats = $state(data.homeStats);
+	let awayStats = $state(data.awayStats);
+	$effect(() => {
+		game = data.game;
+		homeStats = data.homeStats;
+		awayStats = data.awayStats;
+	});
+
 	const homeTeam   = $derived(data.homeTeam);
 	const awayTeam   = $derived(data.awayTeam);
 	const sport      = $derived(data.sport);
@@ -43,8 +58,10 @@
 	);
 
 	const statusLabel = $derived(
-		game.status === 'final' ? (game.shootout ? 'Final / PK' : 'Final')
-		: game.status === 'in_progress' ? 'In Progress'
+		game.status === 'final'      ? (game.shootout ? 'Final / PK' : 'Final')
+		: game.status === 'live'      ? (game.current_period || 'Live')
+		: game.status === 'postponed' ? 'Postponed'
+		: game.status === 'cancelled' ? 'Cancelled'
 		: 'Scheduled'
 	);
 
@@ -67,6 +84,79 @@
 			division,
 			season: seasonLabel
 		});
+
+		// Live updates. Subscribes broadly (no server-side filter) and matches
+		// client-side against `game.id`, read live off the reactive `game` state
+		// rather than captured at mount time — the same shape /scores uses — so
+		// this stays correct even though SvelteKit reuses this component instance
+		// across client-side navigations between two /games/[id] pages.
+		//
+		// `games` rows are self-sufficient (score/status/period live directly on
+		// the row), so those patch `game` in place. `player_game_stats` rows need
+		// the player/team_season joins the realtime payload doesn't carry, so an
+		// insert or update there just re-runs the load instead, debounced since a
+		// single live-reconcile pass upserts every player on the field at once.
+		const supabase = createSupabaseBrowserClient();
+
+		let statsTimer: ReturnType<typeof setTimeout> | null = null;
+		function scheduleStatsRefresh() {
+			if (statsTimer) return;
+			statsTimer = setTimeout(() => {
+				statsTimer = null;
+				invalidate('boxscore:stats');
+			}, 500);
+		}
+
+		const channel = supabase
+			.channel(`game-${game.ncaa_contest_id}-live`)
+			.on(
+				'postgres_changes',
+				{ event: 'UPDATE', schema: 'public', table: 'games' },
+				(payload) => {
+					const row = payload.new as {
+						id: number;
+						home_score: number | null;
+						away_score: number | null;
+						shootout: boolean | null;
+						shootout_winner_team_season_id: number | null;
+						home_team_season_id: number;
+						away_team_season_id: number;
+						status: string;
+						current_period: string | null;
+					};
+					if (row.id !== game.id) return;
+					game = {
+						...game,
+						home_score: row.home_score,
+						away_score: row.away_score,
+						shootout: row.shootout ?? false,
+						home_advanced: row.shootout ? row.shootout_winner_team_season_id === row.home_team_season_id : null,
+						away_advanced: row.shootout ? row.shootout_winner_team_season_id === row.away_team_season_id : null,
+						status: row.status,
+						current_period: row.current_period
+					};
+				}
+			)
+			.on(
+				'postgres_changes',
+				{ event: 'INSERT', schema: 'public', table: 'player_game_stats' },
+				(payload) => {
+					if ((payload.new as { game_id: number }).game_id === game.id) scheduleStatsRefresh();
+				}
+			)
+			.on(
+				'postgres_changes',
+				{ event: 'UPDATE', schema: 'public', table: 'player_game_stats' },
+				(payload) => {
+					if ((payload.new as { game_id: number }).game_id === game.id) scheduleStatsRefresh();
+				}
+			)
+			.subscribe();
+
+		return () => {
+			if (statsTimer) clearTimeout(statsTimer);
+			supabase.removeChannel(channel);
+		};
 	});
 
 	const canonicalUrl = $derived(`${page.url.origin}${page.url.pathname}`);
@@ -141,7 +231,9 @@
 				{:else}
 					<p class="text-2xl font-bold text-gray-400">vs</p>
 				{/if}
-				<p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{statusLabel}</p>
+				<p class="text-xs mt-0.5 {game.status === 'live' ? 'font-semibold uppercase tracking-wide text-primary-600 dark:text-primary-400' : 'text-gray-500 dark:text-gray-400'}">
+					{statusLabel}
+				</p>
 				{#if advancedTeamName}
 					<p class="text-[11px] font-medium text-primary-600 dark:text-primary-400 mt-0.5">
 						{advancedTeamName} won on penalties
@@ -177,16 +269,20 @@
 	</div>
 
 	<!-- Player stats -->
-	{#if data.homeStats.length === 0 && data.awayStats.length === 0}
+	{#if homeStats.length === 0 && awayStats.length === 0}
 		<p class="text-sm text-gray-500 dark:text-gray-400">
-			No player stats for this game yet. Check back later.
+			{#if game.status === 'live'}
+				Stats will appear here shortly after kickoff — updated live as the game goes on.
+			{:else}
+				No player stats for this game yet. Check back later.
+			{/if}
 		</p>
 	{:else}
 		<GameBoxscore
 			{awayTeam}
 			{homeTeam}
-			awayStats={data.awayStats}
-			homeStats={data.homeStats}
+			{awayStats}
+			{homeStats}
 			{playerHref}
 			{teamHref}
 		/>

@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { fetchBoxScore, syntheticPlayerId } from '$lib/server/ncaa-api';
+import { fetchBoxScore, syntheticPlayerId, normalizePosition } from '$lib/server/ncaa-api';
 import { supabaseAdmin } from '$lib/server/supabase-admin';
 
 export const POST: RequestHandler = async ({ request, locals }) => {
@@ -50,7 +50,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			: game.away_team_season_id;
 
 		const participatingGks = teamDetail.playerStats.filter(
-			pl => pl.participated && pl.position === 'GK'
+			pl => pl.participated && normalizePosition(pl.position) === 'GK'
 		);
 		const soleGkName = participatingGks.length === 1
 			? `${participatingGks[0].firstName} ${participatingGks[0].lastName}`
@@ -61,6 +61,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 			const ncaaPlayerId = syntheticPlayerId(teamDetail.teamId, pl.firstName, pl.lastName);
 			const fullName = `${pl.firstName} ${pl.lastName}`;
+			const position = normalizePosition(pl.position);
 
 			const { data: playerRow } = await supabaseAdmin
 				.from('players')
@@ -77,7 +78,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 						player_id:      playerRow.id,
 						team_season_id: teamSeasonId,
 						jersey_number:  pl.number,
-						position:       pl.position ?? null,
+						position,
 						class_year:     null
 					},
 					{ onConflict: 'player_id,team_season_id' }
@@ -86,7 +87,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 				.single();
 			if (!playerSeason) continue;
 
-			const isSoleGk = pl.position === 'GK' && fullName === soleGkName;
+			const isSoleGk = position === 'GK' && fullName === soleGkName;
 			const gk = teamDetail.teamStats.goalie;
 
 			const { error: statsErr } = await supabaseAdmin

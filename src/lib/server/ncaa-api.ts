@@ -74,14 +74,41 @@ function buildUrl(params: FetchContestsParams): string {
 	return url.toString();
 }
 
+const NCAA_HEADERS = {
+	'Accept': 'application/json',
+	'User-Agent': 'Mozilla/5.0 (compatible; college-soccer-scraper/1.0)'
+};
+
+const MAX_RETRIES = 3;
+
+/** Parse `Retry-After` (seconds or HTTP-date) into a delay in ms, or null if absent/unparseable. */
+function retryAfterMs(res: Response): number | null {
+	const header = res.headers.get('Retry-After');
+	if (!header) return null;
+	const seconds = Number(header);
+	if (!Number.isNaN(seconds)) return seconds * 1000;
+	const date = Date.parse(header);
+	return Number.isNaN(date) ? null : Math.max(0, date - Date.now());
+}
+
+/**
+ * NCAA publishes no rate limit or robots.txt for this API, so a 429 (or a
+ * transient 5xx) is the only real signal we have. Honor `Retry-After` when the
+ * response includes one; otherwise back off exponentially (1s, 2s, 4s) with jitter.
+ */
+async function fetchWithRetry(url: string): Promise<Response> {
+	for (let attempt = 0; ; attempt++) {
+		const res = await fetch(url, { headers: NCAA_HEADERS });
+		const retryable = res.status === 429 || [502, 503, 504].includes(res.status);
+		if (!retryable || attempt >= MAX_RETRIES) return res;
+		const delay = retryAfterMs(res) ?? 2 ** attempt * 1000 + Math.random() * 250;
+		await sleep(delay);
+	}
+}
+
 /** Returns the raw NCAA API response — use via GET /api/scrape/test to inspect field names. */
 export async function fetchRawContests(params: FetchContestsParams): Promise<unknown> {
-	const res = await fetch(buildUrl(params), {
-		headers: {
-			'Accept': 'application/json',
-			'User-Agent': 'Mozilla/5.0 (compatible; college-soccer-scraper/1.0)'
-		}
-	});
+	const res = await fetchWithRetry(buildUrl(params));
 	if (!res.ok) throw new Error(`NCAA API responded ${res.status}`);
 	return res.json();
 }
@@ -220,6 +247,26 @@ export function syntheticPlayerId(teamId: number | string, firstName: string, la
 	return `${teamId}_${norm(firstName)}_${norm(lastName)}`;
 }
 
+const POSITION_MAP: Record<string, string> = {
+	GOALKEEPER: 'GK',
+	FORWARD: 'FWD',
+	MIDFIELDER: 'MID',
+	DEFENDER: 'DEF'
+};
+
+/**
+ * NCAA's box score feed usually reports position as a short code (GK/FWD/MID/DEF)
+ * but occasionally spells it out (GOALKEEPER/FORWARD/...) for the same game type —
+ * seen on both live and already-final games, not tied to any one source. Map the
+ * full word to the short code so GK detection (`position === 'GK'`) and display
+ * both see one consistent value; anything else (already-short, blank, unrecognized)
+ * passes through unchanged.
+ */
+export function normalizePosition(position: string | null | undefined): string | null {
+	if (!position) return position ?? null;
+	return POSITION_MAP[position.toUpperCase()] ?? position;
+}
+
 export async function fetchRawBoxScore(contestId: string): Promise<unknown> {
 	const url = new URL(GQL_HOST);
 	url.searchParams.set('meta', 'NCAA_GetGamecenterBoxscoreSoccerById_web');
@@ -228,12 +275,7 @@ export async function fetchRawBoxScore(contestId: string): Promise<unknown> {
 	}));
 	url.searchParams.set('variables', JSON.stringify({ contestId, staticTestEnv: null }));
 
-	const res = await fetch(url.toString(), {
-		headers: {
-			'Accept': 'application/json',
-			'User-Agent': 'Mozilla/5.0 (compatible; college-soccer-scraper/1.0)'
-		}
-	});
+	const res = await fetchWithRetry(url.toString());
 	if (!res.ok) throw new Error(`NCAA box score API ${res.status} for contestId=${contestId}`);
 	return res.json();
 }

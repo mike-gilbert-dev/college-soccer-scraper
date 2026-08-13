@@ -31,6 +31,38 @@ const DEFAULT_TARGETS: { sportCode: string; division: number }[] = [
 	{ sportCode: 'WSO', division: 1 }
 ];
 
+const NCAA_HEADERS = {
+	Accept: 'application/json',
+	'User-Agent': 'Mozilla/5.0 (compatible; college-soccer-scraper/1.0)'
+};
+const MAX_RETRIES = 3;
+function sleep(ms: number): Promise<void> {
+	return new Promise((r) => setTimeout(r, ms));
+}
+/** Parse `Retry-After` (seconds or HTTP-date) into a delay in ms, or null if absent/unparseable. */
+function retryAfterMs(res: Response): number | null {
+	const header = res.headers.get('Retry-After');
+	if (!header) return null;
+	const seconds = Number(header);
+	if (!Number.isNaN(seconds)) return seconds * 1000;
+	const date = Date.parse(header);
+	return Number.isNaN(date) ? null : Math.max(0, date - Date.now());
+}
+/**
+ * NCAA publishes no rate limit or robots.txt for this API, so a 429 (or a
+ * transient 5xx) is the only real signal we have. Honor `Retry-After` when the
+ * response includes one; otherwise back off exponentially (1s, 2s, 4s) with jitter.
+ */
+async function fetchWithRetry(url: string): Promise<Response> {
+	for (let attempt = 0; ; attempt++) {
+		const res = await fetch(url, { headers: NCAA_HEADERS });
+		const retryable = res.status === 429 || [502, 503, 504].includes(res.status);
+		if (!retryable || attempt >= MAX_RETRIES) return res;
+		const delay = retryAfterMs(res) ?? 2 ** attempt * 1000 + Math.random() * 250;
+		await sleep(delay);
+	}
+}
+
 // ── NCAA response shapes (subset we use) ────────────────────────────
 interface ContestTeam {
 	isHome: boolean;
@@ -135,12 +167,7 @@ async function fetchContests(
 		JSON.stringify({ sportCode, division, seasonYear, contestDate: ncaaDate, week: null })
 	);
 
-	const res = await fetch(url.toString(), {
-		headers: {
-			Accept: 'application/json',
-			'User-Agent': 'Mozilla/5.0 (compatible; college-soccer-scraper/1.0)'
-		}
-	});
+	const res = await fetchWithRetry(url.toString());
 	if (!res.ok) throw new Error(`NCAA API responded ${res.status}`);
 	const raw = await res.json();
 	const contests = (raw as { data?: { contests?: Contest[] } })?.data?.contests ?? [];

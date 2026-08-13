@@ -16,6 +16,19 @@
 // clear stale stats when a box score reports no data).
 //
 // Auth: Bearer <service role key>. Invoked by pg_cron via pg_net.
+//
+// Modes:
+//   default    — recently-final games + season gap-fill, as above.
+//   ?mode=live — in-progress games only. Self-gates on whether any game this
+//                season currently has status='live' (set by nightly-ingest's
+//                own live poll, so it's already trustworthy by the time this
+//                runs); zero matches means no NCAA calls at all. One box-score
+//                call per live game — much pricier per-poll than the bulk score
+//                fetch — so this is meant to run on a coarser cron (e.g. every
+//                10 min, not every minute) and skips the Storage archive and
+//                reconciliation_log the way nightly-ingest's live mode skips
+//                its own archive/scrape_log. The overnight run still produces
+//                the canonical archive + log once games go final.
 
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 
@@ -97,6 +110,55 @@ function syntheticPlayerId(teamId: number | string, firstName: string, lastName:
 }
 const num = (s: string) => parseInt(s || '0', 10) || 0;
 
+const POSITION_MAP: Record<string, string> = {
+	GOALKEEPER: 'GK',
+	FORWARD: 'FWD',
+	MIDFIELDER: 'MID',
+	DEFENDER: 'DEF'
+};
+/**
+ * NCAA's box score feed usually reports position as a short code (GK/FWD/MID/DEF)
+ * but occasionally spells it out (GOALKEEPER/FORWARD/...) for the same game type.
+ * Map the full word to the short code so GK detection and display both see one
+ * consistent value; anything else passes through unchanged.
+ */
+function normalizePosition(position: string | null | undefined): string | null {
+	if (!position) return position ?? null;
+	return POSITION_MAP[position.toUpperCase()] ?? position;
+}
+
+const NCAA_HEADERS = {
+	Accept: 'application/json',
+	'User-Agent': 'Mozilla/5.0 (compatible; college-soccer-scraper/1.0)'
+};
+const MAX_RETRIES = 3;
+function sleep(ms: number): Promise<void> {
+	return new Promise((r) => setTimeout(r, ms));
+}
+/** Parse `Retry-After` (seconds or HTTP-date) into a delay in ms, or null if absent/unparseable. */
+function retryAfterMs(res: Response): number | null {
+	const header = res.headers.get('Retry-After');
+	if (!header) return null;
+	const seconds = Number(header);
+	if (!Number.isNaN(seconds)) return seconds * 1000;
+	const date = Date.parse(header);
+	return Number.isNaN(date) ? null : Math.max(0, date - Date.now());
+}
+/**
+ * NCAA publishes no rate limit or robots.txt for this API, so a 429 (or a
+ * transient 5xx) is the only real signal we have. Honor `Retry-After` when the
+ * response includes one; otherwise back off exponentially (1s, 2s, 4s) with jitter.
+ */
+async function fetchWithRetry(url: string): Promise<Response> {
+	for (let attempt = 0; ; attempt++) {
+		const res = await fetch(url, { headers: NCAA_HEADERS });
+		const retryable = res.status === 429 || [502, 503, 504].includes(res.status);
+		if (!retryable || attempt >= MAX_RETRIES) return res;
+		const delay = retryAfterMs(res) ?? 2 ** attempt * 1000 + Math.random() * 250;
+		await sleep(delay);
+	}
+}
+
 async function fetchBoxScore(contestId: string): Promise<{ raw: unknown; boxScore: BoxScore | null }> {
 	const url = new URL(GQL_HOST);
 	url.searchParams.set('meta', 'NCAA_GetGamecenterBoxscoreSoccerById_web');
@@ -105,12 +167,7 @@ async function fetchBoxScore(contestId: string): Promise<{ raw: unknown; boxScor
 		JSON.stringify({ persistedQuery: { version: 1, sha256Hash: BOX_SCORE_HASH } })
 	);
 	url.searchParams.set('variables', JSON.stringify({ contestId, staticTestEnv: null }));
-	const res = await fetch(url.toString(), {
-		headers: {
-			Accept: 'application/json',
-			'User-Agent': 'Mozilla/5.0 (compatible; college-soccer-scraper/1.0)'
-		}
-	});
+	const res = await fetchWithRetry(url.toString());
 	if (!res.ok) throw new Error(`box score API ${res.status} for contestId=${contestId}`);
 	const raw = await res.json();
 	const boxScore = (raw as { data?: { boxscore?: BoxScore | null } })?.data?.boxscore ?? null;
@@ -152,10 +209,13 @@ Deno.serve(async (req) => {
 	}
 
 	const url = new URL(req.url);
+	const isLive = url.searchParams.get('mode') === 'live';
 	const forcedDate = url.searchParams.get('date'); // reconcile exactly this date's finals
 	const recentDays = Math.max(0, parseInt(url.searchParams.get('recentDays') ?? '2', 10) || 0);
 	const cap = Math.max(1, parseInt(url.searchParams.get('cap') ?? '200', 10) || 200);
-	const concurrency = Math.max(1, parseInt(url.searchParams.get('concurrency') ?? '8', 10) || 8);
+	const concurrencyDefault = isLive ? 4 : 8;
+	const concurrency =
+		Math.max(1, parseInt(url.searchParams.get('concurrency') ?? String(concurrencyDefault), 10) || concurrencyDefault);
 	const sportParam = url.searchParams.get('sport');
 	const divisionParam = url.searchParams.get('division');
 	const targets =
@@ -184,21 +244,56 @@ Deno.serve(async (req) => {
 		});
 	}
 
+	// Live mode self-gate: nightly-ingest's own live poll (every minute) already
+	// keeps `status` current, so a straight status='live' count is a trustworthy,
+	// free-to-check signal — no NCAA call happens unless something is actually
+	// in progress right now.
+	if (isLive) {
+		const { count, error: gateErr } = await supabase
+			.from('games')
+			.select('id', { count: 'exact', head: true })
+			.eq('season_id', season.id)
+			.eq('status', 'live');
+		if (gateErr) {
+			return json({ ran: false, mode: 'live', reason: `gate query failed: ${gateErr.message}` }, 500);
+		}
+		if (!count) {
+			return json({ ran: false, mode: 'live', reason: 'no live games', anchor });
+		}
+	}
+
 	const recentCutoff =
 		forcedDate ?? isoDay(new Date(new Date(`${today}T00:00:00Z`).getTime() - recentDays * 86400000));
 
-	const summary = { ran: true, season: season.label, anchor, targets: [] as unknown[] };
+	const summary = {
+		ran: true,
+		mode: isLive ? 'live' : 'default',
+		season: season.label,
+		anchor,
+		targets: [] as unknown[]
+	};
 
 	for (const { sportCode, division } of targets) {
 		const t0 = Date.now();
 		const out: Record<string, unknown> = { sportCode, division };
 		const errors: { contestId: string; message: string }[] = [];
 		try {
-			const missingBefore = await countMissingFinals(supabase, sportCode, division, season.id);
+			const missingBefore = isLive ? null : await countMissingFinals(supabase, sportCode, division, season.id);
 
 			// ── Select box-score targets ───────────────────────────────
 			let targetRows: Target[];
-			if (forcedDate) {
+			if (isLive) {
+				const { data, error } = await supabase
+					.from('games')
+					.select('id, ncaa_contest_id, contest_date, home_team_season_id, away_team_season_id')
+					.eq('season_id', season.id)
+					.eq('sport_code', sportCode)
+					.eq('division', division)
+					.eq('status', 'live')
+					.limit(cap);
+				if (error) throw new Error(`select live games: ${error.message}`);
+				targetRows = (data ?? []).map((g) => ({ ...g, game_id: g.id })) as Target[];
+			} else if (forcedDate) {
 				const { data, error } = await supabase
 					.from('games')
 					.select('id, ncaa_contest_id, contest_date, home_team_season_id, away_team_season_id')
@@ -209,7 +304,7 @@ Deno.serve(async (req) => {
 					.eq('contest_date', forcedDate)
 					.limit(cap);
 				if (error) throw new Error(`select finals: ${error.message}`);
-				targetRows = (data ?? []).map((g) => ({ ...g })) as Target[];
+				targetRows = (data ?? []).map((g) => ({ ...g, game_id: g.id })) as Target[];
 			} else {
 				const { data, error } = await supabase.rpc('get_reconcile_targets', {
 					p_sport_code: sportCode,
@@ -223,16 +318,20 @@ Deno.serve(async (req) => {
 			}
 
 			// ── Fetch + archive box scores (bounded concurrency) ────────
+			// Live mode skips the Storage archive — the overnight run still writes
+			// the canonical copy once a game goes final.
 			const fetched = await pool(targetRows, concurrency, async (t) => {
 				try {
 					const { raw, boxScore } = await fetchBoxScore(t.ncaa_contest_id);
-					await supabase.storage
-						.from(BUCKET)
-						.upload(
-							boxScorePath(sportCode, division, season.year, t.ncaa_contest_id),
-							JSON.stringify(raw, null, 2),
-							{ contentType: 'application/json', upsert: true }
-						);
+					if (!isLive) {
+						await supabase.storage
+							.from(BUCKET)
+							.upload(
+								boxScorePath(sportCode, division, season.year, t.ncaa_contest_id),
+								JSON.stringify(raw, null, 2),
+								{ contentType: 'application/json', upsert: true }
+							);
+					}
 					return { t, boxScore };
 				} catch (e) {
 					errors.push({
@@ -272,7 +371,7 @@ Deno.serve(async (req) => {
 					if (!identity) continue;
 					const teamSeasonId = identity.isHome ? t.home_team_season_id : t.away_team_season_id;
 
-					const gks = detail.playerStats.filter((p) => p.participated && p.position === 'GK');
+					const gks = detail.playerStats.filter((p) => p.participated && normalizePosition(p.position) === 'GK');
 					const soleGkName = gks.length === 1 ? `${gks[0].firstName} ${gks[0].lastName}` : null;
 					const gk = detail.teamStats.goalie;
 
@@ -280,14 +379,15 @@ Deno.serve(async (req) => {
 						if (!p.participated) continue;
 						const ncaaPlayerId = syntheticPlayerId(detail.teamId, p.firstName, p.lastName);
 						const fullName = `${p.firstName} ${p.lastName}`;
+						const position = normalizePosition(p.position);
 						playerRows.set(ncaaPlayerId, { ncaa_player_id: ncaaPlayerId, name: fullName });
 						psRows.set(`${ncaaPlayerId}|${teamSeasonId}`, {
 							ncaa_player_id: ncaaPlayerId,
 							team_season_id: teamSeasonId,
 							jersey_number: p.number,
-							position: p.position ?? null
+							position
 						});
-						const isSoleGk = p.position === 'GK' && fullName === soleGkName;
+						const isSoleGk = position === 'GK' && fullName === soleGkName;
 						statRecs.push({
 							ncaa_player_id: ncaaPlayerId,
 							team_season_id: teamSeasonId,
@@ -315,12 +415,25 @@ Deno.serve(async (req) => {
 				}
 			}
 
-			// Phase A: players — insert new only; never overwrite an existing name,
+			// Both the RPC's RETURN QUERY and a plain .upsert().select() are regular
+			// PostgREST responses, capped at 1000 rows (silently truncated) like any
+			// other read -- see CLAUDE.md. A single reconcile batch can span thousands
+			// of unique players across many games, so both round-trips below MUST be
+			// chunked well under that cap or the tail of the batch silently loses its
+			// id mapping and never reaches player_seasons / player_game_stats.
+			const ROW_CAP_CHUNK = 500;
+			function chunk<T>(items: T[], size: number): T[][] {
+				const out: T[][] = [];
+				for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+				return out;
+			}
+
+			// Phase A: players -- insert new only; never overwrite an existing name,
 			// so externally-normalized name formatting is preserved.
 			const playerIdByNcaa = new Map<string, number>();
-			if (playerRows.size) {
+			for (const batch of chunk([...playerRows.values()], ROW_CAP_CHUNK)) {
 				const { data, error } = await supabase.rpc('get_or_create_players', {
-					p_players: [...playerRows.values()]
+					p_players: batch
 				});
 				if (error) throw new Error(`get_or_create_players: ${error.message}`);
 				for (const p of (data ?? []) as { id: number; ncaa_player_id: string }[]) {
@@ -330,18 +443,18 @@ Deno.serve(async (req) => {
 
 			// Phase B: player_seasons
 			const psIdByKey = new Map<string, number>();
-			if (psRows.size) {
-				const rows = [...psRows.values()]
-					.map((r) => ({
-						player_id: playerIdByNcaa.get(r.ncaa_player_id),
-						team_season_id: r.team_season_id,
-						jersey_number: r.jersey_number,
-						position: r.position
-					}))
-					.filter((r): r is typeof r & { player_id: number } => typeof r.player_id === 'number');
+			const psRowsResolved = [...psRows.values()]
+				.map((r) => ({
+					player_id: playerIdByNcaa.get(r.ncaa_player_id),
+					team_season_id: r.team_season_id,
+					jersey_number: r.jersey_number,
+					position: r.position
+				}))
+				.filter((r): r is typeof r & { player_id: number } => typeof r.player_id === 'number');
+			for (const batch of chunk(psRowsResolved, ROW_CAP_CHUNK)) {
 				const { data, error } = await supabase
 					.from('player_seasons')
-					.upsert(rows, { onConflict: 'player_id,team_season_id' })
+					.upsert(batch, { onConflict: 'player_id,team_season_id' })
 					.select('id, player_id, team_season_id');
 				if (error) throw new Error(`player_seasons upsert: ${error.message}`);
 				for (const ps of data ?? []) psIdByKey.set(`${ps.player_id}|${ps.team_season_id}`, ps.id);
@@ -376,11 +489,13 @@ Deno.serve(async (req) => {
 				await supabase.from('player_game_stats').delete().in('game_id', clearGameIds);
 			}
 
-			const missingAfter = await countMissingFinals(supabase, sportCode, division, season.id);
+			const missingAfter = isLive ? null : await countMissingFinals(supabase, sportCode, division, season.id);
 			const durationMs = Date.now() - t0;
 			const capped = targetRows.length >= cap;
 
-			await supabase.from('reconciliation_log').insert({
+			// Live mode skips the log write too — "finals missing stats" isn't a
+			// meaningful concept mid-game, and this runs too often to accumulate rows.
+			if (!isLive) await supabase.from('reconciliation_log').insert({
 				sport_code: sportCode,
 				division,
 				season_id: season.id,

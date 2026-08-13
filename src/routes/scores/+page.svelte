@@ -738,20 +738,12 @@
 						</li>
 					{/if}
 					<li class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded overflow-hidden">
-						{#if isLive}
-							<!-- Live games don't link into the box score — player stats aren't scraped
-							     until the overnight reconcile, so the box-score page would be empty. -->
-							<div class="px-3 py-2 h-full flex flex-col justify-between">
-								{@render cardInner(game)}
-							</div>
-						{:else}
-							<div role="link" tabindex="0"
-								onclick={() => goto(gameHref(game.ncaa_contest_id))}
-								onkeydown={(e) => e.key === 'Enter' && goto(gameHref(game.ncaa_contest_id))}
-								class="px-3 py-2 h-full flex flex-col justify-between hover:bg-gray-50 dark:hover:bg-gray-700/40 cursor-pointer">
-								{@render cardInner(game)}
-							</div>
-						{/if}
+						<div role="link" tabindex="0"
+							onclick={() => goto(gameHref(game.ncaa_contest_id))}
+							onkeydown={(e) => e.key === 'Enter' && goto(gameHref(game.ncaa_contest_id))}
+							class="px-3 py-2 h-full flex flex-col justify-between hover:bg-gray-50 dark:hover:bg-gray-700/40 cursor-pointer">
+							{@render cardInner(game)}
+						</div>
 					</li>
 				{/each}
 			</ul>
