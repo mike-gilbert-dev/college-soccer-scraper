@@ -1,4 +1,5 @@
 import type { PageServerLoad } from './$types';
+import { todayInTimeZone } from '$lib/server/date';
 
 // NCAA soccer seasons run roughly August through mid-December.
 // Used as fallback bounds when the seasons table can't be reached.
@@ -6,10 +7,12 @@ function seasonBounds(year: number) {
 	return { start: `${year}-08-01`, end: `${year}-12-15` };
 }
 
-export const load: PageServerLoad = async ({ url, locals }) => {
+export const load: PageServerLoad = async ({ url, locals, cookies }) => {
 	const supabase = locals.supabase;
 
-	const today       = new Date().toISOString().slice(0, 10);
+	// Falls back to Eastern (where games are scheduled) until the client tells
+	// us the visitor's own timezone via the `tz` cookie (see +layout.svelte).
+	const today       = todayInTimeZone(cookies.get('tz'));
 	const gender      = url.searchParams.get('gender') ?? 'M';
 	const division    = parseInt(url.searchParams.get('division') ?? '1');
 	const seasonParam = url.searchParams.get('season');

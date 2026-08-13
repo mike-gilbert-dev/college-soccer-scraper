@@ -20,6 +20,16 @@
 	const supabase = createSupabaseBrowserClient();
 
 	onMount(() => {
+		// Tell the server our real timezone so date-defaulting (e.g. /scores)
+		// doesn't have to guess from Eastern. Only writes when it's missing or
+		// stale so we're not re-setting a cookie on every navigation.
+		const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+		const existing = document.cookie.match(/(?:^|;\s*)tz=([^;]+)/)?.[1];
+		if (tz && existing !== tz) {
+			const oneYear = 60 * 60 * 24 * 365;
+			document.cookie = `tz=${tz}; path=/; max-age=${oneYear}; samesite=lax`;
+		}
+
 		// Identify user if already signed in when the app loads
 		if (data.user) {
 			posthog.identify(data.user.id, { email: data.user.email });
