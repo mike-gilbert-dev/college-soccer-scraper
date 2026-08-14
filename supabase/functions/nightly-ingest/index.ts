@@ -13,9 +13,12 @@
 //   default     — rolling window: today + the previous ?days-1 (default 2 total, for
 //                 score corrections) + the next ?ahead days (default 7, for schedule
 //                 changes and newly-published slates). Or a single ?date=.
-//   ?mode=live  — today only, for in-game score updates. Self-gates on whether any
-//                 game is in (or near) its play window, and skips the Storage archive
-//                 + per-run success logging so it's cheap to run every minute.
+//   ?mode=live  — for in-game score updates. Self-gates on whether any game is in
+//                 (or near) its play window, and fetches only the contest_date(s) of
+//                 the games actually in that window (not a fixed "today", which drifts
+//                 from NCAA's US-Eastern game dates around the UTC day boundary). Skips
+//                 the Storage archive + per-run success logging so it's cheap to run
+//                 every minute.
 
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 
@@ -353,28 +356,40 @@ Deno.serve(async (req) => {
 	// the slate is well over. A game qualifies if it kicked off up to 3h ago
 	// (in-progress or just-finished, to catch score corrections) or starts within
 	// the next 15m (imminent). No game-day babysitting and no calendar to maintain.
+	//
+	// This same query also picks which date(s) to fetch below, instead of assuming
+	// "today". UTC drifts from NCAA's US-Eastern game dates by several hours — a
+	// 7pm ET kickoff is still very much live at 8pm ET, which is already 00:00 UTC,
+	// the instant isoDay(now) flips to the next calendar day. A plain "today" would
+	// silently stop fetching that whole evening slate right then. Reading
+	// contest_date off the games actually inside the window instead costs nothing
+	// extra almost all the time (one date, same as before) and only ever asks for a
+	// second date right at that boundary, when one genuinely is live.
+	let liveDates: string[] = [];
 	if (isLive) {
 		const nowMs = Date.now();
 		const windowStart = new Date(nowMs - 3 * 60 * 60 * 1000).toISOString(); // kicked off ≤3h ago
 		const windowEnd = new Date(nowMs + 15 * 60 * 1000).toISOString(); // starts ≤15m from now
-		const { count, error: gateErr } = await supabase
+		const { data: windowGames, error: gateErr } = await supabase
 			.from('games')
-			.select('id', { count: 'exact', head: true })
+			.select('contest_date')
 			.eq('season_id', season.id)
 			.gte('start_time', windowStart)
 			.lte('start_time', windowEnd);
 		if (gateErr) {
 			return json({ ran: false, mode: 'live', reason: `gate query failed: ${gateErr.message}` }, 500);
 		}
-		if (!count) {
+		if (!windowGames || windowGames.length === 0) {
 			return json({ ran: false, mode: 'live', reason: 'no games in play window', anchor });
 		}
+		liveDates = [...new Set(windowGames.map((g) => g.contest_date as string))];
 	}
 
-	// Build date window, clamped to the season's start and end. Live mode is today-only.
+	// Build date window, clamped to the season's start and end. Live mode fetches
+	// only the date(s) found by the gate above.
 	const dates: string[] = [];
 	if (isLive) {
-		dates.push(today);
+		dates.push(...liveDates);
 	} else if (forcedDate) {
 		dates.push(forcedDate);
 	} else {
