@@ -489,6 +489,24 @@ Deno.serve(async (req) => {
 				await supabase.from('player_game_stats').delete().in('game_id', clearGameIds);
 			}
 
+			// Recompute /stats' precomputed leaderboard tables (team_season_stat_totals,
+			// player_season_stat_leaders) whenever this run actually changed player_game_stats.
+			// Piggybacks on this function's existing nightly (08:05 UTC) and live-window
+			// (every 10 min while games are in progress) cadence -- no separate cron job.
+			let leadersRefreshed = false;
+			if (statsUpserted > 0) {
+				const { error: refreshErr } = await supabase.rpc('refresh_player_stat_leaders', {
+					p_season_id: season.id,
+					p_sport_code: sportCode,
+					p_division: division
+				});
+				if (refreshErr) {
+					errors.push({ contestId: 'refresh_player_stat_leaders', message: refreshErr.message });
+				} else {
+					leadersRefreshed = true;
+				}
+			}
+
 			const missingAfter = isLive ? null : await countMissingFinals(supabase, sportCode, division, season.id);
 			const durationMs = Date.now() - t0;
 			const capped = targetRows.length >= cap;
@@ -515,6 +533,7 @@ Deno.serve(async (req) => {
 				boxscoresFetched,
 				gamesWithStats: gamesWithStats.size,
 				statsUpserted,
+				leadersRefreshed,
 				finalsMissingBefore: missingBefore,
 				finalsMissingAfter: missingAfter,
 				capped,
