@@ -12,7 +12,9 @@
 // Modes:
 //   default     — rolling window: today + the previous ?days-1 (default 2 total, for
 //                 score corrections) + the next ?ahead days (default 7, for schedule
-//                 changes and newly-published slates). Or a single ?date=.
+//                 changes and newly-published slates), plus a sweep of up to ?sweep
+//                 (default 10) older dates still holding an unsettled game. Or a
+//                 single ?date=, which skips the sweep.
 //   ?mode=live  — for in-game score updates. Self-gates on whether any game is in
 //                 (or near) its play window, and fetches only the contest_date(s) of
 //                 the games actually in that window (not a fixed "today", which drifts
@@ -320,6 +322,10 @@ Deno.serve(async (req) => {
 	// Days of lookahead. `?ahead=0` disables it; garbage falls back to the default.
 	const aheadRaw = parseInt(url.searchParams.get('ahead') ?? '7', 10);
 	const ahead = Number.isFinite(aheadRaw) ? Math.max(0, aheadRaw) : 7;
+	// Max older dates the unsettled-game sweep may add to the window. `?sweep=0`
+	// disables it; garbage falls back to the default.
+	const sweepRaw = parseInt(url.searchParams.get('sweep') ?? '10', 10);
+	const sweepCap = Number.isFinite(sweepRaw) ? Math.max(0, sweepRaw) : 10;
 	const forcedDate = url.searchParams.get('date'); // YYYY-MM-DD (ignored in live mode)
 	const sportParam = url.searchParams.get('sport');
 	const divisionParam = url.searchParams.get('division');
@@ -388,6 +394,10 @@ Deno.serve(async (req) => {
 	// Build date window, clamped to the season's start and end. Live mode fetches
 	// only the date(s) found by the gate above.
 	const dates: string[] = [];
+	// Reported in the summary so a run says which stale dates it re-read (and why
+	// it re-read none), rather than burying them in an undifferentiated window.
+	const swept: string[] = [];
+	let sweepError: string | null = null;
 	if (isLive) {
 		dates.push(...liveDates);
 	} else if (forcedDate) {
@@ -417,6 +427,51 @@ Deno.serve(async (req) => {
 			if (season.end_date && iso > season.end_date) break;
 			dates.push(iso);
 		}
+
+		// Unsettled-game sweep.
+		//
+		// A date leaves the window for good after its one morning-after read, so a
+		// correction NCAA publishes later than that is invisible forever. The
+		// commonest is a postponement: the game is abandoned or called off in the
+		// evening, but the school only confirms it the next day, by which point
+		// the row is frozen mid-'live' (or still 'scheduled') and no later run
+		// ever looks at that date again.
+		//
+		// So re-read the leftovers directly: past dates in this season that still
+		// hold a game which never settled. Bounded and newest-first, so a backlog
+		// self-heals over a few nights instead of blowing one run's time budget,
+		// and the handful of games NCAA itself leaves stuck forever can't crowd
+		// out a date that went stale last night.
+		//
+		// Skipped for `?date=` — that's an explicit request for one date.
+		if (sweepCap > 0) {
+			const { data: unsettled, error: sweepErr } = await supabase
+				.from('games')
+				.select('contest_date')
+				.eq('season_id', season.id)
+				.lt('contest_date', today)
+				.in('status', ['live', 'scheduled'])
+				.order('contest_date', { ascending: false })
+				// PostgREST caps a response at 1000 rows anyway; asking explicitly
+				// documents that truncation is harmless here. Newest-first means the
+				// cut only ever drops dates older than the ones the cap already keeps.
+				.limit(1000);
+
+			if (sweepErr) {
+				// Non-fatal: the regular window is the job, the sweep is the extra.
+				sweepError = sweepErr.message;
+			} else {
+				const alreadyQueued = new Set(dates);
+				for (const row of unsettled ?? []) {
+					const iso = row.contest_date as string;
+					if (alreadyQueued.has(iso)) continue;
+					alreadyQueued.add(iso);
+					swept.push(iso);
+					if (swept.length >= sweepCap) break;
+				}
+				dates.push(...swept);
+			}
+		}
 	}
 
 	const startedAt = Date.now();
@@ -426,6 +481,8 @@ Deno.serve(async (req) => {
 		season: season.label,
 		anchor,
 		window: dates,
+		swept,
+		sweepError,
 		targets: [] as unknown[]
 	};
 

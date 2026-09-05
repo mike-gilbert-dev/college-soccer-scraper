@@ -78,7 +78,7 @@
 	const isWatchable = (s: StreamLink | undefined) =>
 		!!s?.url && s.is_deep_link && (s.access === 'free' || s.access === 'subscription');
 
-	// Slate ordering: live → upcoming → finished → TBD, each by kickoff.
+	// Slate ordering: live → upcoming → finished → TBD → postponed, each by kickoff.
 	//
 	// Done here rather than in the PostgREST query because the order depends on
 	// `status`, which realtime mutates in place: a game going live has to jump to
@@ -91,7 +91,12 @@
 		// a played-out game with no recorded time belongs with the finals, not
 		// stranded at the bottom of the page.
 		if (g.status === 'scheduled') return g.start_time ? 1 : 3;
-		return 2; // final / postponed / cancelled
+		// Postponed games have no result and are no longer part of the day's
+		// slate, so they sit below even the TBDs — same treatment as TBD, one
+		// section further down. Cancelled stays with the finals: it's a settled
+		// outcome (picks on it grade as void) rather than a game still to come.
+		if (g.status === 'postponed') return 4;
+		return 2; // final / cancelled
 	}
 
 	// Divider groups are the sort buckets themselves: a rule falls at every change
@@ -102,7 +107,8 @@
 		{ key: 'live',     label: 'Live' },
 		{ key: 'upcoming', label: 'Upcoming' },
 		{ key: 'final',    label: 'Final' },
-		{ key: 'tbd',      label: 'TBD' }
+		{ key: 'tbd',      label: 'TBD' },
+		{ key: 'postponed', label: 'Postponed' }
 	] as const;
 	type SectionKey = (typeof SECTIONS)[number]['key'];
 
@@ -131,8 +137,18 @@
 	// page state, so it's persisted rather than put in the URL — the URL belongs
 	// to the slate being viewed, and a shared /scores link should show the whole
 	// slate rather than whatever the sender had hidden.
-	const FILTER_PREF = 'scores:sections';
-	let shown = $state<Record<SectionKey, boolean>>({ live: true, upcoming: true, final: true, tbd: true });
+	//
+	// Versioned: the stored value is the list of *visible* sections, so a section
+	// added later is indistinguishable from one the reader switched off. Bumping
+	// the key when SECTIONS grows means a returning reader sees the new group
+	// instead of silently having it hidden by a preference predating it.
+	const FILTER_PREF    = 'scores:sections:v2';
+	const FILTER_PREF_V1 = 'scores:sections'; // pre-Postponed
+	const V1_SECTIONS = ['live', 'upcoming', 'final', 'tbd'] as const;
+
+	let shown = $state<Record<SectionKey, boolean>>({
+		live: true, upcoming: true, final: true, tbd: true, postponed: true
+	});
 
 	function toggleSection(key: SectionKey) {
 		shown[key] = !shown[key];
@@ -163,7 +179,7 @@
 				acc[SECTIONS[slateRank(g)].key]++;
 				return acc;
 			},
-			{ live: 0, upcoming: 0, final: 0, tbd: 0 } as Record<SectionKey, number>
+			{ live: 0, upcoming: 0, final: 0, tbd: 0, postponed: 0 } as Record<SectionKey, number>
 		)
 	);
 
@@ -262,6 +278,15 @@
 			if (saved !== null) {
 				const keys = saved.split(',');
 				for (const s of SECTIONS) shown[s.key] = keys.includes(s.key);
+			} else {
+				// Carry over the pre-Postponed preference: the sections it could
+				// name are honoured as saved, and anything added since stays on
+				// (it was never offered, so its absence isn't a choice).
+				const legacy = localStorage.getItem(FILTER_PREF_V1);
+				if (legacy !== null) {
+					const keys = legacy.split(',');
+					for (const key of V1_SECTIONS) shown[key] = keys.includes(key);
+				}
 			}
 		} catch {
 			// ignore
@@ -518,7 +543,7 @@
 			{@render pickemToggle('ml-auto')}
 		</div>
 
-		<!-- Mobile: filters get their own row — four chips plus the strip above
+		<!-- Mobile: filters get their own row — five chips plus the strip above
 		     would wrap into an unreadable jumble on a narrow phone. -->
 		<div class="md:hidden border-t border-gray-200 dark:border-gray-700 px-2 py-1.5">
 			{@render sectionFilters('flex-wrap')}
@@ -617,6 +642,7 @@
 				{@const away = game.away_team_season}
 				{@const isFinal = game.status === 'final'}
 				{@const isLive  = game.status === 'live'}
+				{@const isPostponed = game.status === 'postponed'}
 				{@const homeAdvanced = isFinal && game.shootout && game.shootout_winner_team_season_id === game.home_team_season_id}
 				{@const awayAdvanced = isFinal && game.shootout && game.shootout_winner_team_season_id === game.away_team_season_id}
 				{@const homeWon = (isFinal && game.home_score != null && game.away_score != null && game.home_score > game.away_score) || homeAdvanced}
@@ -678,7 +704,10 @@
 											{game.current_period}
 										</span>
 									{/if}
-									{#if isFinal || isLive}
+									{#if isFinal || isLive || isPostponed}
+										<!-- Postponed keeps its badge rather than the kickoff time below:
+										     the old start time is still on the row, and rendering it alone
+										     reads as a game that's about to be played. -->
 										<Badge
 											color={statusColor(game.status)}
 											class="text-[10px] px-1.5 py-0 font-semibold
