@@ -15,7 +15,9 @@
 		"db:link": "supabase link",
 		"db:push": "supabase db push",
 		"db:reset": "supabase db reset",
-		"db:status": "supabase migration list"
+		"db:status": "supabase migration list",
+		"sync:shared": "node scripts/sync-shared.mjs",
+		"check:shared": "node scripts/sync-shared.mjs --check"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-auto": "^7.0.1",

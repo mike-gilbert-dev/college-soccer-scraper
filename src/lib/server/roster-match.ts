@@ -6,6 +6,7 @@
 // testable; the roster-ingest edge function inlines a copy.
 
 import type { ParsedRosterPlayer } from './sidearm';
+import { normalizeName } from './names.ts';
 
 /** Existing internal player_season for a team-season, joined to players.name. */
 export interface ExistingPlayerSeason {
@@ -28,16 +29,10 @@ export interface MatchResult {
 	jerseyMismatch: boolean; // confident match whose jersey differs (logged, not blocking)
 }
 
-/** Normalize a name for comparison: strip diacritics, lowercase, drop punctuation. */
-export function normalizeName(s: string | null | undefined): string {
-	return (s ?? '')
-		.normalize('NFD')
-		.replace(/[̀-ͯ]/g, '') // combining marks (diacritics)
-		.toLowerCase()
-		.replace(/[^a-z0-9\s]/g, ' ') // punctuation -> space
-		.replace(/\s+/g, ' ')
-		.trim();
-}
+// normalizeName moved to names.ts so schedule-match.ts can share the exact same
+// comparison without importing this module (and the Sidearm roster types with
+// it). Re-exported here so existing importers are unaffected.
+export { normalizeName };
 
 function push<T>(m: Map<string, T[]>, k: string, v: T): void {
 	const a = m.get(k);

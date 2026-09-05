@@ -1,6 +1,16 @@
 import type { PageServerLoad } from './$types';
 import { todayInTimeZone } from '$lib/server/date';
 
+/** One watch link for a game, as the scoreboard renders it. */
+export interface StreamLink {
+	url: string | null;
+	carrier: string | null;
+	access: 'free' | 'subscription' | 'tv_authenticated' | 'unknown';
+	label: string | null;
+	is_deep_link: boolean;
+	source_side: 'home' | 'away';
+}
+
 // NCAA soccer seasons run roughly August through mid-December.
 // Used as fallback bounds when the seasons table can't be reached.
 function seasonBounds(year: number) {
@@ -102,6 +112,47 @@ export const load: PageServerLoad = async ({ url, locals, cookies }) => {
 
 	if (gamesError) console.error('[scoreboard] games query error:', gamesError);
 
+	// Watch links. Deliberately queries game_streams directly rather than the
+	// game_primary_stream view: DISTINCT ON over the whole table can be
+	// materialized before a game_id filter is applied, turning a scoreboard
+	// render into a full scan. This is the same shape the pick'em query below
+	// uses — one indexed lookup over the <=100 games already on screen.
+	const streams: Record<number, StreamLink> = {};
+
+	if (games && games.length > 0) {
+		const { data: rows, error: streamsError } = await supabase
+			.from('game_streams')
+			.select('game_id, url, carrier, access, label, is_deep_link, source_side')
+			.eq('kind', 'video')
+			.in('game_id', games.map((g) => g.id));
+
+		if (streamsError) {
+			console.error('[scoreboard] streams query error:', streamsError);
+		} else {
+			// Same preference order as the game_primary_stream view: a link to THIS
+			// game beats a landing page, free beats a subscription beats a cable
+			// login, and the home school beats the away school.
+			const accessRank = (a: string) =>
+				({ free: 0, subscription: 1, unknown: 2, tv_authenticated: 3 })[a] ?? 2;
+
+			for (const r of rows ?? []) {
+				const next = r as StreamLink & { game_id: number };
+				const cur = streams[next.game_id];
+				if (
+					!cur ||
+					Number(next.is_deep_link) > Number(cur.is_deep_link) ||
+					(next.is_deep_link === cur.is_deep_link &&
+						(accessRank(next.access) < accessRank(cur.access) ||
+							(accessRank(next.access) === accessRank(cur.access) &&
+								next.source_side === 'home' &&
+								cur.source_side !== 'home')))
+				) {
+					streams[next.game_id] = next;
+				}
+			}
+		}
+	}
+
 	// Pick'em: load this user's picks for the games on screen. Skipped entirely
 	// for anonymous visitors. RLS already scopes picks to the caller, but the
 	// explicit user_id filter keeps the query on picks_user_season_idx.
@@ -127,6 +178,7 @@ export const load: PageServerLoad = async ({ url, locals, cookies }) => {
 	return {
 		games: games ?? [],
 		userPicks,
+		streams,
 		gamesError: gamesError ? `${gamesError.code}: ${gamesError.message}` : null,
 		contestDate,
 		availableDates,

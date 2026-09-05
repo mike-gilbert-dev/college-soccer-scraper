@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Webstream Link Ingestion</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap">
+<style>
+:root {
+  --ground:      #fcfbf9;
+  --panel:       #f5f1ed;
+  --ink:         #1a1614;
+  --ink-soft:    #443b37;
+  --muted:       #6f645f;
+  --rule:        #e5ddd7;
+  --rule-strong: #cfc4bd;
+  --accent:      #d13d31;
+  --accent-ink:  #a52d23;
+  --good:        #2f7d4f;
+  --warn:        #a2650f;
+  --code-bg:     #f2eee9;
+  --pre-bg:      #241d1b;
+  --pre-ink:     #e8ded8;
+  --pre-tint:    #f0a89f;
+}
+:root:not([data-theme="light"]) {
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --ground:      #14100f;
+    --panel:       #1e1817;
+    --ink:         #ece5e1;
+    --ink-soft:    #cfc4be;
+    --muted:       #9b8e88;
+    --rule:        #2e2624;
+    --rule-strong: #443936;
+    --accent:      #ff7063;
+    --accent-ink:  #ff8b80;
+    --good:        #67c08a;
+    --warn:        #d9a24a;
+    --code-bg:     #241d1b;
+    --pre-bg:      #0e0b0a;
+    --pre-ink:     #ded4ce;
+    --pre-tint:    #ff9186;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ground:      #14100f;
+  --panel:       #1e1817;
+  --ink:         #ece5e1;
+  --ink-soft:    #cfc4be;
+  --muted:       #9b8e88;
+  --rule:        #2e2624;
+  --rule-strong: #443936;
+  --accent:      #ff7063;
+  --accent-ink:  #ff8b80;
+  --good:        #67c08a;
+  --warn:        #d9a24a;
+  --code-bg:     #241d1b;
+  --pre-bg:      #0e0b0a;
+  --pre-ink:     #ded4ce;
+  --pre-tint:    #ff9186;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  background: var(--ground);
+  color: var(--ink);
+  font-family: "IBM Plex Serif", Georgia, "Times New Roman", serif;
+  font-size: 1.0625rem;
+  line-height: 1.65;
+  margin: 0;
+  padding: clamp(2rem, 6vw, 4.5rem) clamp(1.1rem, 5vw, 2rem) 6rem;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---- shared column ---- */
+header, section { max-width: 44rem; margin-inline: auto; }
+section { margin-top: 4rem; }
+p { margin: 0 0 1.05em; max-width: 40rem; }
+strong { font-weight: 600; color: var(--ink); }
+em { font-style: italic; }
+
+/* ---- masthead ---- */
+.pagehead { border-bottom: 2px solid var(--ink); padding-bottom: 1.6rem; }
+.eyebrow {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .7rem; font-weight: 500; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--accent-ink); margin: 0 0 1rem;
+}
+h1 {
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  font-size: clamp(2.1rem, 6.5vw, 3.1rem);
+  font-weight: 600; line-height: 1.05; letter-spacing: -.025em;
+  text-wrap: balance; margin: 0 0 .85rem;
+}
+.standfirst {
+  font-size: 1.15rem; line-height: 1.55; color: var(--ink-soft);
+  max-width: 36rem; margin-bottom: 1.75rem;
+}
+.meta {
+  display: flex; flex-wrap: wrap; gap: 0 2.25rem;
+  margin: 0; font-family: "IBM Plex Mono", ui-monospace, monospace;
+}
+.meta div { display: flex; flex-direction: column; gap: .15rem; }
+.meta dt {
+  font-size: .66rem; letter-spacing: .12em; text-transform: uppercase; color: var(--muted);
+}
+.meta dd { margin: 0; font-size: .82rem; color: var(--ink); }
+
+/* ---- headings ---- */
+h2 {
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  font-size: 1.5rem; font-weight: 600; letter-spacing: -.015em; line-height: 1.2;
+  text-wrap: balance;
+  margin: 0 0 1.1rem; padding-bottom: .55rem;
+  border-bottom: 1px solid var(--rule-strong);
+  display: flex; align-items: baseline; gap: .7rem;
+}
+h2 .num {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .78rem; font-weight: 500; color: var(--accent);
+  letter-spacing: .08em; flex-shrink: 0;
+}
+h3 {
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  font-size: 1.02rem; font-weight: 600; letter-spacing: -.005em;
+  margin: 2.1rem 0 .6rem; color: var(--ink);
+}
+
+/* ---- verdict block ---- */
+.verdict { margin-top: 2.75rem; background: var(--panel); border-radius: 3px; padding: 1.6rem 1.75rem .75rem; }
+.verdict h2 { border-bottom-color: var(--rule-strong); }
+.verdict p:last-child { margin-bottom: 1.05em; }
+
+/* ---- code ---- */
+code {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .855em; background: var(--code-bg); color: var(--ink);
+  padding: .1em .35em; border-radius: 2px; word-break: break-word;
+}
+pre {
+  background: var(--pre-bg); color: var(--pre-ink);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .8rem; line-height: 1.6;
+  padding: 1.1rem 1.25rem; border-radius: 4px;
+  overflow-x: auto; margin: 0 0 1.4rem;
+}
+pre code { background: none; padding: 0; font-size: inherit; color: inherit; }
+
+/* ---- tables ---- */
+.tablewrap { overflow-x: auto; margin: 0 0 1.5rem; border: 1px solid var(--rule); border-radius: 4px; }
+table { border-collapse: collapse; width: 100%; font-size: .875rem; min-width: 34rem; }
+thead th {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .66rem; font-weight: 500; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--muted); text-align: left;
+  padding: .7rem .9rem; border-bottom: 1px solid var(--rule-strong);
+  background: var(--panel); white-space: nowrap;
+}
+tbody td { padding: .8rem .9rem; border-bottom: 1px solid var(--rule); vertical-align: top; color: var(--ink-soft); }
+tbody tr:last-child td { border-bottom: none; }
+.num-col { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+th.num-col { text-align: right; }
+.sub { display: inline-block; color: var(--muted); font-size: .78em; font-family: "IBM Plex Mono", ui-monospace, monospace; }
+td .sub { display: block; }
+
+.pill {
+  display: inline-block; font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .62rem; font-weight: 500; letter-spacing: .07em; text-transform: uppercase;
+  padding: .18em .5em; border-radius: 2px; margin-right: .4em; white-space: nowrap;
+  border: 1px solid currentColor;
+}
+.pill-good { color: var(--good); }
+.pill-ok { color: var(--warn); }
+
+/* ---- callouts ---- */
+.callout {
+  border-left: 2px solid var(--rule-strong);
+  padding: .1rem 0 .1rem 1.1rem;
+  margin: 0 0 1.5rem;
+}
+.callout p { margin-bottom: .8em; }
+.callout p:last-child { margin-bottom: 0; }
+.callout-h {
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  font-size: .82rem; font-weight: 600; letter-spacing: .01em;
+  margin-bottom: .35em !important;
+}
+.callout-note { border-left-color: var(--good); }
+.callout-note .callout-h { color: var(--good); }
+.callout-warn { border-left-color: var(--warn); }
+.callout-warn .callout-h { color: var(--warn); }
+.callout-figure {
+  border-left-color: var(--accent);
+  background: var(--panel);
+  padding: 1rem 1.2rem;
+  border-radius: 0 3px 3px 0;
+}
+.callout-figure p { font-size: .95rem; color: var(--ink-soft); }
+
+/* ---- stats row ---- */
+.stats { list-style: none; display: flex; flex-wrap: wrap; gap: 1.25rem 2.5rem; padding: 0; margin: 0 0 1.5rem; }
+.stats li { font-size: .85rem; color: var(--muted); display: flex; flex-direction: column; gap: .1rem; max-width: 12rem; }
+.stat {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 1.9rem; font-weight: 500; color: var(--accent);
+  line-height: 1; font-variant-numeric: tabular-nums;
+}
+.stats .sub { display: block; }
+
+/* ---- ordered lists ---- */
+.steps, .decisions ol { padding-left: 1.3rem; margin: 0 0 1.4rem; display: flex; flex-direction: column; gap: .7rem; }
+.steps li, .decisions li { padding-left: .3rem; color: var(--ink-soft); max-width: 39rem; }
+.steps li::marker, .decisions li::marker {
+  font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: .82em; color: var(--accent);
+}
+.decisions li p { margin: 0; }
+.rec {
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  font-size: .82rem; font-weight: 600; color: var(--good);
+}
+.rec-done { color: var(--muted); }
+.closing {
+  margin-top: 1.6rem; padding-top: 1.2rem; border-top: 1px solid var(--rule);
+  font-size: .95rem; color: var(--ink-soft);
+}
+
+/* deferred section + de-emphasised rows */
+.deferred > h2 { opacity: .78; }
+.verdict-line {
+  background: var(--panel); border-left: 2px solid var(--muted);
+  padding: .75rem 1rem; border-radius: 0 3px 3px 0;
+  font-size: .95rem; color: var(--ink-soft);
+}
+tbody tr.total td { border-top: 1px solid var(--rule-strong); background: var(--panel); color: var(--ink); }
+tbody tr.muted-row td { color: var(--muted); }
+
+/* ---- function cards ---- */
+.fnlist { display: flex; flex-direction: column; gap: 0; margin: 0 0 1.5rem; border-top: 1px solid var(--rule); }
+.fn { padding: 1.25rem 0; border-bottom: 1px solid var(--rule); }
+.fn h3 { margin: 0 0 .2rem; font-size: .98rem; }
+.fn h3 code { background: none; padding: 0; font-size: 1em; color: var(--accent-ink); font-weight: 600; }
+.fn-role {
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  font-size: .8rem; color: var(--muted); margin-bottom: .7em;
+}
+.fn p:last-child { margin-bottom: 0; font-size: .95rem; }
+
+/* ---- phases ---- */
+.phases { list-style: none; counter-reset: ph; padding: 0; margin: 0; display: flex; flex-direction: column; }
+.phases li {
+  counter-increment: ph;
+  display: grid; grid-template-columns: 2.6rem 1fr; gap: 0 .9rem;
+  padding: 1.05rem 0; border-bottom: 1px solid var(--rule);
+}
+.phases li::before {
+  content: "0" counter(ph);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .78rem; font-weight: 500; color: var(--accent);
+  padding-top: .28rem;
+}
+.phases h3 { margin: 0 0 .25rem; font-size: .98rem; }
+.phases p { margin: 0; font-size: .95rem; color: var(--ink-soft); }
+
+/* ---- traps ---- */
+.traps { margin: 0; display: flex; flex-direction: column; }
+.traps > div { padding: .95rem 0; border-bottom: 1px solid var(--rule); }
+.traps dt {
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  font-size: .9rem; font-weight: 600; margin-bottom: .3rem;
+}
+.traps dd { margin: 0; font-size: .95rem; color: var(--ink-soft); max-width: 39rem; }
+
+@media (max-width: 34rem) {
+  .phases li { grid-template-columns: 1fr; gap: .3rem; }
+  .phases li::before { padding-top: 0; }
+  h2 { flex-direction: column; gap: .25rem; }
+}
+</style>
+</head>
+<body>
+<header class="pagehead">
+  <p class="eyebrow">College Soccer Scraper &middot; build plan</p>
+  <h1>Webstream Link Ingestion</h1>
+  <p class="standfirst">Crawl the 374 school athletics sites you already map in <code>roster_sources</code>, pull the per-game &ldquo;Watch&rdquo; links off their schedule pages, and attach them to rows in <code>games</code>.</p>
+  <dl class="meta">
+    <div><dt>Status</dt><dd>Proposed &mdash; not built</dd></div>
+    <div><dt>Phases</dt><dd>6</dd></div>
+    <div><dt>New cron jobs</dt><dd>2</dd></div>
+    <div><dt>Sampled</dt><dd>849 events, 45 schools</dd></div>
+    <div><dt>Researched</dt><dd>4 Sep 2026</dd></div>
+  </dl>
+</header>
+
+<section class="verdict">
+  <h2>The short version</h2>
+  <p><strong>You already ingest schedules.</strong> <code>nightly-ingest</code>&rsquo;s <code>?ahead=7</code> window puts unplayed games in the DB from the NCAA feed, and that feed is authoritative for date, time and opponent. So don&rsquo;t scrape school schedules <em>to get schedules</em> &mdash; that would set up a second, conflicting source of truth for data you already have. Scrape them for the one thing the NCAA feed does not carry at all: <strong>media links</strong>.</p>
+  <p><strong>The NCAA feed carries no broadcast data.</strong> Of 4,956 D1 games in the 2026 season, <strong>zero</strong> have a <code>broadcaster_name</code>. The column exists and <code>/scores</code> already renders it; nothing has ever filled it.</p>
+  <p><strong>The links are there, and I confirmed it on live sites today</strong> &mdash; on all three platforms your roster pipeline already classifies. The plan below reuses that pipeline&rsquo;s shape almost exactly.</p>
+  <p><strong>But set expectations on volume.</strong> Sampling 849 events across 45 schools, <strong>47%</strong> carry some watch link and <strong>22%</strong> carry a real per-game URL &mdash; the rest point at conference landing pages. That is a floor rather than a forecast, since links get attached as fixtures approach, but this will not be a Watch button on every card. Full numbers in &sect;02.</p>
+</section>
+
+<section>
+  <h2><span class="num">01</span>What I verified</h2>
+  <p>Everything in this table came from a live fetch while writing this plan, not from documentation.</p>
+
+  <div class="tablewrap">
+  <table>
+    <thead>
+      <tr><th>Platform</th><th class="num-col">Sources</th><th>Where the links live</th><th>What came back</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>sidearm</code><br><span class="sub">NextGen</span></td>
+        <td class="num-col">422</td>
+        <td><code>/api/v2/Sports</code> &rarr; <code>scheduleId</code> &rarr; <code>/api/v2/Schedule/{id}</code></td>
+        <td><span class="pill pill-good">Clean JSON</span> 46&nbsp;KB, 17 events, <code>media.video.url</code> populated with ESPN+ deep links</td>
+      </tr>
+      <tr>
+        <td><code>sidearm-html</code><br><span class="sub">old ASP.NET</span></td>
+        <td class="num-col">683</td>
+        <td><code>/sports/mens-soccer/schedule</code> &mdash; <code>li.sidearm-schedule-game-links-video &gt; a[href]</code></td>
+        <td><span class="pill pill-ok">HTML</span> 12 video links on Butler&rsquo;s page; <code>aria-label</code> carries opponent + date</td>
+      </tr>
+      <tr>
+        <td><code>wmt</code><br><span class="sub">Nuxt SSR</span></td>
+        <td class="num-col">52</td>
+        <td><code>/sports/{msoc|mens-soccer}/schedule</code> &mdash; <code>a.schedule-event-item-links__link</code></td>
+        <td><span class="pill pill-ok">HTML</span> 8 ESPN+ deep links on Virginia&rsquo;s page, in server-rendered markup</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="callout callout-note">
+    <p class="callout-h">Good news on WMT</p>
+    <p>The schedule links sit in plain server-rendered anchors with an <code>entity-id</code> per event &mdash; you do <em>not</em> need the <code>__NUXT_DATA__</code> devalue-graph walk that <code>parseWmtRoster</code> needs. <code>node-html-parser</code> is enough for both HTML platforms.</p>
+  </div>
+
+  <h3>The Sidearm NextGen payload, verbatim</h3>
+  <p>One event from <code>gopack.com/api/v2/Schedule/729</code>, trimmed to the fields that matter:</p>
+<pre><code>{
+  "id": 24642,
+  "date": "2026-08-20T19:30:00",
+  "dateUtc": "...",  "tbd": false,
+  "locationIndicator": "H",
+  "opponent": { "id": 47, "title": "Coastal Carolina" },
+  "media": {
+    "tv": "",
+    "tvImage": "/images/2025/8/5/accnx-Logo_l90Hs.png",
+    "video": {
+      "title": "Watch",
+      "url": "https://www.espn.com/watch/player?id=b0b03d93-f46a-43a6-803b-a69b470adf51"
+    },
+    "stats": {
+      "title": "Live stats",
+      "url": "https://stats.statbroadcast.com/broadcast/?id=667716"
+    }
+  }
+}</code></pre>
+  <p>Date, home/away indicator, opponent name, the watch URL, a live-stats URL, and a network logo &mdash; enough to match the game and to label the link. Note that NC State publishes a watch URL for its <em>away</em> games too, so the home and away schools independently advertise the same broadcast. That redundancy is worth exploiting.</p>
+
+  <h3>A webstream and a TV broadcast are not the same thing</h3>
+  <p>The schedule feed does not separate them &mdash; <code>media.video.url</code> carries both &mdash; so it is worth being precise about what actually turns up there. Same 387-event sidearm sample:</p>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>What the event has</th><th class="num-col">Events</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td>Carrier name <em>and</em> URL</td><td class="num-col">96</td><td>Best case &mdash; label and link agree</td></tr>
+      <tr><td>URL only</td><td class="num-col">121</td><td>Carrier must be inferred from the URL host</td></tr>
+      <tr><td>Carrier name only</td><td class="num-col">35</td><td>Broadcast known, no link to give</td></tr>
+      <tr><td>Network logo only</td><td class="num-col">15</td><td><code>tv</code> blank but <code>tvImage</code> names the carrier</td></tr>
+      <tr class="muted-row"><td>Nothing</td><td class="num-col">120</td><td>No broadcast advertised</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>Of the 131 events naming a carrier, the split is lopsided but not clean:</p>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>Access type</th><th class="num-col">Events</th><th>Carriers seen in the sample</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Direct-to-consumer stream</strong></td><td class="num-col">118</td><td>ESPN+ (59), B1G+ (32), ACC Network Extra (15), UConn+ (8), ACCNX, BTN+, FloSports, YouTube</td></tr>
+      <tr><td><strong>Linear TV</strong></td><td class="num-col">13</td><td>Big Ten Network (7), ACC Network (4), BTN, ACCN</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="callout callout-warn">
+    <p class="callout-h">The failure mode this creates</p>
+    <p>Linear-TV events still carry a URL, and it is a cable-authenticated simulcast page: <code>Big Ten Network &rarr; foxsports.com/live/btn</code> (4 events), <code>ACC Network &rarr; espn.com</code> (2). A naive Watch button on those sends the viewer to a page demanding a TV-provider login. That is a worse outcome than showing no button, because it looks like a broken link rather than a cable game.</p>
+  </div>
+
+  <div class="callout callout-warn">
+    <p class="callout-h">Carrier names need normalizing</p>
+    <p>The sample produced <strong>12 distinct <code>tv</code> strings for about 6 actual carriers</strong>: &ldquo;Big Ten Network&rdquo; / &ldquo;BTN&rdquo;, &ldquo;ACC Network Extra&rdquo; / &ldquo;ACCNX&rdquo;, &ldquo;ACC Network&rdquo; / &ldquo;ACCN&rdquo;. Writing <code>tv</code> straight into <code>broadcaster_name</code> would put all twelve on the scoreboard. A small lookup map fixes it &mdash; about 20 entries covers the field &mdash; and <code>tvImage</code>&rsquo;s filename (<code>accnx-Logo</code>, <code>B1G_plus</code>, <code>uconn_plus</code>) is a usable fallback for the 15 events where <code>tv</code> is blank.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">02</span>Why this is cheap: the crawl map already exists</h2>
+  <p><code>roster_sources</code> is not really a roster table &mdash; it is a <em>(team, sport, season) &rarr; athletics site</em> map, with the platform already classified and verified. For the 2026 season it holds:</p>
+  <ul class="stats">
+    <li><span class="stat">578</span> verified sources <span class="sub">208 MSO + 370 WSO</span></li>
+    <li><span class="stat">374</span> distinct domains</li>
+    <li><span class="stat">3</span> platforms, all parseable</li>
+  </ul>
+  <p>A full sweep is therefore ~578 HTTP requests, not a discovery project. The hard part of this build &mdash; working out which URL belongs to which school and what software it runs &mdash; is already done and in production.</p>
+
+  <h3>Coverage ceiling</h3>
+  <p>Share of 2026 D1 games where at least one participating team has a verified source:</p>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>Sport</th><th class="num-col">Games</th><th class="num-col">Either side reachable</th><th class="num-col">Home side reachable</th></tr></thead>
+    <tbody>
+      <tr><td>MSO</td><td class="num-col">1,787</td><td class="num-col">1,784 <span class="sub">99.8%</span></td><td class="num-col">1,722 <span class="sub">96.4%</span></td></tr>
+      <tr><td>WSO</td><td class="num-col">3,169</td><td class="num-col">3,131 <span class="sub">98.8%</span></td><td class="num-col">2,880 <span class="sub">90.9%</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>That is the ceiling on <em>reachability</em>, not on links found &mdash; plenty of reachable games simply have no stream. But it means crawl coverage is not the bottleneck, and scraping both sides of a fixture recovers most of the gap where the home school&rsquo;s site fails.</p>
+
+  <h3>How many games actually have a link</h3>
+  <p>Reachability and link coverage are different numbers, so I measured the second one directly: 45 schools sampled across the three platforms, 849 men&rsquo;s soccer events, counted per event.</p>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>Platform</th><th class="num-col">Sites</th><th class="num-col">Events</th><th class="num-col">Any video link</th><th class="num-col">Per-game deep link</th><th class="num-col">Broadcaster named</th></tr></thead>
+    <tbody>
+      <tr><td><code>sidearm</code></td><td class="num-col">20/20</td><td class="num-col">387</td><td class="num-col">56%</td><td class="num-col">33%</td><td class="num-col">48%</td></tr>
+      <tr><td><code>sidearm-html</code></td><td class="num-col">15/15</td><td class="num-col">299</td><td class="num-col">38%</td><td class="num-col">10%</td><td class="num-col">49%</td></tr>
+      <tr><td><code>wmt</code></td><td class="num-col">4/10</td><td class="num-col">163</td><td class="num-col">44%</td><td class="num-col">18%</td><td class="num-col">&mdash;</td></tr>
+      <tr class="total"><td><strong>All</strong></td><td class="num-col">39/45</td><td class="num-col">849</td><td class="num-col"><strong>47%</strong></td><td class="num-col"><strong>22%</strong></td><td class="num-col"><strong>39%</strong></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>So: roughly <strong>half</strong> of games carry some kind of watch link, and roughly <strong>one in five</strong> carries a real per-game URL. The rest of the &ldquo;links&rdquo; are conference landing pages &mdash; Indiana points 13 of its 21 events at <code>bigtenplus.com/en-int/page/home</code>, Providence points 8 at <code>plus.espn.com</code>. Michigan and Duke, by contrast, publish a distinct URL per fixture.</p>
+  <div class="callout callout-warn">
+    <p class="callout-h">Three caveats on these numbers</p>
+    <p>They are a <strong>floor, not a forecast.</strong> This snapshot was taken on 4 September, two weeks into the season, so most of the events counted are future fixtures &mdash; schools routinely attach the stream link in the days before kickoff, so in-season coverage should run higher than 47%.</p>
+    <p>The <code>wmt</code> row is the least trustworthy: 6 of 10 sites are client-rendered and my probe could not read them, and the four that parsed returned 43&ndash;48 events, which is more than a soccer season &mdash; the event splitter is probably picking up other sports. Treat WMT as unmeasured.</p>
+    <p>&ldquo;Deep link&rdquo; here means a URL used exactly once in that school&rsquo;s own schedule. It is a good discriminator but it will misfile the occasional shared link.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">03</span>The matching problem is smaller than it looks</h2>
+  <p>School schedule pages carry no NCAA contest id, so links have to be matched onto <code>games</code> by inference. The natural key is <strong>(team_season_id, contest_date)</strong>, and it is very nearly unique:</p>
+  <div class="callout callout-figure">
+    <p>Across the 2025 and 2026 seasons, <strong>20,386</strong> of <strong>20,428</strong> (team-season, date) pairs map to exactly one game. Only <strong>42</strong> are doubleheaders.</p>
+  </div>
+  <p>So the matcher mirrors <code>roster-match.ts</code>: an exact key match, with a second field as confirmer rather than as the key.</p>
+  <ol class="steps">
+    <li><strong>Key on (team_season_id, contest_date).</strong> The source row already gives you <code>team_id</code>, <code>sport_code</code> and <code>season_id</code> &mdash; exactly the <code>team_seasons</code> unique key &mdash; so sport separation is free.</li>
+    <li><strong>Confirm with the opponent name</strong>, normalized through the existing <code>normalizeName()</code>, against <code>teams.name</code> / <code>short_name</code> of the other side. A confirmed match is <code>matched</code>; a mismatch is <code>ambiguous</code>.</li>
+    <li><strong>Disambiguate doubleheaders</strong> with that same opponent name. This is the only case where it is load-bearing.</li>
+    <li><strong>Fall back to &plusmn;1 day</strong> only when the exact date misses <em>and</em> the opponent name confirms. Late-Pacific and Hawaii kickoffs can land on a different calendar date on the school&rsquo;s own page than in the NCAA feed.</li>
+    <li><strong>Queue the rest.</strong> Anything unmatched or ambiguous goes to <code>stream_entry_queue</code> for review, never silently dropped &mdash; the same discipline as <code>roster_entry_queue</code>.</li>
+  </ol>
+</section>
+
+<section class="deferred">
+  <h2><span class="num">04</span>ESPN as a second source &mdash; deferred</h2>
+  <p class="verdict-line"><strong>Decision: not in v1.</strong> Skipping it costs nothing on stream links, because it never supplied any. It only forgoes a better fill rate on <code>broadcaster_name</code>, which the school crawl already covers at ~39&ndash;49%. The section stays here because it is a clean, self-contained addition whenever you want it &mdash; no schema change.</p>
+  <p>ESPN runs a public scoreboard API for both college soccer leagues, and it answers a whole date in one call:</p>
+<pre><code>https://site.api.espn.com/apis/site/v2/sports/soccer/usa.ncaa.m.1/scoreboard?dates=20260905
+https://site.api.espn.com/apis/site/v2/sports/soccer/usa.ncaa.w.1/scoreboard?dates=20260905</code></pre>
+  <p>On the date I sampled, <strong>32 of 38</strong> men&rsquo;s events (84%) carried a <code>broadcasts</code> / <code>geoBroadcasts</code> entry naming the carrier &mdash; FloSports, ESPN+, and so on.</p>
+  <div class="callout callout-warn">
+    <p class="callout-h">It gives names, not URLs</p>
+    <p>I checked both the site API and <code>sports.core.api.espn.com</code>: neither exposes a watch URL. The <code>links</code> array has summary, video and odds pages, no stream. So ESPN <strong>complements</strong> the school crawl, it does not replace it &mdash; two calls a day fill <code>broadcaster_name</code> for ~84% of games, and the school crawl supplies the clickable link.</p>
+  </div>
+  <p>The case for adding it later: at 84% it roughly doubles the school sites&rsquo; own broadcaster fill rate, it makes the existing broadcaster line on <code>/scores</code> real for most games, and it tells you which games <em>should</em> have a link &mdash; which is the signal you would want to audit the crawl against. None of that is on the critical path for shipping watch links.</p>
+</section>
+
+<section>
+  <h2><span class="num">05</span>Schema</h2>
+
+  <h3>Streams are a side table, not a column</h3>
+  <p>A game can have a home-school link, an away-school link, a live-stats link and a radio feed, and links change as kickoff approaches. That is a one-to-many relationship with its own lifecycle, so it does not belong on <code>games</code>.</p>
+
+<pre><code>create table game_streams (
+  id                bigserial primary key,
+  game_id           bigint not null references games (id) on delete cascade,
+  kind              text not null check (kind in ('video','audio','stats','tickets')),
+  url               text,                    -- null when a carrier is named but no link given
+  label             text,                    -- 'Watch', 'Live stats'
+
+  -- the three independent axes (see below)
+  carrier           text,                    -- normalized: 'espn_plus' | 'b1g_plus' | 'accn' | ...
+  access            text not null default 'unknown'
+                    check (access in ('free','subscription','tv_authenticated','unknown')),
+  is_deep_link      boolean not null default false,
+
+  source_side       text not null check (source_side in ('home','away')),
+  roster_source_id  bigint not null references roster_sources (id),
+  external_event_id text,                    -- Sidearm game id / WMT entity-id
+  first_seen_at     timestamptz not null default now(),
+  last_seen_at      timestamptz not null default now(),
+  unique (game_id, kind, coalesce(url, carrier))
+);
+create index game_streams_game_idx on game_streams (game_id);</code></pre>
+
+  <div class="callout callout-note">
+    <p class="callout-h">Three axes, deliberately independent</p>
+    <p><strong><code>is_deep_link</code></strong> is about the URL&rsquo;s specificity &mdash; does it point at <em>this</em> game? <strong><code>access</code></strong> is about what the viewer needs to watch &mdash; nothing, a subscription, or a cable login. <strong><code>carrier</code></strong> is who is showing it. They do not correlate: a B1G+ per-game link is deep <em>and</em> paywalled; <code>foxsports.com/live/btn</code> is generic <em>and</em> cable-gated; a school&rsquo;s own <code>/showcase?Live=7307</code> is deep <em>and</em> free. Collapsing any two of these loses information you need to decide what to render.</p>
+  </div>
+
+  <p><code>url</code> is nullable now because 35 of 387 sampled events named a carrier without giving a link. Those rows are still worth keeping &mdash; they are how <code>/scores</code> says &ldquo;on ACC Network&rdquo; for a game with nothing to click.</p>
+
+  <div class="callout callout-note">
+    <p class="callout-h">Why <code>is_deep_link</code> earns its place</p>
+    <p>Butler&rsquo;s schedule page labels its games &ldquo;Watch (ESPN+)&rdquo; but every link points at <code>espn.com/search/_/q/butler/o/watch</code> &mdash; a search page, not a broadcast. NC State and Virginia publish real per-game player URLs. Both are worth storing, but only one is worth surfacing as a Watch button, so classify at ingest: a URL carrying an event or video id is a deep link; a bare search or channel page is not.</p>
+  </div>
+
+  <h3>The carrier map</h3>
+  <p>A static lookup, not a table &mdash; it is code, it changes rarely, and it belongs next to the parsers so it is unit-tested with them. Roughly 20 entries covers what the sample turned up:</p>
+<pre><code>// src/lib/server/carriers.ts
+export const CARRIERS = {
+  'espn+':               { carrier: 'espn_plus',  access: 'subscription' },
+  'espn plus':           { carrier: 'espn_plus',  access: 'subscription' },
+  'b1g+':                { carrier: 'b1g_plus',   access: 'subscription' },
+  'btn+':                { carrier: 'b1g_plus',   access: 'subscription' },
+  'acc network extra':   { carrier: 'accnx',      access: 'subscription' },
+  'accnx':               { carrier: 'accnx',      access: 'subscription' },
+  'flosports':           { carrier: 'flosports',  access: 'subscription' },
+  'youtube':             { carrier: 'youtube',    access: 'free' },
+  'big ten network':     { carrier: 'btn',        access: 'tv_authenticated' },
+  'btn':                 { carrier: 'btn',        access: 'tv_authenticated' },
+  'acc network':         { carrier: 'accn',       access: 'tv_authenticated' },
+  'accn':                { carrier: 'accn',       access: 'tv_authenticated' },
+  // school-run services ('UConn+', 'Friars Live', ...) -> { school_stream, subscription }
+};</code></pre>
+  <p>Resolution order at ingest: the <code>tv</code> string through this map; failing that the <code>tvImage</code> filename; failing that the URL host (<code>bigtenplus.com</code> &rarr; <code>b1g_plus</code>, <code>youtube.com</code> &rarr; <code>youtube</code>). Anything unrecognized lands as <code>carrier: null, access: 'unknown'</code> and shows up in the admin surface as a prompt to add a map entry &mdash; that is how the map stays current without a migration.</p>
+
+  <h3>One preferred link per game</h3>
+  <p>Preference order matters more now: a free school stream should beat a cable-gated network page even though both are &ldquo;a video link&rdquo;.</p>
+<pre><code>create view game_primary_stream as
+select distinct on (game_id)
+       game_id, url, carrier, access, label, is_deep_link, source_side
+from   game_streams
+where  kind = 'video' and url is not null
+order  by game_id,
+          is_deep_link desc,
+          array_position(array['free','subscription','unknown','tv_authenticated'], access),
+          (source_side = 'home') desc,
+          last_seen_at desc;
+
+grant select on game_primary_stream to anon, authenticated, service_role;</code></pre>
+  <div class="callout callout-warn">
+    <p class="callout-h">The page must not query this view</p>
+    <p><code>DISTINCT ON</code> over the whole table is fine for admin and reporting, but a planner is free to materialize it before applying a <code>game_id</code> filter, which turns a scoreboard render into a full scan. <code>/scores</code> should instead do what it already does for pick&rsquo;em: a second query against <code>game_streams</code> filtered by <code>.in('game_id', ids)</code> on the &le;100 games already on screen, folded in client-side. The view stays for humans, not for the hot path.</p>
+  </div>
+  <p>For the same reason, <strong>do not add <code>game_streams</code> to the <code>supabase_realtime</code> publication.</strong> Stream links are set hours ahead and never change mid-match; <code>games</code> is in the publication because scores do.</p>
+  <div class="callout callout-warn">
+    <p class="callout-h">Don&rsquo;t forget the view grant</p>
+    <p>Grants on the underlying table do not cascade to a view. Without the explicit <code>grant select &hellip; to service_role</code>, the edge functions read an empty view and nothing errors.</p>
+  </div>
+
+  <h3>Extend <code>roster_sources</code> rather than fork it</h3>
+  <p>A parallel <code>schedule_sources</code> table would duplicate the domain and platform columns and immediately start drifting from the roster one. Add the schedule fields to the existing row instead:</p>
+<pre><code>alter table roster_sources
+  add column sidearm_schedule_id  text,        -- NextGen scheduleId
+  add column schedule_path        text,        -- '/sports/msoc/schedule'
+  add column schedule_status      text not null default 'unverified',
+  add column schedule_verified_at timestamptz;</code></pre>
+  <p>The table&rsquo;s name becomes a little narrow for what it holds. That is a smaller cost than two mappings that disagree about which platform a school runs.</p>
+
+  <h3>Queue and log</h3>
+  <p><code>stream_entry_queue</code> (unmatched schedule events, mirroring <code>roster_entry_queue</code>) and <code>stream_scrape_log</code> (one row per source per run, mirroring <code>roster_scrape_log</code>). RLS on all three: public read on <code>game_streams</code> since it is display data; authenticated-only on the queue and log.</p>
+</section>
+
+<section>
+  <h2><span class="num">06</span>Pipeline</h2>
+  <p>Three edge functions, deployed <code>verify_jwt:false</code> and checking the service-role bearer themselves, exactly like the roster trio. Targeting on all three: <code>?source=</code> | <code>?team=</code> | default = every source with <code>status='verified'</code>.</p>
+
+  <div class="fnlist">
+    <article class="fn">
+      <h3><code>schedule-discovery</code></h3>
+      <p class="fn-role">On demand &mdash; resolves the schedule address per source, once per season.</p>
+      <p>For <code>sidearm</code>: fetch <code>/api/v2/Sports</code>, match the soccer entry by title and gender, store its <code>scheduleId</code>. For <code>sidearm-html</code> and <code>wmt</code>: probe the slug variants (<code>mens-soccer</code>, <code>msoc</code>, <code>womens-soccer</code>, <code>wsoc</code>), keep whichever returns a page with parseable events, store it as <code>schedule_path</code>. Sets <code>schedule_status</code>. This is the direct analogue of <code>roster-discovery</code>, including the sport-slug variance that already bites there.</p>
+    </article>
+    <article class="fn">
+      <h3><code>stream-scrape</code></h3>
+      <p class="fn-role">Fetch and archive only &mdash; no parsing, no writes to game tables.</p>
+      <p>Fetch the schedule JSON or HTML and archive it verbatim to a new private <code>schedule-raw</code> bucket at <code>{sport}/{year}/{teamId}.{json|html}</code>. The archive is the point: when a parser bug turns up you re-run the ingest against Storage instead of hitting 374 schools again.</p>
+      <p><strong>It must be batched, not one long sweep.</strong> <code>roster_scrape_log</code> puts the real cost at <strong>2.28s per source on average, 61.8s at worst</strong>. A 578-source sweep is therefore ~22 minutes of wall clock &mdash; far past an edge function&rsquo;s budget. So: take <code>?limit=</code> (default ~40) and a cursor, work a bounded slice per invocation, and let the cron fire it repeatedly until the season&rsquo;s sources are covered. Every <code>fetch</code> gets an <code>AbortController</code> at ~15s.</p>
+    </article>
+    <article class="fn">
+      <h3><code>stream-ingest</code></h3>
+      <p class="fn-role">Read the archive, parse, match, upsert. No external fetches.</p>
+      <p>Parse per platform &mdash; <code>parseSidearmSchedule</code> (JSON), <code>parseSidearmHtmlSchedule</code>, <code>parseWmtSchedule</code> (both <code>node-html-parser</code>) &mdash; then run the matcher from &sect;03, classify each link&rsquo;s provider and deep-link status, and bulk-upsert <code>game_streams</code> on <code>(game_id, kind, url)</code>, touching <code>last_seen_at</code>. Unmatched events land in <code>stream_entry_queue</code>. Writes one <code>stream_scrape_log</code> row per source.</p>
+    </article>
+  </div>
+
+  <p>The <code>tv</code> field the schedule pages carry alongside the video link should be written to <code>games.broadcaster_name</code> in the same pass &mdash; it is already in the payload you are parsing, and it fills a column that is empty today. Write it <em>through the carrier map</em> (&sect;05), not raw, or the scoreboard ends up showing &ldquo;BTN&rdquo; and &ldquo;Big Ten Network&rdquo; as if they were different networks. A separate ESPN pass (&sect;04) is deferred.</p>
+
+  <div class="callout callout-warn">
+    <p class="callout-h">Keep the parsers pure and unit-tested</p>
+    <p>Follow the <code>roster-match.ts</code> precedent: parsers and matcher live in <code>src/lib/server/</code> as pure functions with Vitest coverage, and the edge functions inline a copy. This is the one part of the pipeline where a silent logic bug produces plausible-looking wrong links rather than an error.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">07</span>Cron</h2>
+  <p>Two new pg_cron jobs, both via <code>pg_net</code> with the existing <code>edge_service_key</code> Vault secret, slotted in after the jobs that already run at 08:00&ndash;08:15 UTC.</p>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>Job</th><th>Schedule</th><th>Scope</th></tr></thead>
+    <tbody>
+      <tr><td><code>stream-sync</code></td><td><code>30 8 * * *</code></td><td>Full sweep: scrape + ingest every verified source for the current season</td></tr>
+      <tr><td><code>stream-sync-gameday</code></td><td><code>0 15 * * *</code></td><td>Only sources with a game in the next 72h &mdash; catches links posted the morning of</td></tr>
+      <tr class="muted-row"><td><code>espn-broadcasts</code></td><td>&mdash;</td><td>Deferred (&sect;04); <code>broadcaster_name</code> comes from the schedule <code>tv</code> field instead</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>Daily is the right cadence. Stream links are published days ahead and change rarely; nothing here justifies the per-minute treatment the live score job needs. Both jobs must no-op in the off-season the way <code>nightly-ingest</code> does &mdash; resolve the season covering today and return early if there isn&rsquo;t one.</p>
+</section>
+
+<section>
+  <h2><span class="num">08</span>Phases</h2>
+  <p>Ordered by dependency. Each is independently shippable and leaves the site working.</p>
+  <ol class="phases">
+    <li>
+      <h3>Schema and storage foundation</h3>
+      <p><code>game_streams</code>, <code>stream_entry_queue</code>, <code>stream_scrape_log</code>, the <code>roster_sources</code> columns, the <code>schedule-raw</code> bucket, the <code>game_primary_stream</code> view, grants and RLS.</p>
+    </li>
+    <li>
+      <h3>Parsers and matcher, with tests</h3>
+      <p>Three pure parsers plus <code>matchScheduleEvents</code> in <code>src/lib/server/</code>, unit-tested against archived fixtures from NC State, Butler and Virginia &mdash; the three pages I already pulled. No network, no DB.</p>
+    </li>
+    <li>
+      <h3><code>schedule-discovery</code></h3>
+      <p>Resolve <code>sidearm_schedule_id</code> / <code>schedule_path</code> for all 578 sources. Expect a failed tail on the slug variants and the SPA-only WMT sites; work it manually the way the roster tail was worked.</p>
+    </li>
+    <li>
+      <h3><code>stream-scrape</code> + <code>stream-ingest</code></h3>
+      <p>The two edge functions. Run against one conference first, read <code>stream_scrape_log</code> and the queue, then widen.</p>
+    </li>
+    <li>
+      <h3>Cron</h3>
+      <p>Schedule both jobs. Watch the first week&rsquo;s <code>stream_scrape_log</code> before trusting the output.</p>
+    </li>
+    <li>
+      <h3>Surfaces</h3>
+      <p>Render by <code>access</code>, not just by presence of a URL: a <strong>Watch</strong> link for <code>free</code> and <code>subscription</code> (badged with the carrier, so &ldquo;ESPN+&rdquo; sets the expectation of a paywall before the click); plain text like <strong>on ACC Network</strong> for <code>tv_authenticated</code> and for carrier-without-URL rows, with no link at all. An admin coverage page under <code>/admin</code> mirroring <code>/admin/roster</code>: per-source last run, link counts, queue depth, share of upcoming games with a deep link, and unrecognized carrier strings awaiting a map entry.</p>
+    </li>
+  </ol>
+</section>
+
+<section>
+  <h2><span class="num">09</span>Traps</h2>
+  <p>Most of these are lessons your existing pipelines already paid for. They apply here unchanged.</p>
+  <dl class="traps">
+    <div>
+      <dt>Concurrent writes to shared rows deadlock</dt>
+      <dd>The 30-wide backfill fan-out that produced 72 deadlocks is the precedent. Here the writes are per-game so contention is lower, but keep concurrency at 8 and let one invocation walk the source list rather than firing many invocations at once.</dd>
+    </div>
+    <div>
+      <dt>A 200 does not mean it worked</dt>
+      <dd>Per-source errors get caught and logged, exactly as in <code>nightly-ingest</code>. Judge a run by <code>stream_scrape_log</code>, never by the HTTP status.</dd>
+    </div>
+    <div>
+      <dt>PostgREST truncates at 1000 rows, silently</dt>
+      <dd>A season is ~5,000 games. Every read that can exceed 1000 rows must paginate explicitly. <strong>This one is not hypothetical:</strong> <code>roster-scrape</code>&rsquo;s <code>resolveTargets</code> selects <code>status='verified'</code> with no pagination, and there are <strong>1,157</strong> such rows &mdash; so it is already silently skipping ~157 sources on a default run. Do not copy that function&rsquo;s target resolution.</dd>
+    </div>
+    <div>
+      <dt>Edge functions have a wall clock; sequential loops blow it</dt>
+      <dd>The roster functions iterate targets with a plain sequential <code>for</code> loop. At the measured 2.28s per source that is fine for a handful and impossible for 578. Batch with a limit and cursor (&sect;06) rather than assuming concurrency that the reference implementation does not actually have.</dd>
+    </div>
+    <div>
+      <dt>No fetch in the existing pipeline has a timeout</dt>
+      <dd><code>roster-scrape</code>, <code>roster-ingest</code> and <code>nightly-ingest</code> contain zero <code>AbortController</code>s, which is why the log has a 61.8s single-source worst case &mdash; a remote site hanging with nothing to cut it off. One unresponsive school should cost 15 seconds, not a whole run.</dd>
+    </div>
+    <div>
+      <dt>Stay clear of the every-minute live job</dt>
+      <dd><code>nightly-ingest-live</code> runs on <code>* * * * *</code>. Long transactions or a saturated connection pool during a stream sweep would make those invocations stack up. Keep writes in small batches, hold no long transactions, and keep the 08:30 UTC slot &mdash; 4:30am ET, when the live gate is guaranteed asleep.</dd>
+    </div>
+    <div>
+      <dt>Sport slugs vary per site</dt>
+      <dd>Already known from rosters, where Syracuse only answers <code>msoccer</code>. Schedule paths vary the same way &mdash; Penn State serves <code>/sports/mens-soccer/schedule</code> and 404s on <code>/sports/msoc/schedule</code>, while Virginia is the reverse. Probe the variants; don&rsquo;t assume.</dd>
+    </div>
+    <div>
+      <dt>Some WMT sites have no server-rendered data</dt>
+      <dd>South Carolina and Kentucky are XHR-only for rosters. Expect the same schools to fail here, and let them fail into the queue rather than special-casing them.</dd>
+    </div>
+    <div>
+      <dt>Link rot</dt>
+      <dd><code>last_seen_at</code> is what makes this manageable: a link the school has removed stops being touched, so a stale-link sweep is a date comparison. Consider hiding a video link that has not been seen in 14 days.</dd>
+    </div>
+    <div>
+      <dt>Be a good guest</dt>
+      <dd>374 domains, one polite pass a day, a real User-Agent, capped concurrency. That is a rounding error against these sites&rsquo; normal traffic &mdash; and it stays that way only if the cadence stays daily.</dd>
+    </div>
+  </dl>
+</section>
+
+<section class="decisions">
+  <h2><span class="num">10</span>Three calls I&rsquo;d like your read on</h2>
+  <p>I&rsquo;ve picked a default for each, so this is buildable as written &mdash; say the word if you&rsquo;d rather go the other way.</p>
+  <ol>
+    <li><p><strong>Both sports, or men&rsquo;s first?</strong> The plan covers MSO and WSO together, since the source map already does. <span class="rec">Default: both.</span></p></li>
+    <li><p><strong>Show non-deep links?</strong> Butler-style generic search URLs are honest but low-value. <span class="rec">Default: store them, don&rsquo;t surface them</span> &mdash; the view already sorts deep links first, so this is a filter, not a schema change.</p></li>
+    <li><p><strong>Take the ESPN broadcaster pass now or later?</strong> <span class="rec rec-done">Settled: later.</span> It supplies names, never URLs, so deferring it costs nothing on links.</p></li>
+  </ol>
+  <p class="closing">The open question the numbers in &sect;02 raise is a product one, not an engineering one: at roughly one game in five carrying a real per-game link, is a Watch button worth shipping on a card where it is usually absent? My read is yes &mdash; the alternative is zero, the rate should climb as fixtures approach, and the same crawl fills the broadcaster line for about half of games regardless. But that is your call to make, and it is worth making before phase 6 rather than after.</p>
+</section>
+</body>
+</html>

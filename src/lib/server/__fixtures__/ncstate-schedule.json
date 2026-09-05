@@ -1,0 +1,104 @@
+{
+ "id": 729,
+ "title": "2026 Men's Soccer Schedule",
+ "games": [
+  {
+   "id": 24642,
+   "date": "2026-08-20T19:30:00",
+   "tbd": false,
+   "locationIndicator": "H",
+   "opponent": {
+    "title": "Coastal Carolina"
+   },
+   "media": {
+    "tv": "",
+    "tvImage": "/images/2025/8/5/accnx-Logo_l90Hs.png",
+    "video": {
+     "title": "Watch",
+     "url": "https://www.espn.com/watch/player?id=b0b03d93-f46a-43a6-803b-a69b470adf51",
+     "label": "Video for Men's Soccer vs Coastal Carolina on August 20, 2026 at 7:30 PM",
+     "cssClass": null
+    },
+    "stats": {
+     "title": "Live stats",
+     "url": "https://stats.statbroadcast.com/broadcast/?id=667716",
+     "label": "Live stats for Men's Soccer vs Coastal Carolina on August 20, 2026 at 7:30 PM",
+     "cssClass": null
+    },
+    "audio": null,
+    "tickets": null
+   }
+  },
+  {
+   "id": 24644,
+   "date": "2026-08-27T19:00:00",
+   "tbd": false,
+   "locationIndicator": "A",
+   "opponent": {
+    "title": "Florida International"
+   },
+   "media": {
+    "tv": "",
+    "tvImage": "/images/2025/8/5/ESPN_FC-1.png",
+    "video": {
+     "title": "Watch",
+     "url": "https://www.espn.com/watch/player/_/id/e9e6d959-8b8e-4175-ae1b-8d9f0e82ed89",
+     "label": "Video for Men's Soccer at Florida International on August 27, 2026 at 7 PM",
+     "cssClass": null
+    },
+    "stats": {
+     "title": "Live stats",
+     "url": "https://stats.statbroadcast.com/broadcast/?id=662313&vislive=ncst",
+     "label": "Live stats for Men's Soccer at Florida International on August 27, 2026 at 7 PM",
+     "cssClass": null
+    },
+    "audio": null,
+    "tickets": null
+   }
+  },
+  {
+   "id": 24647,
+   "date": "2026-09-10T18:00:00",
+   "tbd": false,
+   "locationIndicator": "H",
+   "opponent": {
+    "title": "Duke"
+   },
+   "media": {
+    "tv": "",
+    "tvImage": "/images/2025/8/5/accnx-Logo_l90Hs.png",
+    "video": null,
+    "stats": {
+     "title": "Live stats",
+     "url": "https://stats.statbroadcast.com/broadcast/?id=667715",
+     "label": "Live stats for Men's Soccer vs Duke on September 10, 2026 at 6 PM",
+     "cssClass": null
+    },
+    "audio": null,
+    "tickets": null
+   }
+  },
+  {
+   "id": 24648,
+   "date": "2026-09-15T18:00:00",
+   "tbd": false,
+   "locationIndicator": "H",
+   "opponent": {
+    "title": "UNC Wilmington"
+   },
+   "media": {
+    "tv": "",
+    "tvImage": "/images/2025/8/5/accnx-Logo_l90Hs.png",
+    "video": null,
+    "stats": {
+     "title": "Live stats",
+     "url": "https://stats.statbroadcast.com/broadcast/?id=667719",
+     "label": "Live stats for Men's Soccer vs UNC Wilmington on September 15, 2026 at 6 PM",
+     "cssClass": null
+    },
+    "audio": null,
+    "tickets": null
+   }
+  }
+ ]
+}

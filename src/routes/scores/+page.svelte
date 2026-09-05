@@ -44,6 +44,40 @@
 		games = (data.games as unknown as Game[]) ?? [];
 	});
 
+	// Watch links, keyed by game id (see +page.server.ts). Not realtime: a stream
+	// link is set hours ahead and doesn't change mid-match, unlike the score.
+	type StreamLink = {
+		url: string | null;
+		carrier: string | null;
+		access: 'free' | 'subscription' | 'tv_authenticated' | 'unknown';
+		label: string | null;
+		is_deep_link: boolean;
+		source_side: 'home' | 'away';
+	};
+	const streams = $derived((data.streams ?? {}) as Record<number, StreamLink>);
+
+	// Display name per carrier. Mirrors CARRIER_LABELS in
+	// src/lib/server/carriers.ts — change one, change the other.
+	const CARRIER_LABELS: Record<string, string> = {
+		espn_plus: 'ESPN+', b1g_plus: 'B1G+', accnx: 'ACC Network Extra',
+		secn_plus: 'SEC Network+', flosports: 'FloSports', midco: 'Midco Sports+',
+		espn3: 'ESPN3', btn: 'Big Ten Network', accn: 'ACC Network', secn: 'SEC Network',
+		espnu: 'ESPNU', espn2: 'ESPN2', espnews: 'ESPNews', cbssn: 'CBS Sports Network',
+		fs1: 'FS1', youtube: 'YouTube', facebook: 'Facebook', school_stream: 'School stream'
+	};
+	const carrierName = (s: StreamLink) =>
+		(s.carrier && CARRIER_LABELS[s.carrier]) || s.label || 'Watch';
+
+	/**
+	 * A link is only a button when clicking it actually reaches a broadcast.
+	 * `tv_authenticated` means a cable-provider login (Big Ten Network ->
+	 * foxsports.com/live/btn), and a link with no per-game id lands on a
+	 * carrier's home page — both read as broken links, so they render as plain
+	 * text instead.
+	 */
+	const isWatchable = (s: StreamLink | undefined) =>
+		!!s?.url && s.is_deep_link && (s.access === 'free' || s.access === 'subscription');
+
 	// Slate ordering: live → upcoming → finished → TBD, each by kickoff.
 	//
 	// Done here rather than in the PostgREST query because the order depends on
@@ -590,6 +624,7 @@
 				{@const pick     = picks[game.id]}
 				{@const pickable = isGameOpen(game)}
 				{@const verdict  = displayResult(game, pick)}
+				{@const stream   = streams[game.id]}
 
 				<!-- Header row: round/broadcaster left, status/time right -->
 							<div class="flex items-center justify-between gap-2 mb-1.5">
@@ -597,10 +632,35 @@
 									{#if game.round_description}
 										<span class="font-semibold text-primary-600 dark:text-primary-400 uppercase tracking-wide">{game.round_description}</span>
 									{/if}
-									{#if game.round_description && game.broadcaster_name}
+									{#if game.round_description && (stream?.carrier || game.broadcaster_name)}
 										<span class="text-gray-300 dark:text-gray-600">·</span>
 									{/if}
-									{#if game.broadcaster_name}
+									{#if isWatchable(stream)}
+										<!-- Only a real per-game link on a service you can just open
+										     becomes a button. The carrier is on the label so a paywall
+										     is obvious before the click, not after. -->
+										<a
+											href={stream.url}
+											target="_blank"
+											rel="noopener noreferrer"
+											onclick={(e) => e.stopPropagation()}
+											title="Watch on {carrierName(stream)}"
+											class="inline-flex shrink-0 items-center gap-1 rounded-sm bg-primary-500/10 px-1.5 py-px
+												font-semibold uppercase tracking-wide text-primary-700 hover:bg-primary-500/20
+												focus-visible:outline-2 focus-visible:outline-offset-1
+												focus-visible:outline-primary-500 dark:text-primary-400"
+										>
+											<svg viewBox="0 0 24 24" width="9" height="9" fill="currentColor" aria-hidden="true">
+												<path d="M8 5v14l11-7z" />
+											</svg>
+											{carrierName(stream)}
+										</a>
+									{:else if stream?.carrier}
+										<!-- Carrier known, but nothing worth clicking: a cable-gated
+										     simulcast, or a game whose school named the network without
+										     publishing a link yet. -->
+										<span class="text-gray-400 dark:text-gray-500">{carrierName(stream)}</span>
+									{:else if game.broadcaster_name}
 										<span class="text-gray-400 dark:text-gray-500">{game.broadcaster_name}</span>
 									{/if}
 								</div>
