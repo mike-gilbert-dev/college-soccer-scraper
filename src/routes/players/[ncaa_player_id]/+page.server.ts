@@ -1,6 +1,10 @@
 import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { supabaseAdmin } from '$lib/server/supabase-admin';
+import { listPublishedArticlesForPlayer, type ArticleSport } from '$lib/server/articles';
+
+/** Player news feed: first page size (multiple of 3 for the 1/2/3-col card grid). */
+const PLAYER_NEWS_PAGE = 6;
 
 export const load: PageServerLoad = async ({ params, url }) => {
 	const sport      = url.searchParams.get('sport')    ?? 'MSO';
@@ -111,6 +115,22 @@ export const load: PageServerLoad = async ({ params, url }) => {
 		? (mostRecentPs.team_season as unknown as { team: { ncaa_team_id: string; name: string } } | null)?.team
 		: null;
 
+	// News feed at the bottom of the profile: published articles tagged to this
+	// player. Tagging is on the player master row, so this is independent of the
+	// selected season. Sport comes from the player's own most-recent team_season
+	// rather than the ?sport= param, which is often absent on this route (it would
+	// then default to MSO and hide a WSO player's articles). This route uses the
+	// RLS-bypassing admin client, so listPublishedArticlesForPlayer filters
+	// status='published' explicitly (never leaks drafts).
+	const mostRecentSport = (mostRecentPs?.team_season as unknown as { sport_code: string } | null)?.sport_code;
+	const sportCode: ArticleSport = (mostRecentSport ?? sport) === 'WSO' ? 'WSO' : 'MSO';
+	const { rows: news, hasMore: newsHasMore } = await listPublishedArticlesForPlayer(supabaseAdmin, {
+		playerId: player.id,
+		offset: 0,
+		limit: PLAYER_NEWS_PAGE,
+		sport: sportCode
+	});
+
 	return {
 		player,
 		playerSeasons: (playerSeasons ?? []) as unknown as {
@@ -173,6 +193,9 @@ export const load: PageServerLoad = async ({ params, url }) => {
 		}[],
 		psTeamMap,
 		mostRecentTeam,
+		news,
+		newsHasMore,
+		newsNextOffset: news.length,
 		sport,
 		division,
 		seasonLabel

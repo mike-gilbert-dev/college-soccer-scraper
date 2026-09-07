@@ -282,6 +282,13 @@ via [`/api/news`](src/routes/api/news/+server.ts). Article detail pages live at
   pickers, draft/publish toggle. Admin API is gated by `'/api/admin'` in `hooks.server.ts`
   `ADMIN_PATHS`. **Draft = work without displaying it**; an admin can preview a draft at its real
   `/news/[slug]` URL (DRAFT banner + `noindex`); non-admins get a 404.
+- **Entity feeds:** a team page's News tab and the News section at the bottom of a player page
+  both run through `listPublishedArticlesForEntity()` (`article_teams`/`article_players` `!inner`
+  join + embedded eq), paginated by `/api/news?team=` / `?player=`. Both routes load with the
+  **RLS-bypassing admin client**, so the query filters `status='published'` itself. The player feed
+  takes its gender from the player's **most recent `team_seasons.sport_code`, not `?sport=`** —
+  that param is usually absent on `/players/[id]` and would default to MSO, hiding every article
+  for a women's player. The section is omitted entirely when a player has no tagged articles.
 - **SEO:** published articles are added to
   [`sitemap.xml`](src/routes/sitemap.xml/+server.ts) (drafts excluded); detail pages emit OG/article
   meta tags. `/scores` is also in the sitemap.

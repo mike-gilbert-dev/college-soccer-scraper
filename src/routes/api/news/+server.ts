@@ -5,6 +5,7 @@ import { json } from '@sveltejs/kit';
 import {
 	listPublishedArticles,
 	listPublishedArticlesForTeam,
+	listPublishedArticlesForPlayer,
 	type ArticleSport
 } from '$lib/server/articles';
 import type { RequestHandler } from './$types';
@@ -17,12 +18,17 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	const sport: ArticleSport | undefined = sportRaw === 'MSO' || sportRaw === 'WSO' ? sportRaw : undefined;
 
 	// ?team=<internal teams.id> scopes the feed to one team's tagged articles
-	// (used by the News tab on team pages); otherwise the site-wide news feed.
+	// (used by the News tab on team pages); ?player=<internal players.id> does
+	// the same for the news feed on a player page; otherwise the site-wide feed.
 	const teamRaw = url.searchParams.get('team');
 	const teamId = teamRaw ? parseInt(teamRaw, 10) : NaN;
+	const playerRaw = url.searchParams.get('player');
+	const playerId = playerRaw ? parseInt(playerRaw, 10) : NaN;
 
-	const { rows, hasMore } = Number.isFinite(teamId)
-		? await listPublishedArticlesForTeam(locals.supabase, { teamId, offset, limit, sport })
-		: await listPublishedArticles(locals.supabase, { offset, limit, sport });
+	const { rows, hasMore } = Number.isFinite(playerId)
+		? await listPublishedArticlesForPlayer(locals.supabase, { playerId, offset, limit, sport })
+		: Number.isFinite(teamId)
+			? await listPublishedArticlesForTeam(locals.supabase, { teamId, offset, limit, sport })
+			: await listPublishedArticles(locals.supabase, { offset, limit, sport });
 	return json({ articles: rows, hasMore, nextOffset: offset + rows.length });
 };

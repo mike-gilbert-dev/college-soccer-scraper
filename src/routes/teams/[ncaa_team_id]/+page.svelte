@@ -309,7 +309,7 @@
 					{seasonLabel}
 					<ChevronDownOutline class="h-3 w-3 shrink-0 opacity-70" />
 				</button>
-				<Dropdown bind:isOpen={seasonDropdownOpen} placement="bottom-end">
+				<Dropdown bind:isOpen={seasonDropdownOpen} placement="bottom-end" simple>
 					{#each seasons as s}
 						<DropdownItem onclick={() => navigateSeason(s.label)}>{s.label}</DropdownItem>
 					{/each}

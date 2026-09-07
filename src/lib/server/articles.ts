@@ -128,33 +128,54 @@ export async function listPublishedArticles(
 	return { rows: hasMore ? rows.slice(0, limit) : rows, hasMore };
 }
 
-/** Published articles tagged to a given team, newest first, paginated.
- *  A team page is gender-specific, so this includes the page's sport plus
- *  "general" (null) articles and hides the opposite gender. Fetches limit+1
- *  to detect more (same convention as listPublishedArticles). */
-export async function listPublishedArticlesForTeam(
+/** Published articles tagged to a given entity (team or player), newest first.
+ *  `join` is the join table and `column` its FK column; `!inner` restricts the
+ *  result to articles that have a matching join row, and the embedded eq filters
+ *  that join to this entity. Team and player pages are gender-specific, so a
+ *  requested sport includes that sport plus "general" (null) articles and hides
+ *  the opposite gender. Fetches limit+1 to detect more (same convention as
+ *  listPublishedArticles). */
+async function listPublishedArticlesForEntity(
 	client: SupabaseClient,
-	{ teamId, offset, limit, sport }: { teamId: number; offset: number; limit: number; sport?: ArticleSport }
+	join: 'article_teams' | 'article_players',
+	column: 'team_id' | 'player_id',
+	{ id, offset, limit, sport }: { id: number; offset: number; limit: number; sport?: ArticleSport }
 ): Promise<{ rows: ArticleCard[]; hasMore: boolean }> {
-	// !inner restricts to articles that have a matching article_teams row; the
-	// embedded eq filters that join to this team.
 	let query = client
 		.from('articles')
-		.select(`${CARD_COLS}, article_teams!inner(team_id)`)
+		.select(`${CARD_COLS}, ${join}!inner(${column})`)
 		.eq('status', 'published')
-		.eq('article_teams.team_id', teamId);
+		.eq(`${join}.${column}`, id);
 	if (sport) query = query.or(`sport_code.eq.${sport},sport_code.is.null`);
 	const { data, error } = await query
 		.order('published_at', { ascending: false })
 		.range(offset, offset + limit); // inclusive → fetches limit+1
-	if (error) throw new Error(`listPublishedArticlesForTeam failed: ${error.message}`);
+	if (error) throw new Error(`listPublishedArticles via ${join} failed: ${error.message}`);
 	// Strip the join helper column; keep only card fields.
-	const rows = ((data ?? []) as (ArticleCard & { article_teams?: unknown })[]).map((r) => {
-		const { article_teams: _omit, ...card } = r;
+	const rows = ((data ?? []) as (ArticleCard & Record<string, unknown>)[]).map((r) => {
+		const { [join]: _omit, ...card } = r;
 		return card as ArticleCard;
 	});
 	const hasMore = rows.length > limit;
 	return { rows: hasMore ? rows.slice(0, limit) : rows, hasMore };
+}
+
+/** Published articles tagged to a given team (school), newest first, paginated. */
+export async function listPublishedArticlesForTeam(
+	client: SupabaseClient,
+	{ teamId, offset, limit, sport }: { teamId: number; offset: number; limit: number; sport?: ArticleSport }
+): Promise<{ rows: ArticleCard[]; hasMore: boolean }> {
+	return listPublishedArticlesForEntity(client, 'article_teams', 'team_id', { id: teamId, offset, limit, sport });
+}
+
+/** Published articles tagged to a given player, newest first, paginated.
+ *  Tagging is on the player master row (players.id), not a player_season, so a
+ *  player's feed spans every season and team they've appeared for. */
+export async function listPublishedArticlesForPlayer(
+	client: SupabaseClient,
+	{ playerId, offset, limit, sport }: { playerId: number; offset: number; limit: number; sport?: ArticleSport }
+): Promise<{ rows: ArticleCard[]; hasMore: boolean }> {
+	return listPublishedArticlesForEntity(client, 'article_players', 'player_id', { id: playerId, offset, limit, sport });
 }
 
 type RelatedJoin = {

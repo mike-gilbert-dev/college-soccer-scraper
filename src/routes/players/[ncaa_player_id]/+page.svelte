@@ -1,9 +1,12 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import { Button } from 'flowbite-svelte';
 	import { onMount } from 'svelte';
 	import TeamLogo from '$lib/components/TeamLogo.svelte';
 	import PlayerFormChart from '$lib/components/PlayerFormChart.svelte';
 	import MinutesBarChart from '$lib/components/MinutesBarChart.svelte';
+	import ArticleCard from '$lib/components/ArticleCard.svelte';
+	import type { ArticleCard as ArticleCardType } from '$lib/server/articles';
 	import type { PageData } from './$types';
 	import { PUBLIC_SUPABASE_URL } from '$env/static/public';
 	import posthog from 'posthog-js';
@@ -278,6 +281,43 @@
 	const pageDesc = $derived(
 		`${player.name} NCAA college soccer stats${position ? ` (${position})` : ''}${mostRecentTeam ? `, ${mostRecentTeam.name}` : ''}. Career totals and game log.`
 	);
+
+	// ── News: articles tagged to this player, paginated "Load more" ──────────
+	// Seeded from the load function; $effect re-seeds it when SvelteKit reuses
+	// this component for a different player (client-side nav between profiles).
+	let newsCards = $state<ArticleCardType[]>((data.news as ArticleCardType[]) ?? []);
+	let newsOffset = $state<number>(data.newsNextOffset ?? 0);
+	let newsHasMore = $state<boolean>(data.newsHasMore ?? false);
+	let newsLoading = $state(false);
+	let newsError = $state('');
+
+	$effect(() => {
+		newsCards = (data.news as ArticleCardType[]) ?? [];
+		newsOffset = data.newsNextOffset ?? 0;
+		newsHasMore = data.newsHasMore ?? false;
+	});
+
+	async function loadMoreNews() {
+		newsLoading = true;
+		newsError = '';
+		try {
+			const res = await fetch(`/api/news?player=${player.id}&sport=${newsSport}&offset=${newsOffset}&limit=6`);
+			if (!res.ok) throw new Error(`HTTP ${res.status}`);
+			const body = await res.json();
+			newsCards = [...newsCards, ...(body.articles ?? [])];
+			newsOffset = body.nextOffset ?? newsOffset;
+			newsHasMore = !!body.hasMore;
+		} catch (e) {
+			newsError = e instanceof Error ? e.message : String(e);
+		} finally {
+			newsLoading = false;
+		}
+	}
+
+	// Keep "Load more" on the same gender filter the server used: the player's
+	// own most-recent season, not the (often absent) ?sport= param.
+	const newsSport = $derived(currentPs?.team_season.sport_code ?? sport);
+
 </script>
 
 <svelte:head>
@@ -579,4 +619,34 @@
 			</div>
 		{/if}
 	</section>
+
+	<!-- News: articles connected to this player. Hidden entirely when there are none. -->
+	{#if newsCards.length > 0}
+		<section class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+			<div class="flex flex-wrap items-center justify-between gap-2.5 border-b border-gray-200 bg-gray-50 px-3.5 py-2.5 dark:border-gray-700 dark:bg-gray-900">
+				<h2 class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">News</h2>
+			</div>
+
+			<div class="p-3.5">
+				<div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+					{#each newsCards as article (article.id)}
+						<ArticleCard {article} />
+					{/each}
+				</div>
+
+				{#if newsHasMore || newsError}
+					<div class="mt-4 flex flex-col items-center gap-2">
+						{#if newsError}
+							<p class="text-xs text-red-500">Couldn’t load more ({newsError}). <button class="underline" onclick={loadMoreNews}>Retry</button></p>
+						{/if}
+						{#if newsHasMore}
+							<Button color="alternative" size="sm" disabled={newsLoading} onclick={loadMoreNews}>
+								{newsLoading ? 'Loading…' : 'Load more'}
+							</Button>
+						{/if}
+					</div>
+				{/if}
+			</div>
+		</section>
+	{/if}
 </div>

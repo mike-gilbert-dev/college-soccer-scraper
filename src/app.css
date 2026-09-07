@@ -59,6 +59,14 @@
 		border-color: var(--color-gray-700);
 	}
 
+	/* Same story for the button cursor: v3's preflight set `cursor: pointer` on
+	   buttons, v4 leaves the browser default (an arrow), so every plain <button>
+	   in the app stopped reading as clickable. Restore it. */
+	button:not(:disabled),
+	[role='button']:not(:disabled) {
+		cursor: pointer;
+	}
+
 	html {
 		background-color: var(--color-gray-100);
 		color: var(--color-gray-900);
