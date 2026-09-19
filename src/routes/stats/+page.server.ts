@@ -275,14 +275,26 @@ export const load: PageServerLoad = async ({ url }) => {
 	}
 
 	// Per-game rows for every player that appears on any leaderboard.
+	// Paginated: PostgREST caps a response at 1000 rows and truncates silently, so
+	// a bare .limit(20000) would quietly start dropping games once the leaders
+	// (6 categories x 6 players) had played enough of them -- shortening the trend
+	// lines rather than erroring.
+	const PAGE = 1000;
 	const gamesByPs: Record<number, GameStatRow[]> = {};
 	if (leaderPsIds.length > 0) {
-		const { data: pgRows } = await supabaseAdmin
-			.from('player_game_stats')
-			.select('player_season_id, goals, assists, shots_on_goal, gk_saves, gk_shutout, player_game_stats_points, game:games ( contest_date )')
-			.in('player_season_id', leaderPsIds)
-			.limit(20000);
-		for (const r of pgRows ?? []) {
+		const pgRows: Record<string, unknown>[] = [];
+		for (let from = 0; ; from += PAGE) {
+			const { data: pageRows, error } = await supabaseAdmin
+				.from('player_game_stats')
+				.select('player_season_id, goals, assists, shots_on_goal, gk_saves, gk_shutout, player_game_stats_points, game:games ( contest_date )')
+				.in('player_season_id', leaderPsIds)
+				.order('id', { ascending: true })
+				.range(from, from + PAGE - 1);
+			if (error || !pageRows?.length) break;
+			pgRows.push(...pageRows);
+			if (pageRows.length < PAGE) break;
+		}
+		for (const r of pgRows) {
 			const psId = Number(r.player_season_id);
 			const game = r.game as unknown as { contest_date: string } | null;
 			(gamesByPs[psId] ??= []).push({
@@ -300,6 +312,14 @@ export const load: PageServerLoad = async ({ url }) => {
 			gamesByPs[Number(key)].sort((a, b) => a.date.localeCompare(b.date));
 		}
 	}
+
+	// A season-to-date total can only grow. Clamp as a last line of defence so no
+	// data anomaly can render a cumulative line that slopes down -- a shape the
+	// chart's premise makes impossible, and which readers correctly distrust.
+	const monotonic = (arr: number[]): number[] => {
+		let hi = -Infinity;
+		return arr.map(v => (hi = Math.max(hi, v)));
+	};
 
 	// Resample an arbitrary-length cumulative series to exactly N points.
 	function resample(arr: number[], N: number): number[] {
@@ -341,10 +361,15 @@ export const load: PageServerLoad = async ({ url }) => {
 					let acc = 0;
 					const cum = gameRows.map(row => (acc += perGame(row)));
 					series = resample(cum, n);
-					series[n - 1] = r.value; // anchor the end to the true season total
+					// The per-game rows ARE the season total -- player_season_stats sums
+					// these exact rows -- so the curve already ends at the true value.
+					// This used to overwrite the last point with the cached leaders-table
+					// value; whenever that cache lagged player_game_stats the final point
+					// was pulled *below* the rest, drawing a cumulative line that fell.
 				} else {
 					series = Array.from({ length: n }, (_, i) => Math.round(r.value * ((i + 1) / n)));
 				}
+				series = monotonic(series);
 				const tm = info ? teamMap[info.team_season_id] : undefined;
 				return {
 					ncaa_player_id: info?.ncaa_player_id ?? '',

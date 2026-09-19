@@ -1,0 +1,631 @@
+<title>Highlight Video Ingestion</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap">
+<style>
+:root {
+  --ground:      #fcfbf9;
+  --panel:       #f5f1ed;
+  --ink:         #1a1614;
+  --ink-soft:    #443b37;
+  --muted:       #6f645f;
+  --rule:        #e5ddd7;
+  --rule-strong: #cfc4bd;
+  --accent:      #d13d31;
+  --accent-ink:  #a52d23;
+  --good:        #2f7d4f;
+  --warn:        #a2650f;
+  --code-bg:     #f2eee9;
+  --pre-bg:      #241d1b;
+  --pre-ink:     #e8ded8;
+  --pre-tint:    #f0a89f;
+}
+:root:not([data-theme="light"]) { color-scheme: light; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --ground:      #14100f;
+    --panel:       #1e1817;
+    --ink:         #ece5e1;
+    --ink-soft:    #cfc4be;
+    --muted:       #9b8e88;
+    --rule:        #2e2624;
+    --rule-strong: #443936;
+    --accent:      #ff7063;
+    --accent-ink:  #ff8b80;
+    --good:        #67c08a;
+    --warn:        #d9a24a;
+    --code-bg:     #241d1b;
+    --pre-bg:      #0e0b0a;
+    --pre-ink:     #ded4ce;
+    --pre-tint:    #ff9186;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ground:      #14100f;
+  --panel:       #1e1817;
+  --ink:         #ece5e1;
+  --ink-soft:    #cfc4be;
+  --muted:       #9b8e88;
+  --rule:        #2e2624;
+  --rule-strong: #443936;
+  --accent:      #ff7063;
+  --accent-ink:  #ff8b80;
+  --good:        #67c08a;
+  --warn:        #d9a24a;
+  --code-bg:     #241d1b;
+  --pre-bg:      #0e0b0a;
+  --pre-ink:     #ded4ce;
+  --pre-tint:    #ff9186;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  background: var(--ground);
+  color: var(--ink);
+  font-family: "IBM Plex Serif", Georgia, "Times New Roman", serif;
+  font-size: 1.0625rem;
+  line-height: 1.65;
+  margin: 0;
+  padding: clamp(2rem, 6vw, 4.5rem) clamp(1.1rem, 5vw, 2rem) 6rem;
+  -webkit-font-smoothing: antialiased;
+}
+
+header, section { max-width: 44rem; margin-inline: auto; }
+section { margin-top: 3.6rem; }
+p { margin: 0 0 1.05em; max-width: 40rem; }
+strong { font-weight: 600; color: var(--ink); }
+em { font-style: italic; }
+a { color: var(--accent-ink); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+
+.pagehead { border-bottom: 2px solid var(--ink); padding-bottom: 1.6rem; }
+.eyebrow {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .7rem; font-weight: 500; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--accent-ink); margin: 0 0 1rem;
+}
+h1 {
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  font-size: clamp(2.1rem, 6.5vw, 3.1rem);
+  font-weight: 600; line-height: 1.05; letter-spacing: -.025em;
+  text-wrap: balance; margin: 0 0 .85rem;
+}
+.standfirst {
+  font-size: 1.15rem; line-height: 1.55; color: var(--ink-soft);
+  max-width: 36rem; margin-bottom: 1.75rem;
+}
+.meta { display: flex; flex-wrap: wrap; gap: 0 2.25rem; margin: 0; font-family: "IBM Plex Mono", ui-monospace, monospace; }
+.meta div { display: flex; flex-direction: column; gap: .15rem; }
+.meta dt { font-size: .66rem; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.meta dd { margin: 0; font-size: .82rem; color: var(--ink); }
+
+h2 {
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  font-size: 1.5rem; font-weight: 600; letter-spacing: -.015em; line-height: 1.2;
+  text-wrap: balance;
+  margin: 0 0 1.1rem; padding-bottom: .55rem;
+  border-bottom: 1px solid var(--rule-strong);
+  display: flex; align-items: baseline; gap: .7rem;
+}
+h2 .num {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .78rem; font-weight: 500; color: var(--accent);
+  letter-spacing: .08em; flex-shrink: 0;
+}
+h3 {
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  font-size: 1.02rem; font-weight: 600; letter-spacing: -.005em;
+  margin: 2rem 0 .6rem; color: var(--ink);
+}
+
+.verdict { margin-top: 2.75rem; background: var(--panel); border-radius: 3px; padding: 1.6rem 1.75rem .75rem; }
+.verdict h2 { border-bottom-color: var(--rule-strong); }
+.verdict p:last-child { margin-bottom: 1.05em; }
+
+code {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .855em; background: var(--code-bg); color: var(--ink);
+  padding: .1em .35em; border-radius: 2px; word-break: break-word;
+}
+pre {
+  background: var(--pre-bg); color: var(--pre-ink);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .8rem; line-height: 1.6;
+  padding: 1.1rem 1.25rem; border-radius: 4px;
+  overflow-x: auto; margin: 0 0 1.4rem;
+}
+pre code { background: none; padding: 0; font-size: inherit; color: inherit; }
+pre .c { color: var(--pre-tint); }
+
+.tablewrap { overflow-x: auto; margin: 0 0 1.5rem; border: 1px solid var(--rule); border-radius: 4px; }
+table { border-collapse: collapse; width: 100%; font-size: .875rem; min-width: 32rem; }
+thead th {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .66rem; font-weight: 500; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--muted); text-align: left;
+  padding: .7rem .9rem; border-bottom: 1px solid var(--rule-strong);
+  background: var(--panel); white-space: nowrap;
+}
+tbody td { padding: .8rem .9rem; border-bottom: 1px solid var(--rule); vertical-align: top; color: var(--ink-soft); }
+tbody tr:last-child td { border-bottom: none; }
+.num-col { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+th.num-col { text-align: right; }
+.sub { display: inline-block; color: var(--muted); font-size: .78em; font-family: "IBM Plex Mono", ui-monospace, monospace; }
+td .sub { display: block; }
+tbody tr.muted-row td { color: var(--muted); }
+
+.callout { border-left: 2px solid var(--rule-strong); padding: .1rem 0 .1rem 1.1rem; margin: 0 0 1.5rem; }
+.callout p { margin-bottom: .8em; }
+.callout p:last-child { margin-bottom: 0; }
+.callout-h {
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  font-size: .82rem; font-weight: 600; letter-spacing: .01em;
+  margin-bottom: .35em !important;
+}
+.callout-note { border-left-color: var(--good); }
+.callout-note .callout-h { color: var(--good); }
+.callout-warn { border-left-color: var(--warn); }
+.callout-warn .callout-h { color: var(--warn); }
+.callout-figure {
+  border-left-color: var(--accent);
+  background: var(--panel);
+  padding: 1rem 1.2rem;
+  border-radius: 0 3px 3px 0;
+}
+.callout-figure p { font-size: .95rem; color: var(--ink-soft); }
+
+.steps { padding-left: 1.3rem; margin: 0 0 1.4rem; display: flex; flex-direction: column; gap: .7rem; }
+.steps li { padding-left: .3rem; color: var(--ink-soft); max-width: 39rem; }
+.steps li::marker { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: .82em; color: var(--accent); }
+
+.rec { font-family: "IBM Plex Sans", system-ui, sans-serif; font-size: .82rem; font-weight: 600; color: var(--good); }
+.closing { margin-top: 1.6rem; padding-top: 1.2rem; border-top: 1px solid var(--rule); font-size: .95rem; color: var(--ink-soft); }
+.verdict-line {
+  background: var(--panel); border-left: 2px solid var(--muted);
+  padding: .75rem 1rem; border-radius: 0 3px 3px 0;
+  font-size: .95rem; color: var(--ink-soft);
+}
+
+/* the four steps, as the spine of the page */
+.spine { list-style: none; counter-reset: st; padding: 0; margin: 0; display: flex; flex-direction: column; }
+.spine li {
+  counter-increment: st;
+  display: grid; grid-template-columns: 2.4rem 1fr; gap: 0 .9rem;
+  padding: 1rem 0; border-bottom: 1px solid var(--rule);
+}
+.spine li::before {
+  content: counter(st);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .78rem; font-weight: 500; color: var(--accent); padding-top: .3rem;
+}
+.spine h3 { margin: 0 0 .25rem; font-size: .98rem; }
+.spine p { margin: 0; font-size: .95rem; color: var(--ink-soft); }
+
+.traps { margin: 0; display: flex; flex-direction: column; }
+.traps > div { padding: .9rem 0; border-bottom: 1px solid var(--rule); }
+.traps dt { font-family: "IBM Plex Sans", system-ui, sans-serif; font-size: .9rem; font-weight: 600; margin-bottom: .3rem; }
+.traps dd { margin: 0; font-size: .95rem; color: var(--ink-soft); max-width: 39rem; }
+
+@media (max-width: 34rem) {
+  .spine li { grid-template-columns: 1fr; gap: .3rem; }
+  .spine li::before { padding-top: 0; }
+  h2 { flex-direction: column; gap: .25rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+
+<header class="pagehead">
+  <p class="eyebrow">Planning · college-soccer-scraper</p>
+  <h1>Highlight Video Ingestion</h1>
+  <p class="standfirst">
+    A curated list of YouTube channels, checked on a schedule. Videos that can be matched to a sport,
+    a team and a game get stored and embedded on the game page, the team page, and a new
+    <code>/highlights</code>.
+  </p>
+  <dl class="meta">
+    <div><dt>Status</dt><dd>Proposal · v2, simplified</dd></div>
+    <div><dt>Date</dt><dd>2026-09-12</dd></div>
+    <div><dt>Shape</dt><dd>2 tables · 2 jobs · 3 pages</dd></div>
+    <div><dt>Sports</dt><dd>MSO + WSO</dd></div>
+  </dl>
+</header>
+
+<section class="verdict">
+  <h2><span class="num">01</span> The whole thing</h2>
+  <ol class="spine">
+    <li>
+      <h3>Curate the channels</h3>
+      <p>One table of approved channels — NCAA, conferences, schools. You fill it; nothing enters the system from anywhere else.</p>
+    </li>
+    <li>
+      <h3>Check them on a schedule</h3>
+      <p>One cron job reads each channel's uploads feed and keeps what looks like soccer.</p>
+    </li>
+    <li>
+      <h3>Match what you can</h3>
+      <p>Sport, gender, team, game — in that order, stopping wherever the evidence runs out. What doesn't match waits for review instead of disappearing.</p>
+    </li>
+    <li>
+      <h3>Show it in three places</h3>
+      <p>Game page, team page, and <code>/highlights</code> newest-first.</p>
+    </li>
+  </ol>
+  <p class="closing">
+    That's the system. Everything below is how each step works — two Postgres tables, two edge
+    functions, three routes and one admin screen. No new infrastructure, no LLM, no new external
+    dependency beyond a YouTube API key.
+  </p>
+</section>
+
+<section>
+  <h2><span class="num">02</span> The channel list</h2>
+  <p>
+    Curating by hand is the design, not a shortcut around one. It is the only way &ldquo;official
+    sources only&rdquo; can actually be guaranteed, and it's cheap: about 260 rows — ~190 school
+    channels, ~30 conference, the NCAA's, and the handful of schools with a dedicated soccer channel.
+    An afternoon, then near-zero maintenance.
+  </p>
+  <div class="callout callout-warn">
+    <p class="callout-h">Why it can't be automated: youtube.com/@bigten is a rapper</p>
+    <p>
+      Not the Big Ten Conference — it resolves cleanly to a real music channel. Anything that builds
+      a handle from a school or conference name and trusts the result will eventually publish a
+      stranger's videos under a conference's name. Store the <code>UC…</code> channel id, verified by
+      eye once; keep the handle for display only, since handles can be reassigned.
+    </p>
+  </div>
+  <pre><code>CREATE TABLE video_sources (
+  id               bigserial PRIMARY KEY,
+  channel_id       text NOT NULL UNIQUE,      <span class="c">-- 'UC...' — the stable id</span>
+  handle           text,                      <span class="c">-- '@ncstateathletics', display only</span>
+  title            text,                      <span class="c">-- 'NC State Athletics'</span>
+  owner_kind       text NOT NULL CHECK (owner_kind IN ('ncaa','conference','school')),
+  team_id          bigint REFERENCES teams (id),
+  conference_id    bigint REFERENCES conferences (id),
+  sport_code       text,                      <span class="c">-- set ONLY for a soccer-specific channel</span>
+  soccer_playlists text[],                    <span class="c">-- see §03</span>
+  is_active        boolean NOT NULL DEFAULT true,
+  last_checked_at  timestamptz,               <span class="c">-- stalest-first queue</span>
+  created_at       timestamptz NOT NULL DEFAULT now()
+);</code></pre>
+  <p>
+    Two shortcuts for filling it. Schools publish their channel in their own site chrome — NC State's
+    schedule page carries <code>youtube.com/@ncstateathletics</code> in the footer, and you already
+    archive 568 of those pages in the <code>schedule-raw</code> bucket. And <code>game_streams</code>
+    already holds channel URLs schools published themselves: <code>@pac12</code>,
+    <code>@WesternMichiganBroncos</code>, <code>@GoMastodons</code>, a few more. Both are just lists
+    to paste and check — not code to write.
+  </p>
+</section>
+
+<section>
+  <h2><span class="num">03</span> Checking for new videos</h2>
+  <p>
+    YouTube publishes a free uploads feed per channel —
+    <code>feeds/videos.xml?channel_id=UC…</code> — returning the 15 newest videos with id, title,
+    description, publish time and thumbnail. No key, no quota. That's the default path.
+  </p>
+  <p>
+    Where a school keeps a soccer playlist, poll that instead. NC State and Ohio State both have
+    <code>Men's Soccer</code> and <code>Women's Soccer</code> playlists, and
+    <code>playlists.list</code> costs 1 quota unit to find them. It's the better path where it exists:
+    the sport comes stated by the school rather than guessed from a title, and you never have to
+    filter football out because it was never in the list. Store the ids in
+    <code>soccer_playlists</code> and re-check them each preseason.
+  </p>
+  <div class="callout callout-note">
+    <p class="callout-h">One job, not a pipeline</p>
+    <p>
+      <code>video-sync</code> does the whole loop: claim the stalest channels, read the feed or
+      playlist, keep soccer candidates, match them, write rows. ~260 channels is well inside one
+      invocation. Cron it a few times a day — twice is plenty, and one late-evening run catches
+      same-night highlights.
+    </p>
+  </div>
+  <p>
+    The one caveat worth coding for: the feed holds only 15 entries, and a big athletics channel in
+    football season can post that many in a week. Check a few times a day rather than daily, and when
+    all 15 come back new, spend 1 unit on a <code>playlistItems.list</code> page to catch up.
+  </p>
+</section>
+
+<section>
+  <h2><span class="num">04</span> Matching</h2>
+  <p>
+    Four questions, each answered by the cheapest evidence available, and the pipeline can stop after
+    any of them:
+  </p>
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr><th>Question</th><th>Answered by</th><th>If unanswered</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Soccer?</strong></td>
+          <td>The playlist it came from, or <code>soccer</code> / <code>msoc</code> / <code>wsoc</code> / <code>#NCAAWSoccer</code> / ⚽ in title or description</td>
+          <td>Discard — don't store it</td>
+        </tr>
+        <tr>
+          <td><strong>Men's or women's?</strong></td>
+          <td>The playlist, the channel's <code>sport_code</code>, or the same tokens</td>
+          <td>Hold for review</td>
+        </tr>
+        <tr>
+          <td><strong>Which team?</strong></td>
+          <td>The channel — a school channel <em>is</em> a team link. Opponent from the title via <code>opponentMatches()</code></td>
+          <td>Hold for review <span class="sub">(conference / NCAA channels)</span></td>
+        </tr>
+        <tr>
+          <td><strong>Which game?</strong></td>
+          <td>That team's games in <code>published_at −1..−14 days</code>; the opponent name in the title picks between them</td>
+          <td>Keep the team link — it still shows on the team page and <code>/highlights</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <p>
+    A highlight package goes up after the whistle and never before it, so matching backwards from the
+    publish time excludes previews structurally. The window is wide — 14 days — because schools are
+    not prompt: Denver posted its Cal Poly highlights <strong>11 days</strong> after the match. A wide
+    window is safe here only because the opponent name does the actual picking, which the measurement
+    below says it can.
+  </p>
+  <div class="callout callout-note">
+    <p class="callout-h">Measured, 36 schools, September 2026</p>
+    <p>
+      Every game highlight found in a 30-day sample named <strong>both the sport and the
+      opponent</strong> — &ldquo;Match Highlights | Colgate Men's Soccer vs. American | 9.11.26&rdquo;,
+      &ldquo;MSOC v Tulsa (4 SEP 26) - Highlights&rdquo;, &ldquo;St. Joseph's at Bucknell Women's
+      Soccer Highlights 8-30-2026&rdquo;. The terse, sportless title that worried an earlier draft of
+      this plan turns out to be rare: schools that bother posting soccer highlights title them
+      properly, and <a href="../../../src/lib/server/schedule-match.ts"><code>schedule-match.ts</code></a>
+      already handles this shape, abbreviations included.
+    </p>
+  </div>
+  <p>
+    So the ambiguous case — &ldquo;Highlights vs. Purdue&rdquo;, no sport, both teams playing that
+    week — is real but uncommon. It goes to review, and the queue should be small.
+  </p>
+  <div class="callout callout-warn">
+    <p class="callout-h">Most soccer videos are not game highlights</p>
+    <p>
+      In the same sample, only <strong>41%</strong> were. The rest are postgame interviews, coach
+      pressers, hype videos and vertical clips — real content, tied to a game, but not a highlight
+      reel. Store <code>content_kind</code> and let each surface choose: the game page wants
+      <code>game_highlight</code>, <code>/highlights</code> can carry more.
+    </p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">05</span> What gets stored</h2>
+  <p>
+    An embed needs only the video id. Everything else is for sorting, filtering and knowing the embed
+    still works. One table, with the connections as columns rather than join tables — a video has one
+    publisher, at most one opponent, at most one game.
+  </p>
+  <pre><code>CREATE TABLE videos (
+  id                bigserial PRIMARY KEY,
+  youtube_id        text NOT NULL UNIQUE,      <span class="c">-- all the embed needs</span>
+  video_source_id   bigint NOT NULL REFERENCES video_sources (id) ON DELETE CASCADE,
+  title             text NOT NULL,
+  description       text,
+  published_at      timestamptz NOT NULL,
+  thumbnail_url     text,
+  duration_seconds  int,                       <span class="c">-- from videos.list; RSS has none</span>
+  embeddable        boolean,                   <span class="c">-- embedding can be switched off</span>
+
+  <span class="c">-- the connections</span>
+  sport_code        text,                      <span class="c">-- 'MSO' | 'WSO' | NULL if unresolved</span>
+  content_kind      text CHECK (content_kind IN <span class="c">-- only 41% are highlights</span>
+                    ('game_highlight','clip','interview','hype','other')),
+  team_id           bigint REFERENCES teams (id),
+  opponent_team_id  bigint REFERENCES teams (id),
+  game_id           bigint REFERENCES games (id) ON DELETE SET NULL,
+  match_note        text,                      <span class="c">-- 'playlist + date + opponent'</span>
+
+  review_status     text NOT NULL DEFAULT 'ok'
+                    CHECK (review_status IN ('ok','pending','rejected')),
+  api_checked_at    timestamptz,               <span class="c">-- the 30-day clock, §06</span>
+  first_seen_at     timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX videos_recent_idx ON videos (published_at DESC) WHERE review_status = 'ok';
+CREATE INDEX videos_game_idx   ON videos (game_id)  WHERE game_id IS NOT NULL;
+CREATE INDEX videos_team_idx   ON videos (team_id, published_at DESC);</code></pre>
+  <p>
+    Unmatched videos are rows with <code>review_status = 'pending'</code>, not a separate queue table.
+    Public pages filter on <code>'ok'</code>; the admin screen lists <code>'pending'</code>. Both
+    schools may post their own cut of the same game — both rows are real, and the game page picks one
+    (soccer-specific channel first, then home school, then longer).
+  </p>
+  <div class="callout callout-figure">
+    <p>
+      <strong>Nothing here writes to <code>games</code>.</strong> A video links to a game that already
+      exists or to no game at all. The NCAA feed stays the sole authority on which games exist, the
+      same rule the roster and webstream pipelines follow.
+    </p>
+  </div>
+
+  <h3>A highlight is not a live stream</h3>
+  <p>
+    Worth stating because your own data already blurs it: <code>game_streams</code> holds 146 rows
+    with a YouTube URL, and <strong>33 of them are highlight packages</strong> — labelled
+    &ldquo;Highlights&rdquo;, deep-linked to a single video, every one on a completed game. Schools
+    publish the live link and the highlight link in the same schedule field and swap one for the
+    other after the match.
+  </p>
+  <p>
+    So ~33 games on <code>/scores</code> currently show a &ldquo;Watch&rdquo; button that opens a
+    highlight reel. Two consequences, both small: reclassify those rows on ingest so the two systems
+    stop overlapping, and import them here as a starting set — they're highlight videos with a
+    <code>game_id</code> already attached, courtesy of the schools themselves, which also makes them a
+    ready-made test for the matcher.
+  </p>
+</section>
+
+<section>
+  <h2><span class="num">06</span> Keeping it honest</h2>
+  <div class="callout callout-warn">
+    <p class="callout-h">YouTube's 30-day rule is not optional</p>
+    <p>
+      Their Developer Policies require stored API data to be refreshed or deleted within 30 days, and
+      require verifying in that window that a video hasn't been deleted. This is also just good
+      hygiene — videos get made private, or have embedding switched off, and a dead embed is worse
+      than no embed.
+    </p>
+  </div>
+  <p>
+    <code>video-refresh</code> is the second job and the cheapest thing here:
+    <code>videos.list</code> takes 50 ids per call for 1 quota unit, so re-checking a few thousand
+    videos costs about 60 units. Daily, oldest <code>api_checked_at</code> first. It stamps the clock,
+    fills in <code>duration_seconds</code> and <code>embeddable</code>, and deletes rows whose videos
+    are gone. Public queries filter
+    <code>embeddable AND api_checked_at &gt; now() - interval '30 days'</code>, so a lapse degrades to
+    showing nothing rather than to showing something broken.
+  </p>
+  <p>
+    Two other rules to keep in the code review: embed via the standard player, unmodified — no
+    downloading or re-hosting — and use <code>youtube-nocookie.com/embed/&lt;id&gt;</code>.
+  </p>
+</section>
+
+<section>
+  <h2><span class="num">07</span> The three pages</h2>
+  <p>
+    Render a thumbnail with a play button and swap in the iframe on click. One eager iframe is
+    hundreds of kilobytes of third-party script before anyone presses play — on
+    <code>/highlights</code> that's the difference between fast and not.
+  </p>
+  <ul class="steps">
+    <li>
+      <strong>Game page</strong> — the video under the box score, with &ldquo;also from&rdquo; when
+      both schools posted one. A single <code>WHERE game_id = ?</code>.
+    </li>
+    <li>
+      <strong>Team page</strong> — a highlights strip near the articles section, newest first, on
+      <code>team_id</code> alone. Works before any game matching exists.
+    </li>
+    <li>
+      <strong><code>/highlights</code></strong> — everything, newest first, filtered by sport,
+      conference, team and date. Paginate it: a season will pass 1,000 rows, and PostgREST truncates
+      there silently.
+    </li>
+    <li>
+      <strong><code>/admin/videos</code></strong> — the channel list, the pending queue, and the share
+      of completed games that have a video.
+    </li>
+  </ul>
+</section>
+
+<section>
+  <h2><span class="num">08</span> Build order</h2>
+  <ol class="steps">
+    <li><strong>Tables + the channel list.</strong> Two migrations, then fill <code>video_sources</code> by hand. Nothing is blocked behind this but everything depends on it.</li>
+    <li><strong><code>video-sync</code>, matching down to the team.</strong> Skip game matching entirely at first — stop at &ldquo;which team&rdquo;.</li>
+    <li><strong><code>/highlights</code> + the team strip.</strong> Real value, live, on team links alone. This is the point where you can see whether coverage is good enough to bother going further.</li>
+    <li><strong>Game matching + the game page + <code>video-refresh</code> + cron.</strong> The last mile, and the only part that needs the date window and the review queue.</li>
+  </ol>
+  <p class="verdict-line">
+    Steps 1&ndash;3 are the bulk of the value and none of the difficulty — and the September 2026
+    measurement backs that ordering hard: about a third of school channels post game highlights at
+    all, so <code>/highlights</code> and team pages will look healthy while game pages will have a
+    video for perhaps one game in seven. Build the surfaces that fill up first.
+  </p>
+</section>
+
+<section>
+  <h2><span class="num">09</span> Traps</h2>
+  <dl class="traps">
+    <div>
+      <dt>Guessing a channel from a name</dt>
+      <dd><code>@bigten</code>. Verify once by eye, store the <code>UC…</code> id.</dd>
+    </div>
+    <div>
+      <dt>Storing every upload from every channel</dt>
+      <dd>Each stored row carries the 30-day refresh duty. Filter to soccer at the gate — a football press conference has no business in this database.</dd>
+    </div>
+    <div>
+      <dt>Putting an uncertain match on a game page</dt>
+      <dd>A wrong highlight under a scoreline is worse than none. Team page and <code>/highlights</code> are forgiving; the game page isn't.</dd>
+    </div>
+    <div>
+      <dt>Trusting a stale playlist</dt>
+      <dd>A &ldquo;Men's Soccer&rdquo; list last touched in 2019 looks authoritative and returns nothing current. Check the newest item's date.</dd>
+    </div>
+    <div>
+      <dt>Eager iframes on a list page</dt>
+      <dd>Thumbnail plus play button; load the player on click.</dd>
+    </div>
+    <div>
+      <dt><code>search.list</code></dt>
+      <dd>100 quota units a call against a 10,000/day budget, and it returns unvetted channels — it breaks the budget and the curation rule at once. The fix for thin coverage is more approved channels.</dd>
+    </div>
+  </dl>
+</section>
+
+<section>
+  <h2><span class="num">10</span> Cut from the first draft</h2>
+  <p>
+    Recorded so the reasoning isn't lost, and so it's clear these were decisions rather than
+    oversights.
+  </p>
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr><th>Dropped</th><th>Why</th><th>Comes back if…</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>video-discovery</code><span class="sub">auto-mining channels from archived HTML</span></td>
+          <td>You said curate, and curating 260 rows by hand is an afternoon that also gives a better list</td>
+          <td>Never, realistically</td>
+        </tr>
+        <tr>
+          <td>An LLM classifier</td>
+          <td>Soccer playlists resolve the sport for free; the rest is a date window</td>
+          <td>The review queue is large after a season</td>
+        </tr>
+        <tr>
+          <td><code>video_teams</code> + <code>video_games</code> join tables</td>
+          <td>A video has one publisher, one opponent, one game — three columns</td>
+          <td>A video ever needs to link to several games</td>
+        </tr>
+        <tr>
+          <td><code>video_entry_queue</code> + <code>video_poll_log</code></td>
+          <td>Videos have a home table; unmatched ones are a status on it</td>
+          <td>You want per-run timing history like <code>stream_scrape_log</code></td>
+        </tr>
+        <tr>
+          <td>Four edge functions, two cron chains</td>
+          <td>260 feeds fit one invocation — the webstream split existed because 566 sites didn't</td>
+          <td>Channel count grows past a few thousand</td>
+        </tr>
+        <tr class="muted-row">
+          <td>Raw feed archiving to Storage</td>
+          <td>Re-fetching a feed is free and instant; there's nothing to re-parse</td>
+          <td>Never</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">11</span> Three questions</h2>
+  <ol class="steps">
+    <li><strong>A YouTube Data API key</strong> — a Google Cloud project with the YouTube Data API v3 enabled, stored as a Supabase edge secret. Needed for playlists and the 30-day refresh; the feeds themselves work without one.</li>
+    <li><strong>Do unmatched videos appear anywhere public?</strong> This plan says yes to <code>/highlights</code> and the team page once the team is known, no to the game page until reviewed.</li>
+    <li><strong>Shorts</strong> — the vertical clips the NCAA's channel mostly posts. Include on <code>/highlights</code>, or full highlights only?</li>
+  </ol>
+  <p class="closing">
+    <span class="rec">Recommended:</span> start step 1 now — the tables and the channel list don't
+    depend on any of these answers.
+  </p>
+</section>
