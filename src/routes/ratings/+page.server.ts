@@ -15,6 +15,9 @@ export type RatingStanding = {
 	value: number | null;
 	rank: number | null;
 	games_played: number;
+	wins: number;
+	losses: number;
+	ties: number;
 };
 
 const SYSTEMS = ['elo', 'rpi', 'power'] as const;
@@ -47,11 +50,12 @@ export const load: PageServerLoad = async ({ url }) => {
 			sport,
 			division,
 			seasonLabel,
-			system
+			system,
+			asOf: null as string | null
 		};
 	}
 
-	const [{ data: teamSeasons }, { data: ratingRows }] = await Promise.all([
+	const [{ data: teamSeasons }, { data: ratingRows }, { data: standingsRows }] = await Promise.all([
 		supabaseAdmin
 			.from('team_seasons')
 			.select(
@@ -70,28 +74,48 @@ export const load: PageServerLoad = async ({ url }) => {
 			p_sport_code: sport,
 			p_division: division,
 			p_system: system
+		}),
+		// Records come straight from final scores, so on game days they can run
+		// ahead of the nightly ratings snapshot (hence the "as of" label).
+		supabaseAdmin.rpc('get_standings', {
+			p_season_id: season.id,
+			p_sport_code: sport,
+			p_division: division
 		})
 	]);
 
 	const byTs = new Map<number, { value: number; rank: number; games_played: number }>();
+	let asOf: string | null = null;
 	for (const row of ratingRows ?? []) {
 		byTs.set(Number(row.ts_id), {
 			value: Number(row.value),
 			rank: Number(row.rank),
 			games_played: Number(row.games_played)
 		});
+		if (row.as_of && (asOf === null || row.as_of > asOf)) asOf = row.as_of;
+	}
+
+	const records = new Map<number, { wins: number; losses: number; ties: number }>();
+	for (const row of standingsRows ?? []) {
+		records.set(Number(row.ts_id), {
+			wins: Number(row.wins),
+			losses: Number(row.losses),
+			ties: Number(row.ties)
+		});
 	}
 
 	const ratings: RatingStanding[] = (teamSeasons ?? [])
 		.map((ts) => {
 			const r = byTs.get(ts.id);
+			const rec = records.get(ts.id) ?? { wins: 0, losses: 0, ties: 0 };
 			return {
 				id: ts.id,
 				team: ts.team as unknown as RatingStanding['team'],
 				conference: ts.conference as unknown as RatingStanding['conference'],
 				value: r ? r.value : null,
 				rank: r ? r.rank : null,
-				games_played: r ? r.games_played : 0
+				games_played: r ? r.games_played : 0,
+				...rec
 			};
 		})
 		// Rated teams first (by rank), unrated teams last (alphabetical).
@@ -108,6 +132,7 @@ export const load: PageServerLoad = async ({ url }) => {
 		sport,
 		division,
 		seasonLabel,
-		system
+		system,
+		asOf
 	};
 };

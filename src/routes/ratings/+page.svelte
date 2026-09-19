@@ -16,6 +16,17 @@
 	const ratings     = $derived(data.ratings);
 	const system      = $derived(data.system);
 
+	// as_of is a plain 'YYYY-MM-DD' date; format it in UTC so it doesn't shift a day.
+	const asOfLabel = $derived(
+		data.asOf
+			? new Date(`${data.asOf}T00:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+			: null
+	);
+
+	function formatRecord(row: { wins: number; losses: number; ties: number }): string {
+		return `${row.wins}-${row.losses}-${row.ties}`;
+	}
+
 	const systems = [
 		{ label: 'ELO', value: 'elo' },
 		{ label: 'RPI', value: 'rpi' },
@@ -176,9 +187,14 @@
 	<section class="flex-1 min-w-0 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded overflow-hidden">
 		<!-- Panel header -->
 		<div class="flex items-center justify-between gap-3 px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
-			<h1 class="text-sm font-semibold text-gray-700 dark:text-gray-200 shrink-0">
-				{genderLabel} Division {division} {systemLabel} — {seasonLabel}
-			</h1>
+			<div class="flex flex-wrap items-baseline gap-x-2 min-w-0">
+				<h1 class="text-sm font-semibold text-gray-700 dark:text-gray-200">
+					{genderLabel} Division {division} {systemLabel} — {seasonLabel}
+				</h1>
+				{#if asOfLabel}
+					<span class="text-[11px] text-gray-400 dark:text-gray-500">Ratings as of {asOfLabel}</span>
+				{/if}
+			</div>
 			<a href="/teams?sport={sport}&division={division}&season={seasonLabel}" class="text-xs text-primary-600 dark:text-primary-400 hover:underline shrink-0">
 				Standings →
 			</a>
@@ -195,7 +211,7 @@
 						<TableHeadCell class="py-2 w-px whitespace-nowrap text-right">#</TableHeadCell>
 						<TableHeadCell class="py-2">Team</TableHeadCell>
 						<TableHeadCell class="py-2 text-right">{systemLabel}</TableHeadCell>
-						<TableHeadCell class="py-2 text-right">GP</TableHeadCell>
+						<TableHeadCell class="py-2 text-right" title="Wins-Losses-Ties vs. D-I opponents">Record</TableHeadCell>
 						<TableHeadCell class="py-2">Conf</TableHeadCell>
 					</TableHead>
 					<TableBody>
@@ -221,7 +237,7 @@
 									{formatValue(row.value)}
 								</TableBodyCell>
 								<TableBodyCell class="py-1.5 text-right tabular-nums text-gray-500 dark:text-gray-400">
-									{row.games_played}
+									{formatRecord(row)}
 								</TableBodyCell>
 								<TableBodyCell class="py-1.5 text-gray-400 dark:text-gray-500">{row.conference?.short_name ?? '—'}</TableBodyCell>
 							</TableBodyRow>
@@ -253,7 +269,7 @@
 						average team on a neutral field; ratings are centered at 0.
 					</p>
 				{/if}
-				<p class="mt-1 text-gray-400 dark:text-gray-500">Computed from every result of the season and refreshed nightly.</p>
+				<p class="mt-1 text-gray-400 dark:text-gray-500">Computed from every result of the season and refreshed nightly. Records update as soon as a game goes final, so they may include results the ratings don't yet reflect.</p>
 			</div>
 		{/if}
 	</section>
