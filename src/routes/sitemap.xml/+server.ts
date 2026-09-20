@@ -39,6 +39,9 @@ export const GET: RequestHandler = async ({ request }) => {
 		{ path: '/stats', changefreq: 'daily', priority: '0.8' },
 		// The leaderboard is indexable; individual /u/ profile pages are not.
 		{ path: '/pickem', changefreq: 'daily', priority: '0.7' },
+		// Bare /bracket resolves to the most recent season, which is the copy worth
+		// indexing; the per-season variants are query strings off the same page.
+		{ path: '/bracket', changefreq: 'daily', priority: '0.7' },
 	];
 
 	const articleUrls = (articles ?? []).map(a => ({

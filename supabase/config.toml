@@ -411,3 +411,44 @@ s3_secret_key = "env(S3_SECRET_KEY)"
 # declarative_schema_path = "./database"
 # JSON string passed through to pg-delta SQL formatting.
 # format_options = "{\"keywordCase\":\"upper\",\"indent\":2,\"maxWidth\":80,\"commaStyle\":\"trailing\"}"
+
+# ── Edge functions ──────────────────────────────────────────────────
+#
+# Every function here authenticates itself, by comparing the Authorization
+# header against the service role key, and is invoked by pg_cron through pg_net
+# rather than by a signed-in user. They are therefore deployed with the
+# platform's own JWT gate OFF.
+#
+# Pin it explicitly. `supabase functions deploy <name>` defaults verify_jwt to
+# TRUE whenever config.toml is silent, so a routine redeploy of an unrelated
+# change silently flips the gate on — nightly-ingest was flipped this way on
+# 2026-09-20 and only kept working because the gateway happens to accept the
+# new `sb_secret_` key format. Declaring the value makes a deploy deterministic
+# instead of depending on what the CLI assumes.
+
+[functions.nightly-ingest]
+verify_jwt = false
+
+[functions.nightly-reconcile]
+verify_jwt = false
+
+[functions.roster-discovery]
+verify_jwt = false
+
+[functions.roster-headshots]
+verify_jwt = false
+
+[functions.roster-ingest]
+verify_jwt = false
+
+[functions.roster-scrape]
+verify_jwt = false
+
+[functions.schedule-discovery]
+verify_jwt = false
+
+[functions.stream-ingest]
+verify_jwt = false
+
+[functions.stream-scrape]
+verify_jwt = false

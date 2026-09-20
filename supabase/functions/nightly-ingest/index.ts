@@ -77,6 +77,7 @@ interface ContestTeam {
 	score: number;
 	isWinner: boolean;
 	conferenceSeo: string;
+	seed?: number | null;
 }
 interface Contest {
 	contestId: number;
@@ -291,6 +292,12 @@ async function ingestDate(
 			division,
 			broadcaster_name: c.broadcasterName ?? null,
 			round_description: c.roundDescription ?? null,
+			// NCAA-bracket markers. `is_championship` is what separates the NCAA
+			// tournament from conference tournaments (which the feed leaves unflagged);
+			// seeds are 1-16 and only ever set on the seeded side of a bracket game.
+			is_championship: c.isChampionship === true,
+			home_seed: home.seed ?? null,
+			away_seed: away.seed ?? null,
 			// Scheduled games carry an empty string here, not null — store NULL so
 			// "no period" is one value everywhere instead of two.
 			current_period: c.currentPeriod?.trim() || null,

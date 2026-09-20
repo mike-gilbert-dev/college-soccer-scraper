@@ -53,6 +53,8 @@ export const load: PageServerLoad = async ({ url, locals, cookies }) => {
 		return {
 			games: [],
 			userPicks: {} as Record<number, { outcome: string; result: string | null }>,
+			// No season resolved means no bracket to link to.
+			bracketReleased: false,
 			contestDate,
 			availableDates: [] as string[],
 			gender,
@@ -175,10 +177,21 @@ export const load: PageServerLoad = async ({ url, locals, cookies }) => {
 		}
 	}
 
+	// Gate for the sidebar's bracket link. The check is "does the bracket page have
+	// anything to draw?", which is what makes a visible link never land on an empty
+	// page — regardless of whether NCAA publishes the field at selection or only
+	// once the first round kicks off. Index-only against games_championship_idx.
+	const { data: bracketReleased } = await supabase.rpc('bracket_is_released', {
+		p_season_id: season.id,
+		p_sport_code: sportCode,
+		p_division: division
+	});
+
 	return {
 		games: games ?? [],
 		userPicks,
 		streams,
+		bracketReleased: bracketReleased === true,
 		gamesError: gamesError ? `${gamesError.code}: ${gamesError.message}` : null,
 		contestDate,
 		availableDates,

@@ -254,6 +254,11 @@ export async function ingestDate(params: {
 						division,
 						broadcaster_name: contest.broadcasterName ?? null,
 						round_description: contest.roundDescription ?? null,
+						// See the nightly-ingest edge function: is_championship is the only
+						// marker separating the NCAA tournament from conference tournaments.
+						is_championship: contest.isChampionship === true,
+						home_seed: homeData.seed ?? null,
+						away_seed: awayData.seed ?? null,
 						// Empty string for scheduled games; NULL is the "no period" value.
 						current_period: contest.currentPeriod?.trim() || null,
 						last_fetched_at: new Date().toISOString()

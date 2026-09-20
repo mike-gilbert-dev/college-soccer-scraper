@@ -487,6 +487,27 @@
 	</div>
 {/snippet}
 
+<!--
+  Bracket link. Rendered only when the season+gender on screen actually has a
+  released NCAA bracket, so the link can never land on an empty page. It carries
+  the current season and gender through, because the bracket page is scoped the
+  same way the scoreboard is.
+-->
+{#snippet bracketLink(cls: string)}
+	<a
+		href="/bracket?season={encodeURIComponent(seasonLabel)}&gender={gender}"
+		class="flex items-center gap-1.5 rounded border border-primary-500/40 bg-primary-500/5 px-2 py-1.5
+			text-xs font-semibold text-primary-600 dark:text-primary-400
+			hover:bg-primary-500/10 transition-colors {cls}"
+	>
+		<svg viewBox="0 0 16 16" class="h-3.5 w-3.5 shrink-0" aria-hidden="true" fill="none"
+			stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+			<path d="M1.5 3h4M1.5 8h4M1.5 13h4M5.5 3v2.5h3M5.5 13v-2.5h3M8.5 5.5v5M8.5 8h3M11.5 8h3" />
+		</svg>
+		NCAA Bracket
+	</a>
+{/snippet}
+
 <!-- One switch, two placements: the mobile strip and the desktop sidebar. -->
 {#snippet pickemToggle(cls: string)}
 	<div class="flex items-center gap-2 {cls}">
@@ -549,6 +570,12 @@
 			{@render sectionFilters('flex-wrap')}
 		</div>
 
+		{#if data.bracketReleased}
+			<div class="md:hidden border-t border-gray-200 dark:border-gray-700 p-2">
+				{@render bracketLink('justify-center')}
+			</div>
+		{/if}
+
 		<!-- Desktop: vertical sidebar -->
 		<div class="hidden md:block">
 			<!-- Gender toggle -->
@@ -590,6 +617,12 @@
 			<div class="p-2">
 				{@render pickemToggle('w-full justify-between')}
 			</div>
+
+			{#if data.bracketReleased}
+				<div class="border-t border-gray-200 dark:border-gray-700 p-2">
+					{@render bracketLink('justify-center')}
+				</div>
+			{/if}
 		</div>
 	</aside>
 

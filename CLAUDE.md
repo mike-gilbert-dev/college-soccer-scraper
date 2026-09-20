@@ -75,6 +75,30 @@ Key points:
 
 `GetContests_web` returns **every contest for a date regardless of state** (`scheduled` / `live` / `final` / `cancelled`), so schedules and final scores come from the same call — the pipeline only differs by the game's `status`.
 
+## Deploying an edge function: pin `verify_jwt`
+
+Every function in `supabase/functions/` authenticates itself against the service
+role key and is invoked by pg_cron via pg_net, never by a signed-in user, so all
+nine are deployed with the platform JWT gate **off**.
+
+**`supabase functions deploy <name>` defaults `verify_jwt` to TRUE when
+`config.toml` is silent**, so a routine redeploy silently flips the gate on — it
+is not a no-op for functions you did not touch. This happened to `nightly-ingest`
+on 2026-09-20 and only kept working because the gateway happens to accept the
+project's `sb_secret_` key; with a legacy JWT-format key the nightly ingest would
+have started 401-ing at the gateway and stopped ingesting scores entirely, with
+nothing in `scrape_log` to show for it (the function never runs).
+
+`config.toml` now declares `verify_jwt = false` for all nine, so deploys are
+deterministic. **Don't add a function without adding its block.**
+
+To tell the two rejections apart, call the endpoint with no `Authorization` header:
+
+| Response to no-auth call | Meaning |
+|---|---|
+| `{"code":"UNAUTHORIZED_NO_AUTH_HEADER"}` | gateway — `verify_jwt` is ON (wrong) |
+| `{"error":"Unauthorized"}` | the function's own check — gate is OFF (correct) |
+
 ## Nightly scores ingest (Supabase Edge Function + pg_cron)
 
 The unattended nightly **scores** pipeline runs on Supabase, not Vercel. Vercel's
@@ -374,3 +398,144 @@ email-derived name never reaches a public surface. None returns an individual pi
 `/pickem` (leaderboard, in the sitemap) · `/u/[username]` (profile — public and
 shareable but `noindex`, and deliberately **not** in the sitemap) · `/account` ·
 `/api/picks`.
+
+## NCAA tournament bracket
+
+[`/bracket`](src/routes/bracket) renders the NCAA Division I championship bracket
+for a season + sport, and [`/scores`](src/routes/scores) shows a sidebar link to it
+only once there is a bracket to show.
+
+### Only the NCAA tournament is derivable — conference tournaments are not
+`round_description` alone cannot identify the NCAA tournament, and there is no
+second source hiding in the feed:
+
+- **2024 onward the feed does not mark conference tournaments at all.** Verified
+  against a full conference-tournament slate (2025-11-09, MSO): every contest came
+  back `isChampionship:false`, `roundDescription:""`, `seed:null`. `neutral_site` is
+  `false` on *every* row in `games`, so it is dead as a signal too. Conference
+  brackets would need hand curation or a second source; this is a limit of the data,
+  not a scoping choice.
+- **2023 is worse than missing — it is misleading.** That season the feed *did*
+  label conference tournament games, with unusable labels that never name the
+  conference (`All Rounds`, `Semifinals, Final`, `Quarterfinals and Semifinals`).
+  Gating on `round_description <> ''` renders a 2023 "NCAA bracket" built out of NEC
+  quarterfinals: 114 conference games share the column with the 47 real ones.
+
+`games.is_championship` ([`20260920123742`](supabase/migrations/20260920123742_games_championship_and_seeds.sql))
+is the only clean separator, alongside `home_seed` / `away_seed` (1–16; NULL for the
+unseeded side and every non-bracket game). All three come straight from the feed and
+were simply being dropped by the ingest.
+
+### Division membership, not `games.division`
+The feed leaks other divisions' bracket games into the `division=1` response — 2024
+MSO carried a 17th "First Round" game (New Haven vs Concord, a DII contest) and 2023
+WSO a 64th. Both bracket RPCs filter `team_seasons.division_member` on **both** sides.
+Without it the bracket grows a phantom game *and* the release gate can fire early off
+a DII tournament that starts before the DI one. Correct counts are **47** (MSO, 48-team
+field) and **63** (WSO, 64-team field).
+
+### The release gate
+`bracket_is_released(season, sport, division)`
+([`20260920124701`](supabase/migrations/20260920124701_bracket_fns.sql)) answers
+"does the bracket page have anything to draw?" — deliberately the same question the
+page itself asks, which is what makes *link visible ⇒ link not empty* true by
+construction. The scoreboard load calls it and renders the sidebar link only on true.
+It is index-only against the partial `games_championship_idx` (~50 rows per
+season/sport out of 20k+).
+
+**Unverified assumption:** every labelled game in the DB is `status='final'`, because
+only completed postseasons have ever been ingested — so we do not yet know whether
+NCAA populates `roundDescription`/`isChampionship` at *selection* or only once games
+are played. That decides whether the link appears on Selection Sunday or at first
+kickoff; it cannot make the link empty either way. The `?ahead=7` lookahead is wide
+enough for either (2025: selection ~Nov 17, first round Nov 20). Worth confirming the
+first November this runs live.
+
+### Edges are recovered, not given
+Nothing in the feed says which first-round game feeds which second-round game.
+[`src/lib/bracket.ts`](src/lib/bracket.ts) recovers the tree from **winner
+continuity** — the team that won a round-N game is the team appearing in the
+round-N+1 game it feeds — walking right-to-left from the final so each column
+inherits its vertical order from the column on its right. Pure module, unit-tested
+against the real 2025 bracket in [`bracket.test.ts`](src/lib/bracket.test.ts).
+
+- **A bye is the absence of a game**, so a seeded team entering in round two has no
+  feeder and must not invent an empty round-one slot.
+- **The layout is not a halving tree.** A 48-team field is 16/16/8/4/2/1: 32 teams
+  play the first round while 16 seeds bye, so columns one and two are *both* 16 games
+  and align 1:1. Halving only begins at round three. Each column is distributed over
+  the same height (`justify-around`), which handles both shapes without special-casing.
+- **A shootout keeps its tied score**, so the advancing side comes from
+  `shootout_winner_team_season_id` and never from comparing scores.
+- Games unreachable from the last round (an in-progress round with no later game yet)
+  are appended in feed order rather than dropped.
+
+`/bracket` with no `?season=` defaults to the most recent season that *has* a bracket,
+not simply the most recent season — for most of the year the current season is in
+progress with no field announced, and bare `/bracket` is what the sitemap lists. An
+explicit `?season=` is always honoured, empty or not.
+
+### Backfill
+[`scripts/backfill-championship-flags.mjs`](scripts/backfill-championship-flags.mjs)
+replays the `ncaa-raw-games` Storage archive (18,920 dates back to 2023-08-24) and
+makes **zero NCAA calls**. Dry-run by default; `--apply` to write, `--year=`/`--sport=`
+to narrow. It only touches contests that actually carry bracket data and updates by
+`ncaa_contest_id` — never inserts, since a contest absent from `games` was filtered
+upstream for an unmapped team. Already applied: 332 rows across 2023–2025.
+
+### Board layout is computed, not CSS
+The bracket is laid out by a geometry pass in [`src/lib/bracket.ts`](src/lib/bracket.ts)
+(`layoutColumns`, `splitBracket`) and rendered as absolutely-positioned cards with SVG
+elbow connectors. Flexbox was tried first and cannot express the tree: where a game
+sits depends on what feeds it.
+
+- **A bye must align to the SLOT, not the card.** A game with one feeder (the other
+  side byed) shifts a quarter-card so the feeder meets the exact slot it feeds. With
+  `justify-around` the two cards sit level instead, and the byed team appears to have
+  played in a first-round game it never entered (2025 MSO: Georgetown byed, UCF came
+  up into the away slot). Asserted numerically in `bracket.test.ts`.
+- **Quadrants pair by COLUMN, not by band.** Each semifinal owns one half of the
+  board; its two feeding quarterfinals become that half's top and bottom quadrants.
+  The NCAA's own board does this — 2025 top-left produced Furman and bottom-left
+  Washington, and those met in the left semifinal. Grouping by band instead draws
+  every connector into the wrong semifinal.
+- **Folding is conditional.** `splitBracket` returns the mirrored shape only once the
+  quarterfinals exist (last three rounds sized 4/2/1); before that there is no tree to
+  root quadrants on, so it falls back to flat columns — which fits anyway, since few
+  games have been played.
+- **Width is a hard budget — count the border.** `BOARD_MAX_W` is **974px**, and every
+  subtraction getting there is real: `max-w-5xl` 1024, minus the shell's `px-3` (24),
+  minus the scroll container's own **border** (2), minus its `p-3` (24). Omitting that
+  2px border put the board at 976 against 974 of space, which showed a 2px horizontal
+  scrollbar at full width. A test asserts `split.width <= BOARD_MAX_W`; the board is
+  currently 968. `pitchFor()` tightens the vertical pitch for 64-team fields (8 opening
+  games per quadrant instead of 4), keeping the women's board ~200px shorter.
+- The `PK` marker sits in the column gutter on the side the bracket advances toward,
+  which flips in a mirrored quadrant; above the card it collided with the round header.
+
+## Visual checks (Playwright)
+[`scripts/shot.mjs`](scripts/shot.mjs) screenshots a route from the running dev server
+into `.shots/` (gitignored) and reports horizontal overflow — the failure a screenshot
+alone hides.
+
+**It checks every element, not just the document.** Checking only `documentElement`
+misses the common case: an `overflow-x-auto` container showing its own scrollbar while
+the page itself fits. That is exactly how the bracket board's 2px overflow shipped past
+a clean "no overflow" report. Output now names the offending element:
+
+```
+⚠ scrollbar: div.overflow-x-auto overflows by 118px
+```
+
+```bash
+npm run dev -- --port 5179                       # in another shell
+node scripts/shot.mjs /bracket                   # light + dark, 1280x900
+node scripts/shot.mjs "/bracket?gender=W" --out=wso --full
+node scripts/shot.mjs /bracket --width=390 --height=844 --theme=dark
+```
+
+**Theme comes from `localStorage.theme`, not `prefers-color-scheme`** — an inline
+script in [`src/app.html`](src/app.html) reads it and toggles a `dark` class. Playwright's
+`colorScheme` option alone renders the *default* theme, so the script seeds the key via
+`addInitScript` before any document loads. Any future browser automation needs to do the
+same or it will silently screenshot the wrong theme.
