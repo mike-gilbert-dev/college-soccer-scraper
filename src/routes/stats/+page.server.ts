@@ -1,6 +1,7 @@
 import type { PageServerLoad } from './$types';
 import { supabaseAdmin } from '$lib/server/supabase-admin';
 import { PUBLIC_SUPABASE_URL } from '$env/static/public';
+import { STAT_CATEGORIES } from '$lib/stat-categories';
 
 const headshotUrl = (path: string | null | undefined): string | null =>
 	path ? `${PUBLIC_SUPABASE_URL}/storage/v1/object/public/player-headshots/${path}` : null;
@@ -62,15 +63,6 @@ type GameStatRow = {
 	points: number;
 	date: string;
 };
-
-const CATEGORY_DEFS: { key: string; category: string; unit: string }[] = [
-	{ key: 'goals',         category: 'Goals',         unit: 'goals' },
-	{ key: 'assists',       category: 'Assists',       unit: 'assists' },
-	{ key: 'points',        category: 'Points',        unit: 'points' },
-	{ key: 'shots_on_goal', category: 'Shots on Goal', unit: 'SOG' },
-	{ key: 'gk_saves',      category: 'Saves',         unit: 'saves' },
-	{ key: 'gk_shutouts',   category: 'Shutouts',      unit: 'shutouts' }
-];
 
 /** Per-game value used to build each category's cumulative trend line. */
 const PER_GAME_VALUE: Record<string, (r: GameStatRow) => number> = {
@@ -222,8 +214,9 @@ export const load: PageServerLoad = async ({ url }) => {
 	)].sort();
 
 	// ── Individual leaderboards ──────────────────────────────────────────────
-	// Top-6-per-category and the field average are precomputed on the same
-	// nightly/live-window cadence as team totals above. Only names/team/headshot
+	// Full per-category rankings and the field average are precomputed on the
+	// same nightly/live-window cadence as team totals above; this page shows only
+	// the top 6 (/stats/[category] pages through the rest). Only names/team/headshot
 	// for the handful of players that actually show up need fetching here, plus
 	// their per-game rows to build each leader's trend line.
 	const { data: leaderRows } = await supabaseAdmin
@@ -232,6 +225,7 @@ export const load: PageServerLoad = async ({ url }) => {
 		.eq('season_id', season.id)
 		.eq('sport_code', sport)
 		.eq('division', division)
+		.lte('rank', 6)
 		.order('rank', { ascending: true });
 
 	const { data: averageRows } = await supabaseAdmin
@@ -344,7 +338,7 @@ export const load: PageServerLoad = async ({ url }) => {
 		});
 	}
 
-	const leaderCategories: LeaderCategory[] = CATEGORY_DEFS
+	const leaderCategories: LeaderCategory[] = STAT_CATEGORIES
 		.map(def => {
 			const rows = (leadersByCategory[def.key] ?? []).sort((a, b) => a.rank - b.rank);
 			if (rows.length === 0) return null;

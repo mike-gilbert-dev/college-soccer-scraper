@@ -76,6 +76,8 @@
 	// ── Link helpers ─────────────────────────────────────────────────────────
 	const leaderHref = (l: Leader) =>
 		`/players/${l.ncaa_player_id}?sport=${data.sport}&division=${division}&season=${seasonLabel}`;
+	const categoryHref = (key: string) =>
+		`/stats/${key}?sport=${data.sport}&division=${division}&season=${seasonLabel}`;
 	const teamHref = (ncaaTeamId: string) =>
 		`/teams/${ncaaTeamId}?sport=${data.sport}&division=${division}&season=${seasonLabel}`;
 
@@ -215,6 +217,7 @@
 							average={cat.average}
 							leaders={cat.leaders}
 							href={leaderHref}
+							moreHref={categoryHref(cat.key)}
 						/>
 					{/each}
 				</div>
