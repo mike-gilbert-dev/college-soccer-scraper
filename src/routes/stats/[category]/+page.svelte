@@ -68,6 +68,7 @@
 	{#if data.players.length === 0}
 		<p class="py-12 text-center text-sm text-gray-400">No player stats available for this selection.</p>
 	{:else}
+		{@render pager('border-b')}
 		<div class="overflow-x-auto">
 			<table class="w-full text-xs">
 				<thead>
@@ -83,7 +84,7 @@
 				<tbody>
 					{#each data.players as p (p.ncaa_player_id)}
 						<tr class="border-b border-gray-100 transition-colors last:border-0 hover:bg-gray-50 dark:border-gray-700/60 dark:hover:bg-gray-700/30">
-							<td class="px-3 py-1.5 tabular-nums text-gray-500 dark:text-gray-400">{p.tied ? 'T-' : ''}{p.rank}</td>
+							<td class="whitespace-nowrap px-3 py-1.5 tabular-nums text-gray-500 dark:text-gray-400">{p.tied ? 'T-' : ''}{p.rank}</td>
 							<td class="px-3 py-1.5">
 								<div class="flex items-center gap-2">
 									{#if p.headshot_url}
@@ -116,20 +117,24 @@
 			</table>
 		</div>
 
-		{#if totalPages > 1}
-			<nav class="flex items-center justify-between gap-2 border-t border-gray-200 px-4 py-2 dark:border-gray-700">
-				{#if hasPrev}
-					<a href={pageHref(data.page - 1)} class="rounded bg-primary-500 px-3 py-1 text-xs font-semibold text-white transition-colors hover:bg-primary-600">‹ Prev</a>
-				{:else}
-					<span class="rounded bg-primary-500 px-3 py-1 text-xs font-semibold text-white opacity-30">‹ Prev</span>
-				{/if}
-				<span class="text-[11px] text-gray-400 dark:text-gray-500">Page {data.page} of {totalPages}</span>
-				{#if hasNext}
-					<a href={pageHref(data.page + 1)} class="rounded bg-primary-500 px-3 py-1 text-xs font-semibold text-white transition-colors hover:bg-primary-600">Next ›</a>
-				{:else}
-					<span class="rounded bg-primary-500 px-3 py-1 text-xs font-semibold text-white opacity-30">Next ›</span>
-				{/if}
-			</nav>
-		{/if}
+		{@render pager('border-t')}
 	{/if}
 </section>
+
+{#snippet pager(border: string)}
+	{#if totalPages > 1}
+		<nav class="flex items-center justify-between gap-2 {border} border-gray-200 px-4 py-2 dark:border-gray-700">
+			{#if hasPrev}
+				<a href={pageHref(data.page - 1)} class="rounded bg-primary-500 px-3 py-1 text-xs font-semibold text-white transition-colors hover:bg-primary-600">‹ Prev</a>
+			{:else}
+				<span class="rounded bg-primary-500 px-3 py-1 text-xs font-semibold text-white opacity-30">‹ Prev</span>
+			{/if}
+			<span class="text-[11px] text-gray-400 dark:text-gray-500">Page {data.page} of {totalPages}</span>
+			{#if hasNext}
+				<a href={pageHref(data.page + 1)} class="rounded bg-primary-500 px-3 py-1 text-xs font-semibold text-white transition-colors hover:bg-primary-600">Next ›</a>
+			{:else}
+				<span class="rounded bg-primary-500 px-3 py-1 text-xs font-semibold text-white opacity-30">Next ›</span>
+			{/if}
+		</nav>
+	{/if}
+{/snippet}
