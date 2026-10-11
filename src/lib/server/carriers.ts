@@ -77,7 +77,7 @@ export const CARRIERS: Record<string, CarrierInfo> = {
  * Canonical display name per carrier — what `games.broadcaster_name` and the
  * scoreboard show. This is the whole point of normalizing: without it the
  * sample's 12 raw strings reach the UI and "BTN" and "Big Ten Network" read as
- * two different networks.
+ * two different networks. Mirrored client-side in src/lib/streams.ts.
  */
 export const CARRIER_LABELS: Record<string, string> = {
 	espn_plus: 'ESPN+',

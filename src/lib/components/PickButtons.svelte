@@ -19,6 +19,7 @@
 		actual = null,
 		result = null,
 		busy = false,
+		layout = 'stack',
 		onpick
 	}: {
 		/** Away team name — the row label. */
@@ -34,6 +35,8 @@
 		/** Grade of the user's pick, once graded. */
 		result?: PickResult | null;
 		busy?: boolean;
+		/** 'stack' under a scoreboard card; 'row' puts the three side by side (game page). */
+		layout?: 'stack' | 'row';
 		/** Null clears the pick. Parent handles optimistic update + revert. */
 		onpick: (next: PickOutcome | null) => void;
 	} = $props();
@@ -81,7 +84,7 @@
 	}
 </script>
 
-<div class="flex flex-col gap-1.5">
+<div class={layout === 'row' ? 'grid grid-cols-3 gap-1.5' : 'flex flex-col gap-1.5'}>
 	{#each options as option (option.outcome)}
 		{@const isSelected = selected === option.outcome}
 		{@const isWinner = actual === option.outcome}
@@ -108,16 +111,19 @@
 			</button>
 		{:else}
 			{@const badge = lockedBadge(isSelected, isWinner)}
+			<!-- In a row a third of the width can't fit label + badge on one line, so
+			     the badge wraps underneath instead of squeezing the team name out. -->
 			<div
-				class="flex w-full min-h-8 items-center gap-2 rounded border px-2 text-[11px] font-semibold
+				class="flex w-full min-h-8 items-center gap-x-2 rounded border px-2 text-[11px] font-semibold
+					{layout === 'row' ? 'flex-wrap content-center py-1' : ''}
 					{lockedClass(isSelected, isWinner)}"
 			>
 				<span aria-hidden="true" class="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
 					<span class="h-1.5 w-1.5 rounded-full bg-current"></span>
 				</span>
-				<span class="truncate">{option.label}</span>
+				<span class="min-w-0 flex-1 truncate">{option.label}</span>
 				{#if badge}
-					<span class="ml-auto shrink-0 text-[9px] uppercase tracking-wide">{badge}</span>
+					<span class="shrink-0 text-[9px] uppercase tracking-wide {layout === 'row' ? 'basis-full pl-5.5' : 'ml-auto'}">{badge}</span>
 				{/if}
 			</div>
 		{/if}

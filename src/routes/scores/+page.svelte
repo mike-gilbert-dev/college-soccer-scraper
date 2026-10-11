@@ -8,6 +8,7 @@
 	import { createSupabaseBrowserClient } from '$lib/supabase';
 	import { isGameOpen, actualOutcome, type PickOutcome, type PickResult } from '$lib/picks';
 	import { formatTime } from '$lib/format';
+	import { carrierName, isWatchable, type StreamLink } from '$lib/streams';
 	import type { PageData } from './$types';
 	import flatpickr from 'flatpickr';
 	import type { Instance } from 'flatpickr/dist/types/instance';
@@ -46,37 +47,7 @@
 
 	// Watch links, keyed by game id (see +page.server.ts). Not realtime: a stream
 	// link is set hours ahead and doesn't change mid-match, unlike the score.
-	type StreamLink = {
-		url: string | null;
-		carrier: string | null;
-		access: 'free' | 'subscription' | 'tv_authenticated' | 'unknown';
-		label: string | null;
-		is_deep_link: boolean;
-		source_side: 'home' | 'away';
-	};
 	const streams = $derived((data.streams ?? {}) as Record<number, StreamLink>);
-
-	// Display name per carrier. Mirrors CARRIER_LABELS in
-	// src/lib/server/carriers.ts — change one, change the other.
-	const CARRIER_LABELS: Record<string, string> = {
-		espn_plus: 'ESPN+', b1g_plus: 'B1G+', accnx: 'ACC Network Extra',
-		secn_plus: 'SEC Network+', flosports: 'FloSports', midco: 'Midco Sports+',
-		espn3: 'ESPN3', btn: 'Big Ten Network', accn: 'ACC Network', secn: 'SEC Network',
-		espnu: 'ESPNU', espn2: 'ESPN2', espnews: 'ESPNews', cbssn: 'CBS Sports Network',
-		fs1: 'FS1', youtube: 'YouTube', facebook: 'Facebook', school_stream: 'School stream'
-	};
-	const carrierName = (s: StreamLink) =>
-		(s.carrier && CARRIER_LABELS[s.carrier]) || s.label || 'Watch';
-
-	/**
-	 * A link is only a button when clicking it actually reaches a broadcast.
-	 * `tv_authenticated` means a cable-provider login (Big Ten Network ->
-	 * foxsports.com/live/btn), and a link with no per-game id lands on a
-	 * carrier's home page — both read as broken links, so they render as plain
-	 * text instead.
-	 */
-	const isWatchable = (s: StreamLink | undefined) =>
-		!!s?.url && s.is_deep_link && (s.access === 'free' || s.access === 'subscription');
 
 	// Slate ordering: live → upcoming → finished → TBD → postponed, each by kickoff.
 	//

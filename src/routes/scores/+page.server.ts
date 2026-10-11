@@ -1,15 +1,6 @@
 import type { PageServerLoad } from './$types';
 import { todayInTimeZone } from '$lib/server/date';
-
-/** One watch link for a game, as the scoreboard renders it. */
-export interface StreamLink {
-	url: string | null;
-	carrier: string | null;
-	access: 'free' | 'subscription' | 'tv_authenticated' | 'unknown';
-	label: string | null;
-	is_deep_link: boolean;
-	source_side: 'home' | 'away';
-}
+import { isBetterStream, type StreamLink } from '$lib/streams';
 
 // NCAA soccer seasons run roughly August through mid-December.
 // Used as fallback bounds when the seasons table can't be reached.
@@ -131,26 +122,10 @@ export const load: PageServerLoad = async ({ url, locals, cookies }) => {
 		if (streamsError) {
 			console.error('[scoreboard] streams query error:', streamsError);
 		} else {
-			// Same preference order as the game_primary_stream view: a link to THIS
-			// game beats a landing page, free beats a subscription beats a cable
-			// login, and the home school beats the away school.
-			const accessRank = (a: string) =>
-				({ free: 0, subscription: 1, unknown: 2, tv_authenticated: 3 })[a] ?? 2;
-
+			// Same preference order as the game_primary_stream view (isBetterStream).
 			for (const r of rows ?? []) {
 				const next = r as StreamLink & { game_id: number };
-				const cur = streams[next.game_id];
-				if (
-					!cur ||
-					Number(next.is_deep_link) > Number(cur.is_deep_link) ||
-					(next.is_deep_link === cur.is_deep_link &&
-						(accessRank(next.access) < accessRank(cur.access) ||
-							(accessRank(next.access) === accessRank(cur.access) &&
-								next.source_side === 'home' &&
-								cur.source_side !== 'home')))
-				) {
-					streams[next.game_id] = next;
-				}
+				if (isBetterStream(next, streams[next.game_id])) streams[next.game_id] = next;
 			}
 		}
 	}
